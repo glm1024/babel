@@ -14,7 +14,6 @@ DISPLAY_MAPS = {
     },
     "action": {
         "fix": "需要整改",
-        "review": "需要复核",
         "keep": "保持不动",
     },
     "language": {
@@ -444,7 +443,6 @@ def render_report(summary, findings):
       background: var(--accent-soft);
     }
     .pill.fix { background: rgba(157,47,47,0.12); color: var(--danger); }
-    .pill.review { background: rgba(179,107,0,0.12); color: var(--warn); }
     .pill.keep { background: rgba(45,106,79,0.12); color: var(--ok); }
     .project-cell,
     .category-cell,

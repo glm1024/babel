@@ -63,7 +63,7 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
     context_lower = context.lower()
 
     category = CATEGORY_UNKNOWN
-    action = "review"
+    action = "fix"
     confidence = 0.55
     high_risk = False
     end_user_visible = False
@@ -82,7 +82,7 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
     elif _is_sql_or_doc_asset(path):
         if _looks_like_protocol_context(context_lower, text, text_lower):
             category = CATEGORY_PROTOCOL_OR_PERSISTED_LITERAL
-            action = "review"
+            action = "fix"
             confidence = 0.72
             high_risk = True
             reason = "Looks like protocol or persisted value."
@@ -93,7 +93,7 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
             reason = "SQL or documentation asset."
     elif _looks_like_log_context(context_lower):
         category = CATEGORY_LOG_AUDIT_DEBUG
-        action = "review"
+        action = "fix"
         confidence = 0.96
         reason = "Logging API context."
     elif _looks_like_error_context(context_lower):
@@ -110,7 +110,7 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
         reason = "Markup or front-end text context."
     elif _looks_like_protocol_context(context_lower, text, text_lower):
         category = CATEGORY_PROTOCOL_OR_PERSISTED_LITERAL
-        action = "review"
+        action = "fix"
         confidence = 0.72
         high_risk = True
         reason = "Looks like protocol or persisted value."
@@ -129,7 +129,7 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
             reason = "Error semantics in string literal."
         else:
             category = CATEGORY_CONFIG_METADATA
-            action = "review"
+            action = "fix"
             confidence = 0.88
             reason = "Configuration or metadata file."
     elif raw.surface_kind == "string_literal":
@@ -140,7 +140,7 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
         reason = "String literal with Chinese text."
     elif raw.lang == "xml":
         category = CATEGORY_CONFIG_METADATA
-        action = "review"
+        action = "fix"
         confidence = 0.68
         reason = "Configuration or metadata file."
 

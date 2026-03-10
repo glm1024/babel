@@ -83,6 +83,7 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertTrue(
                 any(item["text"] == "部门管理" and item["category"] == "LOG_AUDIT_DEBUG" for item in findings)
             )
+            self.assertFalse(any(item["action"] == "review" for item in findings))
             self.assertIn("用户可见文案", report)
             self.assertIn("扫描摘要", report)
             self.assertIn("明细筛选", report)
@@ -105,6 +106,7 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertNotIn("模型复核", report)
             self.assertNotIn("llm_status", report)
             self.assertNotIn("sourceFilter", report)
+            self.assertNotIn("需要复核", report)
             self.assertIn("导出全部结果到 Excel", report)
             self.assertIn('const PAGE_SIZES = [10, 100, "ALL"];', report)
             self.assertIn("pageSize: 10", report)
