@@ -33,24 +33,25 @@ Windows 可以这样写：
 要求：
 
 - Python 3.6.1+
+- 不支持 Python 2
 
 在项目根目录直接运行：
 
 Linux or Mac：
 
 ```bash
-PYTHONPATH=src python -m zh_audit scan --manifest repos.json --pretty
+PYTHONPATH=src python3 -m zh_audit scan --manifest repos.json --pretty
 ```
 
 Windows PowerShell：
 
 ```powershell
 $env:PYTHONPATH = "src"
-python -m zh_audit scan --manifest repos.json --pretty
+python3 -m zh_audit scan --manifest repos.json --pretty
 ```
 
 Windows Git Bash：
 
 ```bash
-PYTHONPATH=src python -m zh_audit scan --manifest repos.json --pretty
+PYTHONPATH=src python3 -m zh_audit scan --manifest repos.json --pretty
 ```

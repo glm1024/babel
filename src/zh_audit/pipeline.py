@@ -20,13 +20,38 @@ from zh_audit.utils import contains_han, decode_unicode_escapes, guess_language,
 ENCODINGS = ("utf-8", "utf-8-sig", "gb18030")
 
 
-def run_scan(repos, scan_settings, run_id):
+def run_scan(repos, scan_settings, run_id, progress_callback=None):
     file_records = []
     raw_findings = []
+    repo_files = []
+    total_files = 0
 
     for repo in repos:
-        for path in _walk_files(repo.path):
+        files = list(_walk_files(repo.path))
+        repo_files.append((repo, files))
+        total_files += len(files)
+
+    if progress_callback is not None:
+        progress_callback(stage="start", total=total_files)
+
+    processed_files = 0
+    for repo, files in repo_files:
+        repo_total = len(files)
+        if progress_callback is not None:
+            progress_callback(stage="repo", repo=repo.name, repo_total=repo_total, total=total_files)
+        for repo_index, path in enumerate(files, start=1):
             relative = path.relative_to(repo.path).as_posix()
+            processed_files += 1
+            if progress_callback is not None:
+                progress_callback(
+                    stage="file",
+                    repo=repo.name,
+                    repo_index=repo_index,
+                    repo_total=repo_total,
+                    processed=processed_files,
+                    total=total_files,
+                    relative_path=relative,
+                )
             lang = guess_language(path)
             if matches_any_glob(relative, scan_settings.exclude_globs):
                 matched_glob = _matched_glob(relative, scan_settings.exclude_globs)
@@ -111,6 +136,8 @@ def run_scan(repos, scan_settings, run_id):
 
     classified = [classify_rule(finding) for finding in raw_findings]
     summary = _build_summary(repos, file_records, classified, run_id=run_id, scan_settings=scan_settings)
+    if progress_callback is not None:
+        progress_callback(stage="done", processed=processed_files, total=total_files)
     return RunArtifacts(findings=classified, file_records=file_records, summary=summary)
 
 

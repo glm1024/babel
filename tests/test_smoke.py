@@ -106,6 +106,10 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn('state.pageSize = Number.parseInt(pageSizeSelect.value, 10) || 20;', report)
             self.assertIn('const headers = ["项目", "位置", "文本", "分类", "动作", "说明"];', report)
             self.assertIn('new Blob(["\\ufeff", lines.join("\\n")], { type: "text/csv;charset=utf-8" })', report)
+            self.assertIn(".position-cell {", report)
+            self.assertIn("width: 100%;", report)
+            self.assertIn("flex: 1 1 auto;", report)
+            self.assertIn("margin-left: auto;", report)
 
             report_without_skips = render_report(
                 {

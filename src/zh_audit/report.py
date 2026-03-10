@@ -354,9 +354,11 @@ def render_report(summary, findings):
       display: flex;
       align-items: flex-start;
       gap: 10px;
+      width: 100%;
       min-width: 0;
     }
     .path-text {
+      flex: 1 1 auto;
       font-family: "SFMono-Regular", "Menlo", monospace;
       font-size: 13px;
       overflow-wrap: anywhere;
@@ -367,6 +369,7 @@ def render_report(summary, findings):
     .copy-btn {
       width: 32px;
       height: 32px;
+      margin-left: auto;
       padding: 0;
       border-radius: 10px;
       border: 1px solid var(--line);
