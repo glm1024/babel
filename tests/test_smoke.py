@@ -44,13 +44,23 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("excluded_files", summary)
             self.assertIn("scan_policy", summary)
             self.assertIn("**/static/ajax/libs/**", summary["scan_policy"]["exclude_globs"])
-            self.assertEqual(summary["excluded_files"], 1)
+            self.assertEqual(summary["excluded_files"], 2)
             self.assertFalse(any("static/ajax/libs/" in item["path"] for item in findings))
+            self.assertFalse(any(item["path"] == "Jekinsfiles.slim" for item in findings))
             self.assertTrue(
                 any(
                     item["skip_reason"] == "excluded_by_policy"
                     and "第三方依赖目录" in item["skip_detail"]
                     and "**/static/ajax/libs/**" in item["skip_detail"]
+                    for item in summary["files"]
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["relative_path"] == "Jekinsfiles.slim"
+                    and item["skip_reason"] == "excluded_by_policy"
+                    and "内置文件名排除规则" in item["skip_detail"]
+                    and "Jekinsfiles.slim" in item["skip_detail"]
                     for item in summary["files"]
                 )
             )
@@ -81,7 +91,102 @@ class ScanSmokeTest(unittest.TestCase):
                 )
             )
             self.assertTrue(
-                any(item["text"] == "部门管理" and item["category"] == "LOG_AUDIT_DEBUG" for item in findings)
+                any(
+                    item["text"] == "部门管理"
+                    and item["category"] == "LOG_AUDIT_DEBUG"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "日志输出中文"
+                    and item["category"] == "LOG_AUDIT_DEBUG"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "控制台输出中文"
+                    and item["category"] == "LOG_AUDIT_DEBUG"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "错误流输出中文"
+                    and item["category"] == "LOG_AUDIT_DEBUG"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "查询用户列表"
+                    and item["category"] == "COMMENT_DOCUMENTATION"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "创建用户"
+                    and item["category"] == "COMMENT_DOCUMENTATION"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "用户名称"
+                    and item["category"] == "COMMENT_DOCUMENTATION"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "年龄字段"
+                    and item["category"] == "COMMENT_DOCUMENTATION"
+                    and item["action"] == "keep"
+                    and "swagger_annotation" in item["candidate_roles"]
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "标签接口"
+                    and item["category"] == "COMMENT_DOCUMENTATION"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "请求成功"
+                    and item["category"] == "COMMENT_DOCUMENTATION"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "请求体说明"
+                    and item["category"] == "COMMENT_DOCUMENTATION"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "通知类型"
+                    and item["path"] == "sql/demo.sql"
+                    and item["category"] == "PROTOCOL_OR_PERSISTED_LITERAL"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
             )
             self.assertFalse(any(item["action"] == "review" for item in findings))
             self.assertIn("用户可见文案", report)
@@ -91,12 +196,16 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("上一页", report)
             self.assertIn("下一页", report)
             self.assertIn("当前筛选条件下没有命中记录", report)
+            self.assertLess(report.index('id="projectFilter"'), report.index('id="actionFilter"'))
+            self.assertLess(report.index('id="actionFilter"'), report.index('id="categoryFilter"'))
+            self.assertLess(report.index('id="categoryFilter"'), report.index('id="langFilter"'))
             self.assertIn("copy-btn", report)
             self.assertIn("查看跳过详情", report)
             self.assertIn('id="skipDialog"', report)
             self.assertIn('id="skipReasonChips"', report)
             self.assertIn('id="skipRows"', report)
             self.assertIn("第三方依赖目录", report)
+            self.assertIn("Swagger/OpenAPI 注解上下文", report)
             self.assertIn("// 编码类型", report)
             self.assertNotIn("展开详情", report)
             self.assertNotIn("项目与覆盖率", report)
@@ -110,7 +219,18 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("导出全部结果到 Excel", report)
             self.assertIn("const PAGE_SIZES = [10, 100, 500];", report)
             self.assertIn("pageSize: 10", report)
+            self.assertIn('action: "fix"', report)
             self.assertIn('}>${value} 条</option>`;', report)
+            self.assertIn("function availableValues(filterKey) {", report)
+            self.assertIn("function renderFilterOptions() {", report)
+            self.assertIn('{ key: "project", node: projectFilter, label: "项目", group: "project" }', report)
+            self.assertIn('{ key: "action", node: actionFilter, label: "动作", group: "action" }', report)
+            self.assertIn('{ key: "category", node: categoryFilter, label: "分类", group: "category" }', report)
+            self.assertIn('{ key: "lang", node: langFilter, label: "语言", group: "language" }', report)
+            self.assertIn('if (excludedKey !== "action" && state.filters.action && item.action !== state.filters.action) return false;', report)
+            self.assertIn('if (excludedKey !== "category" && state.filters.category && item.category !== state.filters.category) return false;', report)
+            self.assertIn('state.filters[key] = node.value;', report)
+            self.assertIn("renderFilterOptions();", report)
             self.assertIn("const pageSize = state.pageSize;", report)
             self.assertIn("const totalPages = Math.max(1, Math.ceil(total / pageSize));", report)
             self.assertIn('state.pageSize = Number.parseInt(pageSizeSelect.value, 10) || 10;', report)
@@ -130,6 +250,8 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("height: calc(100vh - 68px);", report)
             self.assertIn(".findings-table thead th {", report)
             self.assertIn("position: sticky;", report)
+            self.assertNotIn('setOptions(projectFilter, findings.map(item => item.project), "项目", "project");', report)
+            self.assertNotIn('setOptions(categoryFilter, findings.map(item => item.category), "分类", "category");', report)
 
             report_without_skips = render_report(
                 {

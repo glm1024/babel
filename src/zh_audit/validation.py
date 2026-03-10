@@ -80,7 +80,9 @@ def validate_report(
     effective_scan_settings = scan_settings or _scan_settings_from_summary(summary)
     tracked_files = _tracked_files(repo_root)
     in_scope_tracked_files = [
-        path for path in tracked_files if not matches_any_glob(path, effective_scan_settings.exclude_globs)
+        path
+        for path in tracked_files
+        if not matches_any_glob(path, effective_scan_settings.exclude_globs) and not _is_builtin_excluded_path(path)
     ]
     baseline = _build_baseline(repo_root, in_scope_tracked_files)
     coverage_rows, coverage_metrics = _build_coverage_diff(
@@ -323,6 +325,22 @@ def _build_coverage_diff(
                 }
             )
             continue
+        if _is_builtin_excluded_path(finding["path"]):
+            excluded_path_findings += 1
+            rows.append(
+                {
+                    "scope": "full_repo",
+                    "kind": "policy_violation",
+                    "slice": _slice_for_path(finding["path"]),
+                    "path": finding["path"],
+                    "line": finding["line"],
+                    "text": _compact_text(finding.get("normalized_text") or finding.get("text", "")),
+                    "reason": "finding exists under built-in excluded filename",
+                    "reported_category": finding["category"],
+                    "reported_action": finding["action"],
+                }
+            )
+            continue
         key = (finding["path"], int(finding["line"]))
         if key in baseline_lines:
             continue
@@ -516,6 +534,8 @@ def _expected_category(
         return "COMMENT_DOCUMENTATION", False, "文档路径中的中文应归为注释与文档。"
     if finding.get("surface_kind") == "comment" or _looks_like_comment(source_line):
         return "COMMENT_DOCUMENTATION", governance_in_scope, "注释语法或注释上下文。"
+    if "swagger_annotation" in finding.get("candidate_roles", []):
+        return "COMMENT_DOCUMENTATION", governance_in_scope, "Swagger/OpenAPI 注解中的中文应视为文档说明。"
     if slice_name == "third_party_lib":
         if finding.get("surface_kind") == "comment":
             return "COMMENT_DOCUMENTATION", False, "第三方库中的注释文本。"
@@ -551,7 +571,19 @@ def _looks_like_comment(source_line: str) -> bool:
 
 
 def _looks_like_log_context(source_lower: str) -> bool:
-    return bool(LOG_CONTEXT_RE.search(source_lower) or LOG_ANNOTATION_RE.search(source_lower))
+    return bool(
+        LOG_CONTEXT_RE.search(source_lower)
+        or LOG_ANNOTATION_RE.search(source_lower)
+        or "system.out." in source_lower
+        or "system.err." in source_lower
+        or "printstacktrace(" in source_lower
+    )
+
+
+def _is_builtin_excluded_path(path: str) -> bool:
+    normalized = path.replace("\\", "/")
+    file_name = normalized.rsplit("/", 1)[-1]
+    return file_name.lower() == "jekinsfiles.slim"
 
 
 def _looks_like_protocol_literal(source_lower: str, text_lower: str) -> bool:

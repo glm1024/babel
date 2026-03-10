@@ -32,6 +32,73 @@ SYMBOL_PATTERNS = [
     ),
     re.compile(r"\b(?:interface|enum|type)\s+([A-Za-z_][A-Za-z0-9_]*)\b"),
 ]
+JAVA_IMPORT_RE = re.compile(r"^\s*import\s+([A-Za-z_][A-Za-z0-9_$.]*(?:\.\*)?)\s*;", re.MULTILINE)
+JAVA_ANNOTATION_RE = re.compile(r"@([A-Za-z_][A-Za-z0-9_$.]*)")
+JAVA_SWAGGER_PACKAGE_PREFIXES = (
+    "io.swagger.annotations",
+    "com.wordnik.swagger.annotations",
+    "io.swagger.v3.oas.annotations",
+)
+JAVA_SWAGGER_ANNOTATIONS = {
+    "Api",
+    "ApiIgnore",
+    "ApiImplicitParam",
+    "ApiImplicitParams",
+    "ApiKeyAuthDefinition",
+    "ApiModel",
+    "ApiModelProperty",
+    "ApiOperation",
+    "ApiParam",
+    "ApiResponse",
+    "ApiResponses",
+    "Authorization",
+    "AuthorizationScope",
+    "BasicAuthDefinition",
+    "Callback",
+    "Callbacks",
+    "Components",
+    "Contact",
+    "Content",
+    "DiscriminatorMapping",
+    "Encoding",
+    "Example",
+    "ExampleObject",
+    "ExampleProperty",
+    "Extension",
+    "ExtensionProperty",
+    "ExternalDocs",
+    "ExternalDocumentation",
+    "Header",
+    "Hidden",
+    "Info",
+    "License",
+    "Link",
+    "LinkParameter",
+    "OAuth2Definition",
+    "OAuthFlow",
+    "OAuthFlows",
+    "OAuthScope",
+    "OpenAPIDefinition",
+    "Operation",
+    "Parameter",
+    "Parameters",
+    "RequestBody",
+    "ResponseHeader",
+    "Schema",
+    "Scope",
+    "SecurityDefinition",
+    "SecurityRequirement",
+    "SecurityRequirements",
+    "SecurityScheme",
+    "SecuritySchemes",
+    "Server",
+    "ServerVariable",
+    "ServerVariables",
+    "Servers",
+    "SwaggerDefinition",
+    "Tag",
+    "Tags",
+}
 
 
 class Fragment(object):
@@ -117,6 +184,7 @@ def _extract_line_based(repo, path, content, context_lines, language):
     file_role = file_role_from_path(relative_path)
     current_symbol = ""
     block_comment_state = None
+    swagger_annotation_lines = _java_swagger_annotation_lines(content) if language == "java" else set()
 
     for index, line in enumerate(lines, start=1):
         symbol = _line_symbol(line)
@@ -135,6 +203,9 @@ def _extract_line_based(repo, path, content, context_lines, language):
             if not contains_han(decode_unicode_escapes(text)):
                 continue
             local_context = _local_context(line, fragment.start, fragment.end)
+            candidate_roles = _candidate_roles(local_context, line, language, file_role, fragment.surface_kind)
+            if index in swagger_annotation_lines and "swagger_annotation" not in candidate_roles:
+                candidate_roles.append("swagger_annotation")
             yield _build_finding(
                 repo=repo,
                 relative_path=relative_path,
@@ -147,7 +218,7 @@ def _extract_line_based(repo, path, content, context_lines, language):
                 snippet=compact_snippet(line),
                 context_window=_context(lines, index, context_lines),
                 file_role=file_role,
-                candidate_roles=_candidate_roles(local_context, line, language, file_role, fragment.surface_kind),
+                candidate_roles=candidate_roles,
                 metadata={"local_context": local_context},
             )
 
@@ -390,7 +461,21 @@ def _candidate_roles(local_context, line, language, file_role, surface_kind):
     lower = local_context.lower()
     if surface_kind == COMMENT_SURFACE or is_probable_comment_line(line, language) or "<!--" in line:
         roles.append("comment")
-    if any(token in lower for token in ("logger.", "logger(", "log.", "log(", "logging.", "console.", "@log(")):
+    if any(
+        token in lower
+        for token in (
+            "logger.",
+            "logger(",
+            "log.",
+            "log(",
+            "logging.",
+            "console.",
+            "@log(",
+            "system.out.",
+            "system.err.",
+            "printstacktrace(",
+        )
+    ):
         roles.append("log")
     if any(
         token in lower
@@ -415,3 +500,84 @@ def _line_symbol(line):
         if match:
             return match.group(1)
     return ""
+
+
+def _java_swagger_annotation_lines(content):
+    explicit_imports = {}
+    wildcard_imports = set()
+    for match in JAVA_IMPORT_RE.finditer(content):
+        imported = match.group(1)
+        if imported.endswith(".*"):
+            package_name = imported[:-2]
+            if _is_java_swagger_package(package_name):
+                wildcard_imports.add(package_name)
+            continue
+        package_name, _, simple_name = imported.rpartition(".")
+        if simple_name and _is_java_swagger_package(package_name):
+            explicit_imports[simple_name] = imported
+
+    lines = set()
+    for match in JAVA_ANNOTATION_RE.finditer(content):
+        annotation_name = match.group(1)
+        if not _is_java_swagger_annotation(annotation_name, explicit_imports, wildcard_imports):
+            continue
+        start_line = _line_number_for_offset(content, match.start())
+        end_line = _java_annotation_end_line(content, match.end(), start_line)
+        for line_no in range(start_line, end_line + 1):
+            lines.add(line_no)
+    return lines
+
+
+def _is_java_swagger_annotation(annotation_name, explicit_imports, wildcard_imports):
+    if "." in annotation_name:
+        package_name, _, simple_name = annotation_name.rpartition(".")
+        return simple_name in JAVA_SWAGGER_ANNOTATIONS and _is_java_swagger_package(package_name)
+    if annotation_name not in JAVA_SWAGGER_ANNOTATIONS:
+        return False
+    if annotation_name in explicit_imports:
+        return True
+    return bool(wildcard_imports)
+
+
+def _is_java_swagger_package(package_name):
+    for prefix in JAVA_SWAGGER_PACKAGE_PREFIXES:
+        if package_name == prefix or package_name.startswith(prefix + "."):
+            return True
+    return False
+
+
+def _line_number_for_offset(content, offset):
+    return content.count("\n", 0, offset) + 1
+
+
+def _java_annotation_end_line(content, annotation_end, start_line):
+    index = annotation_end
+    while index < len(content) and content[index].isspace():
+        index += 1
+    if index >= len(content) or content[index] != "(":
+        return start_line
+
+    depth = 0
+    quote = ""
+    escaped = False
+    cursor = index
+    while cursor < len(content):
+        char = content[cursor]
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = ""
+        else:
+            if char in {'"', "'"}:
+                quote = char
+            elif char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    return _line_number_for_offset(content, cursor)
+        cursor += 1
+    return _line_number_for_offset(content, len(content))

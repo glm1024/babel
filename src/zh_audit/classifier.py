@@ -79,6 +79,22 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
         action = "keep"
         confidence = 0.98
         reason = "Comment or documentation context."
+    elif "swagger_annotation" in raw.candidate_roles:
+        category = CATEGORY_COMMENT_DOCUMENTATION
+        action = "keep"
+        confidence = 0.98
+        reason = "Swagger/OpenAPI annotation context."
+    elif raw.lang == "sql":
+        if _looks_like_protocol_context(context_lower, text, text_lower):
+            category = CATEGORY_PROTOCOL_OR_PERSISTED_LITERAL
+            confidence = 0.72
+            high_risk = True
+            reason = "Looks like protocol or persisted value."
+        else:
+            category = CATEGORY_COMMENT_DOCUMENTATION
+            confidence = 0.93
+            reason = "SQL or documentation asset."
+        action = "keep"
     elif _is_sql_or_doc_asset(path):
         if _looks_like_protocol_context(context_lower, text, text_lower):
             category = CATEGORY_PROTOCOL_OR_PERSISTED_LITERAL
@@ -93,7 +109,7 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
             reason = "SQL or documentation asset."
     elif _looks_like_log_context(context_lower):
         category = CATEGORY_LOG_AUDIT_DEBUG
-        action = "fix"
+        action = "keep"
         confidence = 0.96
         reason = "Logging API context."
     elif _looks_like_error_context(context_lower):
@@ -179,7 +195,13 @@ def _is_sql_or_doc_asset(path: str) -> bool:
 
 
 def _looks_like_log_context(context_lower: str) -> bool:
-    return bool(LOG_CONTEXT_RE.search(context_lower) or LOG_ANNOTATION_RE.search(context_lower))
+    return bool(
+        LOG_CONTEXT_RE.search(context_lower)
+        or LOG_ANNOTATION_RE.search(context_lower)
+        or "system.out." in context_lower
+        or "system.err." in context_lower
+        or "printstacktrace(" in context_lower
+    )
 
 
 def _looks_like_error_context(context_lower: str) -> bool:

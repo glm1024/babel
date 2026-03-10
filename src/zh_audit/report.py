@@ -56,6 +56,8 @@ DISPLAY_MAPS = {
         "Looks like protocol or persisted value.": "当前命中看起来像协议值或持久化字面量。",
         "String literal with Chinese text.": "当前命中是包含中文的字符串字面量。",
         "SQL or documentation asset.": "当前命中位于 SQL 或文档资产中。",
+        "Swagger/OpenAPI annotation context.": "当前命中位于 Swagger/OpenAPI 注解上下文。",
+        "Built-in filename exclusion.": "当前文件命中内置文件名排除规则。",
     },
 }
 
@@ -662,9 +664,9 @@ def render_report(summary, findings):
       <h2>明细筛选</h2>
       <div class="filters">
         <select id="projectFilter"></select>
-        <select id="langFilter"></select>
-        <select id="categoryFilter"></select>
         <select id="actionFilter"></select>
+        <select id="categoryFilter"></select>
+        <select id="langFilter"></select>
         <input id="keywordFilter" placeholder="按文本、路径或原因搜索">
         <button id="exportBtn" class="export-btn">导出全部结果到 Excel</button>
       </div>
@@ -751,6 +753,12 @@ def render_report(summary, findings):
       currentPage: 1,
       pageSize: 10,
       skipReasonFilter: "",
+      filters: {
+        project: "",
+        action: "fix",
+        category: "",
+        lang: "",
+      },
     };
 
     const openSkipDialogBtn = document.getElementById("openSkipDialogBtn");
@@ -846,12 +854,15 @@ def render_report(summary, findings):
       return item.skip_detail || "";
     }
 
-    function setOptions(select, values, label, group) {
+    function setOptions(select, values, label, group, selectedValue) {
       const unique = [...new Set(values.filter(value => value !== undefined && value !== null && value !== ""))]
         .sort((left, right) => labelFor(group, left).localeCompare(labelFor(group, right), "zh-CN"));
+      const resolved = selectedValue && unique.indexOf(selectedValue) === -1 ? "" : (selectedValue || "");
       select.innerHTML = [`<option value="">全部${label}</option>`].concat(
         unique.map(value => `<option value="${escapeAttr(value)}">${escapeHtml(labelFor(group, value))}</option>`)
       ).join("");
+      select.value = resolved;
+      return resolved;
     }
 
     function setPageSizeOptions() {
@@ -862,19 +873,64 @@ def render_report(summary, findings):
         .join("");
     }
 
-    function filteredFindings() {
+    function filterValue(item, key) {
+      if (key === "project") return item.project;
+      if (key === "action") return item.action;
+      if (key === "category") return item.category;
+      if (key === "lang") return item.lang;
+      return "";
+    }
+
+    function matchesFilters(item, excludedKey = "") {
       const keyword = keywordFilter.value.trim().toLowerCase();
-      return findings.filter(item => {
-        if (projectFilter.value && item.project !== projectFilter.value) return false;
-        if (langFilter.value && item.lang !== langFilter.value) return false;
-        if (categoryFilter.value && item.category !== categoryFilter.value) return false;
-        if (actionFilter.value && item.action !== actionFilter.value) return false;
-        if (keyword) {
-          const target = `${item.path} ${item.text} ${item.snippet || ""} ${item.reason}`.toLowerCase();
-          if (!target.includes(keyword)) return false;
-        }
-        return true;
-      });
+      if (excludedKey !== "project" && state.filters.project && item.project !== state.filters.project) return false;
+      if (excludedKey !== "action" && state.filters.action && item.action !== state.filters.action) return false;
+      if (excludedKey !== "category" && state.filters.category && item.category !== state.filters.category) return false;
+      if (excludedKey !== "lang" && state.filters.lang && item.lang !== state.filters.lang) return false;
+      if (keyword) {
+        const target = `${item.path} ${item.text} ${item.snippet || ""} ${item.reason}`.toLowerCase();
+        if (!target.includes(keyword)) return false;
+      }
+      return true;
+    }
+
+    function filteredFindings() {
+      return findings.filter(item => matchesFilters(item));
+    }
+
+    function availableValues(filterKey) {
+      return findings
+        .filter(item => matchesFilters(item, filterKey))
+        .map(item => filterValue(item, filterKey))
+        .filter(value => value !== undefined && value !== null && value !== "");
+    }
+
+    function renderFilterOptions() {
+      const configs = [
+        { key: "project", node: projectFilter, label: "项目", group: "project" },
+        { key: "action", node: actionFilter, label: "动作", group: "action" },
+        { key: "category", node: categoryFilter, label: "分类", group: "category" },
+        { key: "lang", node: langFilter, label: "语言", group: "language" },
+      ];
+      let changed = false;
+      let attempts = 0;
+      do {
+        changed = false;
+        configs.forEach(config => {
+          const resolved = setOptions(
+            config.node,
+            availableValues(config.key),
+            config.label,
+            config.group,
+            state.filters[config.key]
+          );
+          if (resolved !== state.filters[config.key]) {
+            state.filters[config.key] = resolved;
+            changed = true;
+          }
+        });
+        attempts += 1;
+      } while (changed && attempts < 6);
     }
 
     function paginateFindings(items) {
@@ -1061,6 +1117,7 @@ def render_report(summary, findings):
 
     function resetAndRender() {
       state.currentPage = 1;
+      renderFilterOptions();
       renderRows();
       scrollResultsToTop();
     }
@@ -1146,14 +1203,18 @@ def render_report(summary, findings):
       .map(([name, count]) => `<li><span>${escapeHtml(labelFor("category", name))}</span><strong>${formatNumber(count)}</strong></li>`)
       .join("");
 
-    setOptions(projectFilter, findings.map(item => item.project), "项目", "project");
-    setOptions(langFilter, findings.map(item => item.lang), "语言", "language");
-    setOptions(categoryFilter, findings.map(item => item.category), "分类", "category");
-    setOptions(actionFilter, findings.map(item => item.action), "动作", "action");
     setPageSizeOptions();
 
-    [projectFilter, langFilter, categoryFilter, actionFilter].forEach(node => {
-      node.addEventListener("change", resetAndRender);
+    [
+      ["project", projectFilter],
+      ["action", actionFilter],
+      ["category", categoryFilter],
+      ["lang", langFilter],
+    ].forEach(([key, node]) => {
+      node.addEventListener("change", () => {
+        state.filters[key] = node.value;
+        resetAndRender();
+      });
     });
     keywordFilter.addEventListener("input", resetAndRender);
     pageSizeSelect.addEventListener("change", () => {
@@ -1211,6 +1272,7 @@ def render_report(summary, findings):
       copyFileName(button.dataset.filename || "", button);
     });
 
+    renderFilterOptions();
     renderRows();
   </script>
 </body>
