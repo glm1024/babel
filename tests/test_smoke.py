@@ -38,13 +38,20 @@ class ScanSmokeTest(unittest.TestCase):
             categories = {item["category"] for item in findings}
             self.assertIn("USER_VISIBLE_COPY", categories)
             self.assertIn("ERROR_VALIDATION_MESSAGE", categories)
+            self.assertIn("LOG_AUDIT_DEBUG", categories)
+            self.assertIn("COMMENT", categories)
+            self.assertIn("SWAGGER_DOCUMENTATION", categories)
+            self.assertIn("GENERIC_DOCUMENTATION", categories)
+            self.assertIn("DATABASE_SCRIPT", categories)
             self.assertIn("TEST_SAMPLE_FIXTURE", categories)
-            self.assertIn("CONFIG_METADATA", categories)
+            self.assertIn("CONFIG_ITEM", categories)
+            self.assertIn("PROTOCOL_OR_PERSISTED_LITERAL", categories)
             self.assertEqual(summary["occurrence_count"], len(findings))
             self.assertIn("excluded_files", summary)
             self.assertIn("scan_policy", summary)
             self.assertIn("**/static/ajax/libs/**", summary["scan_policy"]["exclude_globs"])
-            self.assertEqual(summary["excluded_files"], 2)
+            self.assertEqual(summary["excluded_files"], 1)
+            self.assertEqual(summary["skip_reasons"].get("named_file"), 1)
             self.assertFalse(any("static/ajax/libs/" in item["path"] for item in findings))
             self.assertFalse(any(item["path"] == "Jekinsfiles.slim" for item in findings))
             self.assertTrue(
@@ -58,9 +65,9 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertTrue(
                 any(
                     item["relative_path"] == "Jekinsfiles.slim"
-                    and item["skip_reason"] == "excluded_by_policy"
-                    and "内置文件名排除规则" in item["skip_detail"]
-                    and "Jekinsfiles.slim" in item["skip_detail"]
+                    and item["skip_reason"] == "named_file"
+                    and "命中指定文件名规则" in item["skip_detail"]
+                    and item["skip_detail"] == "命中指定文件名规则：Jekinsfiles.slim。"
                     for item in summary["files"]
                 )
             )
@@ -68,13 +75,13 @@ class ScanSmokeTest(unittest.TestCase):
                 any(item["text"] == "操作异常！" and item["category"] == "USER_VISIBLE_COPY" for item in findings)
             )
             self.assertTrue(
-                any(item["text"] == "开始时间检索" and item["category"] == "COMMENT_DOCUMENTATION" for item in findings)
+                any(item["text"] == "开始时间检索" and item["category"] == "COMMENT" for item in findings)
             )
             self.assertTrue(
-                any(item["text"] == "编码类型" and item["category"] == "COMMENT_DOCUMENTATION" for item in findings)
+                any(item["text"] == "编码类型" and item["category"] == "COMMENT" for item in findings)
             )
             self.assertTrue(
-                any("// 编码类型" in item["snippet"] for item in findings if item["category"] == "COMMENT_DOCUMENTATION")
+                any("// 编码类型" in item["snippet"] for item in findings if item["category"] == "COMMENT")
             )
             self.assertTrue(
                 any(
@@ -125,7 +132,7 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertTrue(
                 any(
                     item["text"] == "查询用户列表"
-                    and item["category"] == "COMMENT_DOCUMENTATION"
+                    and item["category"] == "SWAGGER_DOCUMENTATION"
                     and item["action"] == "keep"
                     for item in findings
                 )
@@ -133,7 +140,7 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertTrue(
                 any(
                     item["text"] == "创建用户"
-                    and item["category"] == "COMMENT_DOCUMENTATION"
+                    and item["category"] == "SWAGGER_DOCUMENTATION"
                     and item["action"] == "keep"
                     for item in findings
                 )
@@ -141,7 +148,7 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertTrue(
                 any(
                     item["text"] == "用户名称"
-                    and item["category"] == "COMMENT_DOCUMENTATION"
+                    and item["category"] == "SWAGGER_DOCUMENTATION"
                     and item["action"] == "keep"
                     for item in findings
                 )
@@ -149,7 +156,7 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertTrue(
                 any(
                     item["text"] == "年龄字段"
-                    and item["category"] == "COMMENT_DOCUMENTATION"
+                    and item["category"] == "SWAGGER_DOCUMENTATION"
                     and item["action"] == "keep"
                     and "swagger_annotation" in item["candidate_roles"]
                     for item in findings
@@ -158,7 +165,7 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertTrue(
                 any(
                     item["text"] == "标签接口"
-                    and item["category"] == "COMMENT_DOCUMENTATION"
+                    and item["category"] == "SWAGGER_DOCUMENTATION"
                     and item["action"] == "keep"
                     for item in findings
                 )
@@ -166,7 +173,7 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertTrue(
                 any(
                     item["text"] == "请求成功"
-                    and item["category"] == "COMMENT_DOCUMENTATION"
+                    and item["category"] == "SWAGGER_DOCUMENTATION"
                     and item["action"] == "keep"
                     for item in findings
                 )
@@ -174,8 +181,26 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertTrue(
                 any(
                     item["text"] == "请求体说明"
-                    and item["category"] == "COMMENT_DOCUMENTATION"
+                    and item["category"] == "SWAGGER_DOCUMENTATION"
                     and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "# 示例项目说明"
+                    and item["path"] == "README.md"
+                    and item["category"] == "GENERIC_DOCUMENTATION"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "通知状态"
+                    and item["path"] == "src/ProtocolConstants.java"
+                    and item["category"] == "PROTOCOL_OR_PERSISTED_LITERAL"
+                    and item["action"] == "fix"
                     for item in findings
                 )
             )
@@ -183,13 +208,19 @@ class ScanSmokeTest(unittest.TestCase):
                 any(
                     item["text"] == "通知类型"
                     and item["path"] == "sql/demo.sql"
-                    and item["category"] == "PROTOCOL_OR_PERSISTED_LITERAL"
+                    and item["category"] == "DATABASE_SCRIPT"
                     and item["action"] == "keep"
                     for item in findings
                 )
             )
             self.assertFalse(any(item["action"] == "review" for item in findings))
             self.assertIn("用户可见文案", report)
+            self.assertIn("注释", report)
+            self.assertIn("Swagger 文档", report)
+            self.assertIn("普通文档", report)
+            self.assertIn("数据库脚本", report)
+            self.assertIn("配置项", report)
+            self.assertIn("协议/持久化字面量", report)
             self.assertIn("扫描摘要", report)
             self.assertIn("明细筛选", report)
             self.assertIn("每页条数", report)
@@ -205,6 +236,8 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn('id="skipReasonChips"', report)
             self.assertIn('id="skipRows"', report)
             self.assertIn("第三方依赖目录", report)
+            self.assertIn("指定文件名", report)
+            self.assertIn("命中指定文件名规则：Jekinsfiles.slim。", report)
             self.assertIn("Swagger/OpenAPI 注解上下文", report)
             self.assertIn("// 编码类型", report)
             self.assertNotIn("展开详情", report)
@@ -216,6 +249,8 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertNotIn("llm_status", report)
             self.assertNotIn("sourceFilter", report)
             self.assertNotIn("需要复核", report)
+            self.assertNotIn("注释与文档", report)
+            self.assertNotIn("配置与元数据", report)
             self.assertIn("导出全部结果到 Excel", report)
             self.assertIn("const PAGE_SIZES = [10, 100, 500];", report)
             self.assertIn("pageSize: 10", report)

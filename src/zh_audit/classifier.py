@@ -2,11 +2,14 @@ import re
 from pathlib import Path
 
 from zh_audit.models import (
-    CATEGORY_COMMENT_DOCUMENTATION,
-    CATEGORY_CONFIG_METADATA,
+    CATEGORY_COMMENT,
+    CATEGORY_CONFIG_ITEM,
+    CATEGORY_DATABASE_SCRIPT,
     CATEGORY_ERROR_VALIDATION_MESSAGE,
+    CATEGORY_GENERIC_DOCUMENTATION,
     CATEGORY_LOG_AUDIT_DEBUG,
     CATEGORY_PROTOCOL_OR_PERSISTED_LITERAL,
+    CATEGORY_SWAGGER_DOCUMENTATION,
     CATEGORY_TEST_SAMPLE_FIXTURE,
     CATEGORY_UNKNOWN,
     CATEGORY_USER_VISIBLE_COPY,
@@ -38,7 +41,7 @@ PROTOCOL_TEXT_HINTS = ("状态", "类型", "字典", "枚举")
 LOG_CONTEXT_RE = re.compile(r"(?<![A-Za-z0-9_])(?:logger|log|logging|console)\s*(?:\.|\()")
 LOG_ANNOTATION_RE = re.compile(r"@\s*log\s*\(")
 PROTOCOL_CONTEXT_RES = [
-    re.compile(r"\b(?:private|public)\s+static\s+final\b"),
+    re.compile(r"\b(?:private|public|protected)?\s*static\s+final\b"),
     re.compile(r"\benum\b"),
     re.compile(r"\bcase\b"),
     re.compile(r"\bdicttype\b"),
@@ -69,33 +72,27 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
     end_user_visible = False
     reason = "No strong rule matched."
 
-    if raw.file_role == "test_or_sample":
+    if raw.lang == "sql":
+        category = CATEGORY_DATABASE_SCRIPT
+        confidence = 0.93
+        reason = "Database script context."
+        action = "keep"
+    elif raw.file_role == "test_or_sample":
         category = CATEGORY_TEST_SAMPLE_FIXTURE
         action = "keep"
         confidence = 0.97
         reason = "Test/sample path context."
     elif raw.surface_kind == "comment" or "comment" in raw.candidate_roles:
-        category = CATEGORY_COMMENT_DOCUMENTATION
+        category = CATEGORY_COMMENT
         action = "keep"
         confidence = 0.98
-        reason = "Comment or documentation context."
+        reason = "Comment context."
     elif "swagger_annotation" in raw.candidate_roles:
-        category = CATEGORY_COMMENT_DOCUMENTATION
+        category = CATEGORY_SWAGGER_DOCUMENTATION
         action = "keep"
         confidence = 0.98
         reason = "Swagger/OpenAPI annotation context."
-    elif raw.lang == "sql":
-        if _looks_like_protocol_context(context_lower, text, text_lower):
-            category = CATEGORY_PROTOCOL_OR_PERSISTED_LITERAL
-            confidence = 0.72
-            high_risk = True
-            reason = "Looks like protocol or persisted value."
-        else:
-            category = CATEGORY_COMMENT_DOCUMENTATION
-            confidence = 0.93
-            reason = "SQL or documentation asset."
-        action = "keep"
-    elif _is_sql_or_doc_asset(path):
+    elif _is_doc_asset(path):
         if _looks_like_protocol_context(context_lower, text, text_lower):
             category = CATEGORY_PROTOCOL_OR_PERSISTED_LITERAL
             action = "fix"
@@ -103,10 +100,10 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
             high_risk = True
             reason = "Looks like protocol or persisted value."
         else:
-            category = CATEGORY_COMMENT_DOCUMENTATION
+            category = CATEGORY_GENERIC_DOCUMENTATION
             action = "keep"
             confidence = 0.93
-            reason = "SQL or documentation asset."
+            reason = "Documentation asset context."
     elif _looks_like_log_context(context_lower):
         category = CATEGORY_LOG_AUDIT_DEBUG
         action = "keep"
@@ -144,10 +141,10 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
             end_user_visible = True
             reason = "Error semantics in string literal."
         else:
-            category = CATEGORY_CONFIG_METADATA
+            category = CATEGORY_CONFIG_ITEM
             action = "fix"
             confidence = 0.88
-            reason = "Configuration or metadata file."
+            reason = "Configuration item context."
     elif raw.surface_kind == "string_literal":
         category = CATEGORY_USER_VISIBLE_COPY
         action = "fix"
@@ -155,10 +152,10 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
         end_user_visible = True
         reason = "String literal with Chinese text."
     elif raw.lang == "xml":
-        category = CATEGORY_CONFIG_METADATA
+        category = CATEGORY_CONFIG_ITEM
         action = "fix"
         confidence = 0.68
-        reason = "Configuration or metadata file."
+        reason = "Configuration item context."
 
     return ClassifiedFinding(
         id=raw.id,
@@ -184,10 +181,11 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
     )
 
 
-def _is_sql_or_doc_asset(path: str) -> bool:
+def _is_doc_asset(path: str) -> bool:
     return (
-        path.startswith("sql/")
-        or path.startswith("doc/")
+        path.startswith("doc/")
+        or path.startswith("docs/")
+        or path.startswith("wiki/")
         or "readme" in path
         or path.endswith(".pdm")
         or path.endswith("/ruoyi.html")

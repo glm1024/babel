@@ -61,7 +61,7 @@ def run_scan(repos, scan_settings, run_id, progress_callback=None):
                         relative_path=relative,
                         eligible=False,
                         scanned=False,
-                        skip_reason="excluded_by_policy",
+                        skip_reason="named_file",
                         skip_detail=_skip_detail_for_builtin_file(relative),
                         lang=lang,
                         size_bytes=path.stat().st_size if path.exists() else 0,
@@ -324,7 +324,7 @@ def _skip_detail_for_policy(relative_path, matched_glob):
 def _skip_detail_for_builtin_file(relative_path):
     normalized = relative_path.replace("\\", "/")
     file_name = normalized.rsplit("/", 1)[-1]
-    return "内置文件名排除规则，匹配文件名 {}。".format(file_name)
+    return "命中指定文件名规则：{}。".format(file_name)
 
 
 def _skip_detail_for_file(path, skip_reason, max_file_size_bytes):

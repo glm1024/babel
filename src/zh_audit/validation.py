@@ -7,7 +7,21 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Match, Optional, Set, Tuple
 
-from zh_audit.models import ScanSettings
+from zh_audit.models import (
+    CATEGORY_COMMENT,
+    CATEGORY_CONFIG_ITEM,
+    CATEGORY_DATABASE_SCRIPT,
+    CATEGORY_ERROR_VALIDATION_MESSAGE,
+    CATEGORY_GENERIC_DOCUMENTATION,
+    CATEGORY_LOG_AUDIT_DEBUG,
+    CATEGORY_PROTOCOL_OR_PERSISTED_LITERAL,
+    CATEGORY_SWAGGER_DOCUMENTATION,
+    CATEGORY_TEST_SAMPLE_FIXTURE,
+    CATEGORY_UNKNOWN,
+    CATEGORY_USER_VISIBLE_COPY,
+    CATEGORY_ORDER as MODEL_CATEGORY_ORDER,
+    ScanSettings,
+)
 from zh_audit.utils import matches_any_glob
 
 
@@ -17,26 +31,21 @@ TRACKED_ENCODINGS = ("utf-8", "utf-8-sig", "gb18030")
 SENSITIVE_EXTENSIONS = {".html", ".xml", ".vm", ".js", ".css"}
 ACCEPTANCE_EXTENSIONS = {".html", ".xml", ".vm"}
 HIGH_RISK_CATEGORIES = {
-    "ERROR_VALIDATION_MESSAGE",
-    "LOG_AUDIT_DEBUG",
-    "PROTOCOL_OR_PERSISTED_LITERAL",
+    CATEGORY_ERROR_VALIDATION_MESSAGE,
+    CATEGORY_PROTOCOL_OR_PERSISTED_LITERAL,
+    CATEGORY_UNKNOWN,
 }
 SAMPLED_CATEGORIES = {
-    "USER_VISIBLE_COPY",
-    "COMMENT_DOCUMENTATION",
-    "CONFIG_METADATA",
-    "TEST_SAMPLE_FIXTURE",
+    CATEGORY_USER_VISIBLE_COPY,
+    CATEGORY_COMMENT,
+    CATEGORY_SWAGGER_DOCUMENTATION,
+    CATEGORY_GENERIC_DOCUMENTATION,
+    CATEGORY_DATABASE_SCRIPT,
+    CATEGORY_LOG_AUDIT_DEBUG,
+    CATEGORY_TEST_SAMPLE_FIXTURE,
+    CATEGORY_CONFIG_ITEM,
 }
-CATEGORY_ORDER = [
-    "USER_VISIBLE_COPY",
-    "ERROR_VALIDATION_MESSAGE",
-    "LOG_AUDIT_DEBUG",
-    "COMMENT_DOCUMENTATION",
-    "TEST_SAMPLE_FIXTURE",
-    "CONFIG_METADATA",
-    "PROTOCOL_OR_PERSISTED_LITERAL",
-    "UNKNOWN",
-]
+CATEGORY_ORDER = list(MODEL_CATEGORY_ORDER)
 SLICE_ORDER = ["first_party", "third_party_lib", "demo", "sql_doc"]
 LOG_CONTEXT_RE = re.compile(r"(?<![A-Za-z0-9_])(?:logger|log|logging|console)\s*(?:\.|\()")
 LOG_ANNOTATION_RE = re.compile(r"@\s*log\s*\(")
@@ -528,41 +537,46 @@ def _expected_category(
     text_lower = text.lower()
     governance_in_scope = slice_name == "first_party"
 
+    if ext == ".sql":
+        return CATEGORY_DATABASE_SCRIPT, False, "SQL 文件中的中文统一归为数据库脚本。"
     if slice_name == "demo":
-        return "TEST_SAMPLE_FIXTURE", False, "示例或演示路径应视为样例内容。"
-    if path.startswith("doc/") or path == "README.md":
-        return "COMMENT_DOCUMENTATION", False, "文档路径中的中文应归为注释与文档。"
+        return CATEGORY_TEST_SAMPLE_FIXTURE, False, "示例或演示路径应视为样例内容。"
+    if (
+        path.startswith("doc/")
+        or path.startswith("docs/")
+        or path.startswith("wiki/")
+        or "readme" in path.lower()
+        or ext == ".pdm"
+        or path.endswith("ruoyi.html")
+    ):
+        return CATEGORY_GENERIC_DOCUMENTATION, False, "文档资产中的中文应归为普通文档。"
     if finding.get("surface_kind") == "comment" or _looks_like_comment(source_line):
-        return "COMMENT_DOCUMENTATION", governance_in_scope, "注释语法或注释上下文。"
+        return CATEGORY_COMMENT, governance_in_scope, "注释语法或注释上下文。"
     if "swagger_annotation" in finding.get("candidate_roles", []):
-        return "COMMENT_DOCUMENTATION", governance_in_scope, "Swagger/OpenAPI 注解中的中文应视为文档说明。"
+        return CATEGORY_SWAGGER_DOCUMENTATION, governance_in_scope, "Swagger/OpenAPI 注解中的中文应视为 Swagger 文档。"
     if slice_name == "third_party_lib":
         if finding.get("surface_kind") == "comment":
-            return "COMMENT_DOCUMENTATION", False, "第三方库中的注释文本。"
-        return "USER_VISIBLE_COPY", False, "第三方前端库中的中文通常属于界面展示文案。"
+            return CATEGORY_COMMENT, False, "第三方库中的注释文本。"
+        return CATEGORY_USER_VISIBLE_COPY, False, "第三方前端库中的中文通常属于界面展示文案。"
     if _looks_like_log_context(source_lower):
-        return "LOG_AUDIT_DEBUG", governance_in_scope, "日志或控制台输出上下文。"
+        return CATEGORY_LOG_AUDIT_DEBUG, governance_in_scope, "日志或控制台输出上下文。"
     if any(token in source_lower for token in ("ajaxresult.warn(", "ajaxresult.error(", "throw ", " alertwarning(", " alerterror(", "$.modal.alert", "return error(", "return fail(", "return warn(")):
-        return "ERROR_VALIDATION_MESSAGE", governance_in_scope, "异常、告警或失败返回上下文。"
+        return CATEGORY_ERROR_VALIDATION_MESSAGE, governance_in_scope, "异常、告警或失败返回上下文。"
     if any(token in text for token in ("失败", "异常", "错误", "不能为空", "不允许", "不存在", "已存在", "非法")) and "static/ajax/libs/" not in path:
-        return "ERROR_VALIDATION_MESSAGE", governance_in_scope, "文本语义更接近错误或校验提示。"
-    if slice_name == "sql_doc" and (ext in {".sql", ".pdm"} or path.endswith(".html")):
-        if _looks_like_protocol_literal(source_lower, text_lower):
-            return "PROTOCOL_OR_PERSISTED_LITERAL", False, "SQL/PDM 中的状态、类型或字典值。"
-        return "COMMENT_DOCUMENTATION", False, "SQL/PDM/文档资产中的中文主要是说明文字。"
+        return CATEGORY_ERROR_VALIDATION_MESSAGE, governance_in_scope, "文本语义更接近错误或校验提示。"
     if ext in {".yaml", ".yml", ".properties", ".json", ".toml"}:
-        return "CONFIG_METADATA", governance_in_scope, "配置文件中的中文更接近元数据。"
+        return CATEGORY_CONFIG_ITEM, governance_in_scope, "配置文件中的中文更接近配置项。"
     if ext in {".html", ".vm", ".js", ".css"} or "<" in source_line or "</" in source_line:
-        return "USER_VISIBLE_COPY", governance_in_scope, "模板或前端资源中的中文通常面向用户可见。"
+        return CATEGORY_USER_VISIBLE_COPY, governance_in_scope, "模板或前端资源中的中文通常面向用户可见。"
     if _looks_like_protocol_literal(source_lower, text_lower):
-        return "PROTOCOL_OR_PERSISTED_LITERAL", governance_in_scope, "文本更接近协议、状态或持久化字面量。"
+        return CATEGORY_PROTOCOL_OR_PERSISTED_LITERAL, governance_in_scope, "文本更接近协议、状态或持久化字面量。"
     if ext in {".bat", ".sh"} and any(token in source_lower for token in ("echo", "printf")):
-        return "USER_VISIBLE_COPY", False, "脚本回显文本更接近命令行用户提示。"
+        return CATEGORY_USER_VISIBLE_COPY, False, "脚本回显文本更接近命令行用户提示。"
     if ext == ".xml":
-        return "CONFIG_METADATA", governance_in_scope, "XML 非注释中文默认视为配置或元数据。"
+        return CATEGORY_CONFIG_ITEM, governance_in_scope, "XML 非注释中文默认视为配置项。"
     if finding.get("surface_kind") == "string_literal":
-        return "USER_VISIBLE_COPY", governance_in_scope, "默认字符串字面量更接近用户可见文案。"
-    return "UNKNOWN", governance_in_scope, "独立规则无法稳定判断，建议归入 UNKNOWN。"
+        return CATEGORY_USER_VISIBLE_COPY, governance_in_scope, "默认字符串字面量更接近用户可见文案。"
+    return CATEGORY_UNKNOWN, governance_in_scope, "独立规则无法稳定判断，建议归入 UNKNOWN。"
 
 
 def _looks_like_comment(source_line: str) -> bool:
