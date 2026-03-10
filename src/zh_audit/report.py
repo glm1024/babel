@@ -60,7 +60,7 @@ DISPLAY_MAPS = {
     },
 }
 
-PAGE_SIZES = [20, 50, 100, 200]
+PAGE_SIZES = [10, 100, "ALL"]
 
 
 def render_report(summary, findings):
@@ -93,6 +93,7 @@ def render_report(summary, findings):
       margin: 0;
       font-family: "Iowan Old Style", "Noto Serif SC", serif;
       color: var(--ink);
+      overflow: hidden;
       background:
         radial-gradient(circle at top left, rgba(159,61,42,0.12), transparent 32%),
         radial-gradient(circle at top right, rgba(45,106,79,0.10), transparent 28%),
@@ -100,6 +101,7 @@ def render_report(summary, findings):
     }
     h2, h3 { margin: 0; }
     main {
+      height: 100vh;
       padding: 28px 32px 40px;
       display: flex;
       gap: 24px;
@@ -111,10 +113,14 @@ def render_report(summary, findings):
       flex: 0 0 360px;
       position: sticky;
       top: 28px;
+      max-height: calc(100vh - 56px);
+      overflow: auto;
     }
     .detail-shell {
       flex: 1 1 auto;
       min-width: 0;
+      min-height: 0;
+      align-self: stretch;
     }
     .summary-panel {
       padding: 16px;
@@ -139,6 +145,12 @@ def render_report(summary, findings):
       border: 1px solid var(--line);
       border-radius: 20px;
       padding: 18px;
+    }
+    .detail-shell .panel {
+      height: calc(100vh - 68px);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
     }
     .panel h2 {
       margin: 0 0 14px;
@@ -335,7 +347,9 @@ def render_report(summary, findings):
       font-size: 13px;
     }
     .table-wrap {
-      overflow-x: auto;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: auto;
       border-radius: 18px;
     }
     .findings-table {
@@ -416,6 +430,12 @@ def render_report(summary, findings):
       text-transform: none;
       letter-spacing: 0.06em;
     }
+    .findings-table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: var(--panel);
+    }
     .pill {
       display: inline-block;
       padding: 2px 8px;
@@ -426,7 +446,6 @@ def render_report(summary, findings):
     .pill.fix { background: rgba(157,47,47,0.12); color: var(--danger); }
     .pill.review { background: rgba(179,107,0,0.12); color: var(--warn); }
     .pill.keep { background: rgba(45,106,79,0.12); color: var(--ok); }
-    .pill.high-risk { background: rgba(157,47,47,0.15); color: var(--danger); margin-left: 8px; }
     .project-cell,
     .category-cell,
     .action-cell {
@@ -553,17 +572,34 @@ def render_report(summary, findings):
       padding: 24px 8px;
     }
     @media (max-width: 960px) {
+      body {
+        overflow: auto;
+      }
       main {
         padding-left: 18px;
         padding-right: 18px;
       }
       main {
         display: grid;
+        height: auto;
       }
       .summary-shell {
         position: static;
         width: 100%;
         flex-basis: auto;
+        max-height: none;
+        overflow: visible;
+      }
+      .detail-shell {
+        min-height: auto;
+        align-self: auto;
+      }
+      .panel {
+        height: auto;
+      }
+      .table-wrap {
+        flex: initial;
+        min-height: auto;
       }
       .table-toolbar { flex-direction: column; align-items: stretch; }
       .pagination { justify-content: flex-start; }
@@ -715,7 +751,7 @@ def render_report(summary, findings):
     const skippedFiles = (summary.files || []).filter(item => item.skip_reason);
     const state = {
       currentPage: 1,
-      pageSize: 20,
+      pageSize: 10,
       skipReasonFilter: "",
     };
 
@@ -798,7 +834,9 @@ def render_report(summary, findings):
     function baseName(path) {
       const normalized = String(path || "").replaceAll("\\\\", "/");
       const parts = normalized.split("/");
-      return parts[parts.length - 1] || normalized;
+      const fileName = parts[parts.length - 1] || normalized;
+      const extensionIndex = fileName.lastIndexOf(".");
+      return extensionIndex > 0 ? fileName.slice(0, extensionIndex) : fileName;
     }
 
     function displayPath(item) {
@@ -819,7 +857,10 @@ def render_report(summary, findings):
 
     function setPageSizeOptions() {
       pageSizeSelect.innerHTML = PAGE_SIZES
-        .map(value => `<option value="${value}" ${value === state.pageSize ? "selected" : ""}>${value} 条</option>`)
+        .map(value => {
+          const label = value === "ALL" ? "全部" : `${value} 条`;
+          return `<option value="${value}" ${value === state.pageSize ? "selected" : ""}>${label}</option>`;
+        })
         .join("");
     }
 
@@ -840,10 +881,11 @@ def render_report(summary, findings):
 
     function paginateFindings(items) {
       const total = items.length;
-      const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
+      const pageSize = state.pageSize === "ALL" ? Math.max(total, 1) : state.pageSize;
+      const totalPages = state.pageSize === "ALL" ? 1 : Math.max(1, Math.ceil(total / pageSize));
       state.currentPage = Math.min(Math.max(1, state.currentPage), totalPages);
-      const startIndex = total === 0 ? 0 : (state.currentPage - 1) * state.pageSize;
-      const endIndex = total === 0 ? 0 : Math.min(startIndex + state.pageSize, total);
+      const startIndex = total === 0 ? 0 : (state.currentPage - 1) * pageSize;
+      const endIndex = total === 0 ? 0 : Math.min(startIndex + pageSize, total);
       return {
         items: items.slice(startIndex, endIndex),
         totalPages,
@@ -973,7 +1015,7 @@ def render_report(summary, findings):
             <td class="project-cell">${escapeHtml(item.project)}</td>
             <td class="location-cell">${positionMarkup(item)}</td>
             <td class="text-cell"><strong>${escapeHtml(item.snippet || item.normalized_text || item.text)}</strong></td>
-            <td class="category-cell">${escapeHtml(labelFor("category", item.category))}${item.high_risk ? '<span class="pill high-risk">高风险</span>' : ""}</td>
+            <td class="category-cell">${escapeHtml(labelFor("category", item.category))}</td>
             <td class="action-cell"><span class="pill ${item.action}">${escapeHtml(labelFor("action", item.action))}</span></td>
             <td class="reason-cell">${escapeHtml(labelFor("reason", item.reason) || item.reason || "-")}</td>
           </tr>
@@ -1108,7 +1150,9 @@ def render_report(summary, findings):
     });
     keywordFilter.addEventListener("input", resetAndRender);
     pageSizeSelect.addEventListener("change", () => {
-      state.pageSize = Number.parseInt(pageSizeSelect.value, 10) || 20;
+      state.pageSize = pageSizeSelect.value === "ALL"
+        ? "ALL"
+        : Number.parseInt(pageSizeSelect.value, 10) || 10;
       state.currentPage = 1;
       renderRows();
     });
