@@ -469,7 +469,6 @@ def render_report(summary, findings):
     }
     .text-cell,
     .reason-cell {
-      display: block;
       line-height: 1.65;
       overflow-wrap: anywhere;
     }
@@ -879,23 +878,8 @@ def render_report(summary, findings):
       return item.normalized_text || item.text || item.snippet || "";
     }
 
-    function maskedSnippet(item) {
-      const snippet = item.snippet || "";
-      const text = findingText(item);
-      if (!snippet) {
-        return "";
-      }
-      if (!text) {
-        return snippet;
-      }
-      if (snippet.includes(text)) {
-        return snippet.replace(text, "");
-      }
-      const rawText = item.text || "";
-      if (rawText && rawText !== text && snippet.includes(rawText)) {
-        return snippet.replace(rawText, "");
-      }
-      return snippet;
+    function displaySnippet(item) {
+      return item.snippet || item.normalized_text || item.text || "";
     }
 
     function setOptions(select, values, label, group, selectedValue) {
@@ -1113,7 +1097,7 @@ def render_report(summary, findings):
             <td class="project-cell">${escapeHtml(item.project)}</td>
             <td class="location-cell">${positionMarkup(item)}</td>
             <td class="hit-text-cell"><strong>${escapeHtml(findingText(item))}</strong></td>
-            <td class="text-cell">${escapeHtml(maskedSnippet(item) || "-")}</td>
+            <td class="text-cell">${escapeHtml(displaySnippet(item) || "-")}</td>
             <td class="category-cell">${escapeHtml(labelFor("category", item.category))}</td>
             <td class="action-cell"><span class="pill ${item.action}">${escapeHtml(labelFor("action", item.action))}</span></td>
             <td class="reason-cell">${escapeHtml(labelFor("reason", item.reason) || item.reason || "-")}</td>
@@ -1141,7 +1125,7 @@ def render_report(summary, findings):
         item.project || "",
         `${item.path || ""}:${item.line ?? ""}`,
         findingText(item),
-        maskedSnippet(item),
+        displaySnippet(item),
         labelFor("category", item.category),
         labelFor("action", item.action),
         labelFor("reason", item.reason) || item.reason || "-",
