@@ -134,10 +134,7 @@ def _walk_files(root):
         proc = None
         top_level = ""
     if proc is not None and Path(top_level).resolve() == root.resolve():
-        for raw_path in proc.stdout.split(b"\0"):
-            if not raw_path:
-                continue
-            relative_path = raw_path.decode("utf-8", errors="surrogateescape")
+        for relative_path in _iter_git_paths(proc.stdout):
             path = root / relative_path
             if path.is_file():
                 yield path
@@ -148,6 +145,17 @@ def _walk_files(root):
         if ".git" in path.parts:
             continue
         yield path
+
+
+def _iter_git_paths(output):
+    if isinstance(output, bytes):
+        items = output.split(b"\0")
+        return [
+            item.decode("utf-8", errors="surrogateescape")
+            for item in items
+            if item
+        ]
+    return [item for item in output.split("\0") if item]
 
 
 def _read_text(path):

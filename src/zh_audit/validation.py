@@ -131,11 +131,18 @@ def _tracked_files(repo_root: Path) -> List[str]:
         stderr=subprocess.PIPE,
         check=True,
     )
-    return [
-        raw.decode("utf-8", errors="surrogateescape")
-        for raw in proc.stdout.split(b"\0")
-        if raw
-    ]
+    return _iter_git_paths(proc.stdout)
+
+
+def _iter_git_paths(output):
+    if isinstance(output, bytes):
+        items = output.split(b"\0")
+        return [
+            item.decode("utf-8", errors="surrogateescape")
+            for item in items
+            if item
+        ]
+    return [item for item in output.split("\0") if item]
 
 
 def _scan_settings_from_summary(summary: Dict[str, Any]) -> ScanSettings:

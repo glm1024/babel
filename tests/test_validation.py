@@ -5,10 +5,22 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from zh_audit.pipeline import _iter_git_paths as iter_scan_git_paths
 from zh_audit.validation import validate_report
+from zh_audit.validation import _iter_git_paths as iter_validation_git_paths
 
 
 class ValidationSmokeTest(unittest.TestCase):
+    def test_git_z_output_accepts_bytes_and_text(self) -> None:
+        expected = ["src/App.java", "templates/error.html"]
+        raw_bytes = b"src/App.java\x00templates/error.html\x00"
+        raw_text = "src/App.java\x00templates/error.html\x00"
+
+        self.assertEqual(iter_scan_git_paths(raw_bytes), expected)
+        self.assertEqual(iter_scan_git_paths(raw_text), expected)
+        self.assertEqual(iter_validation_git_paths(raw_bytes), expected)
+        self.assertEqual(iter_validation_git_paths(raw_text), expected)
+
     def test_validate_report_generates_deliverables(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
