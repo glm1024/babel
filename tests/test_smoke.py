@@ -45,6 +45,8 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("DATABASE_SCRIPT", categories)
             self.assertIn("SHELL_SCRIPT", categories)
             self.assertIn("NAMED_FILE", categories)
+            self.assertIn("I18N_FILE", categories)
+            self.assertIn("CONDITION_EXPRESSION_LITERAL", categories)
             self.assertIn("TEST_SAMPLE_FIXTURE", categories)
             self.assertIn("CONFIG_ITEM", categories)
             self.assertIn("PROTOCOL_OR_PERSISTED_LITERAL", categories)
@@ -67,6 +69,15 @@ class ScanSmokeTest(unittest.TestCase):
                 any(
                     item["path"] == "Jekinsfiles.slim"
                     and item["category"] == "NAMED_FILE"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["hit_text"] == "系统繁忙"
+                    and item["path"] == "config/i18n.messages.properties"
+                    and item["category"] == "I18N_FILE"
                     and item["action"] == "keep"
                     for item in findings
                 )
@@ -124,6 +135,14 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertTrue(
                 any(
                     item["text"] == "错误流输出中文"
+                    and item["category"] == "LOG_AUDIT_DEBUG"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "任务执行超时"
                     and item["category"] == "LOG_AUDIT_DEBUG"
                     and item["action"] == "keep"
                     for item in findings
@@ -222,6 +241,146 @@ class ScanSmokeTest(unittest.TestCase):
                     for item in findings
                 )
             )
+            self.assertTrue(
+                any(
+                    item["text"] == "SnowFlakeGenerator:时钟回拨"
+                    and item["hit_text"] == "时钟回拨"
+                    and item["path"] == "src/ConditionExpressions.java"
+                    and item["category"] == "CONDITION_EXPRESSION_LITERAL"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "不能为null"
+                    and item["hit_text"] == "不能为"
+                    and item["path"] == "src/ConditionExpressions.java"
+                    and item["category"] == "CONDITION_EXPRESSION_LITERAL"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "停止服务"
+                    and item["hit_text"] == "停止服务"
+                    and item["path"] == "src/ConditionExpressions.java"
+                    and item["category"] == "CONDITION_EXPRESSION_LITERAL"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "断言命中"
+                    and item["hit_text"] == "断言命中"
+                    and item["path"] == "src/ConditionExpressions.java"
+                    and item["category"] == "CONDITION_EXPRESSION_LITERAL"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "错误前缀:"
+                    and item["hit_text"] == "错误前缀"
+                    and item["path"] == "src/ConditionExpressions.java"
+                    and item["category"] == "CONDITION_EXPRESSION_LITERAL"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "租户[0-9]+"
+                    and item["hit_text"] == "租户"
+                    and item["path"] == "src/ConditionExpressions.java"
+                    and item["category"] == "CONDITION_EXPRESSION_LITERAL"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "提示:"
+                    and item["hit_text"] == "提示"
+                    and item["path"] == "src/ConditionExpressions.java"
+                    and item["category"] == "CONDITION_EXPRESSION_LITERAL"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "忽略"
+                    and item["hit_text"] == "忽略"
+                    and item["path"] == "src/ConditionExpressions.java"
+                    and item["category"] == "CONDITION_EXPRESSION_LITERAL"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "前缀"
+                    and item["hit_text"] == "前缀"
+                    and item["path"] == "src/ConditionExpressions.java"
+                    and item["category"] == "CONDITION_EXPRESSION_LITERAL"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "名称不能为空"
+                    and item["hit_text"] == "名称不能为空"
+                    and item["path"] == "src/ConditionExpressions.java"
+                    and item["category"] == "CONDITION_EXPRESSION_LITERAL"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "状态非法"
+                    and item["hit_text"] == "状态非法"
+                    and item["path"] == "src/ConditionExpressions.java"
+                    and item["category"] == "CONDITION_EXPRESSION_LITERAL"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "前缀"
+                    and item["hit_text"] == "前缀"
+                    and item["path"] == "src/ConditionExpressions.java"
+                    and item["category"] == "CONDITION_EXPRESSION_LITERAL"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "启用"
+                    and item["hit_text"] == "启用"
+                    and item["path"] == "src/ConditionExpressions.java"
+                    and item["category"] == "CONDITION_EXPRESSION_LITERAL"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "启用"
+                    and item["hit_text"] == "启用"
+                    and item["path"] == "src/ConditionExpressions.java"
+                    and item["category"] == "USER_VISIBLE_COPY"
+                    and item["action"] == "fix"
+                    for item in findings
+                )
+            )
             self.assertFalse(any(item["action"] == "review" for item in findings))
             self.assertIn("用户可见文案", report)
             self.assertIn("注释", report)
@@ -230,6 +389,8 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("数据库脚本", report)
             self.assertIn("Shell 脚本", report)
             self.assertIn("指定文件", report)
+            self.assertIn("国际化文件", report)
+            self.assertIn("条件判断字面量", report)
             self.assertIn("配置项", report)
             self.assertIn("协议/持久化字面量", report)
             self.assertIn("扫描摘要", report)
@@ -248,7 +409,9 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn('id="skipReasonChips"', report)
             self.assertIn('id="skipRows"', report)
             self.assertIn("第三方依赖目录", report)
+            self.assertIn("当前命中位于国际化文件中。", report)
             self.assertIn("Swagger/OpenAPI 注解上下文", report)
+            self.assertIn("当前命中用于条件判断表达式。", report)
             self.assertIn("// 编码类型", report)
             self.assertNotIn("展开详情", report)
             self.assertNotIn("项目与覆盖率", report)
@@ -286,8 +449,15 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn('const headers = ["项目", "位置", "命中文本", "文本", "分类", "动作", "说明"];', report)
             self.assertIn('new Blob(["\\ufeff", lines.join("\\n")], { type: "text/csv;charset=utf-8" })', report)
             self.assertIn("function findingText(item) {", report)
+            self.assertIn("if (item.hit_text) {", report)
+            self.assertIn("return item.hit_text;", report)
             self.assertIn("function displaySnippet(item) {", report)
             self.assertIn('return item.snippet || item.normalized_text || item.text || "";', report)
+            self.assertIn('${item.path} ${item.hit_text || ""} ${item.text} ${item.snippet || ""} ${item.reason}', report)
+            self.assertIn('<td class="hit-text-cell">${escapeHtml(findingText(item) || "-")}</td>', report)
+            self.assertNotIn('<td class="hit-text-cell"><strong>', report)
+            self.assertIn(".hit-text-cell {", report)
+            self.assertIn("font-weight: 400;", report)
             self.assertIn(".position-cell {", report)
             self.assertIn("width: 100%;", report)
             self.assertIn("flex: 1 1 auto;", report)

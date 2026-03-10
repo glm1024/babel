@@ -3,10 +3,12 @@ from pathlib import Path
 
 from zh_audit.models import (
     CATEGORY_COMMENT,
+    CATEGORY_CONDITION_EXPRESSION_LITERAL,
     CATEGORY_CONFIG_ITEM,
     CATEGORY_DATABASE_SCRIPT,
     CATEGORY_ERROR_VALIDATION_MESSAGE,
     CATEGORY_GENERIC_DOCUMENTATION,
+    CATEGORY_I18N_FILE,
     CATEGORY_LOG_AUDIT_DEBUG,
     CATEGORY_NAMED_FILE,
     CATEGORY_PROTOCOL_OR_PERSISTED_LITERAL,
@@ -18,7 +20,12 @@ from zh_audit.models import (
     ClassifiedFinding,
     RawFinding,
 )
-from zh_audit.utils import is_named_keep_file
+from zh_audit.utils import (
+    is_i18n_messages_file,
+    is_named_keep_file,
+    looks_like_assert_api_literal,
+    looks_like_condition_expression_literal,
+)
 
 
 CONFIG_LANGS = {"yaml", "json", "properties", "toml"}
@@ -65,8 +72,13 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
     ext = Path(path).suffix.lower()
     text = raw.normalized_text or raw.text
     text_lower = text.lower()
-    context = str(raw.metadata.get("local_context") or raw.snippet)
+    snippet_context = str(raw.snippet or "")
+    local_context = str(raw.metadata.get("local_context") or "")
+    context = local_context or snippet_context
     context_lower = context.lower()
+    evidence_context = " ".join(part for part in (snippet_context, local_context) if part)
+    evidence_context_lower = evidence_context.lower() if evidence_context else context_lower
+    condition_extra_context = raw.context_window or ""
 
     category = CATEGORY_UNKNOWN
     action = "fix"
@@ -79,6 +91,11 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
         category = CATEGORY_NAMED_FILE
         confidence = 0.99
         reason = "Named file context."
+        action = "keep"
+    elif is_i18n_messages_file(path):
+        category = CATEGORY_I18N_FILE
+        confidence = 0.99
+        reason = "I18n messages file context."
         action = "keep"
     elif raw.lang == "sql":
         category = CATEGORY_DATABASE_SCRIPT
@@ -106,7 +123,7 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
         confidence = 0.98
         reason = "Swagger/OpenAPI annotation context."
     elif _is_doc_asset(path):
-        if _looks_like_protocol_context(context_lower, text, text_lower):
+        if _looks_like_protocol_context(evidence_context_lower, text, text_lower):
             category = CATEGORY_PROTOCOL_OR_PERSISTED_LITERAL
             action = "fix"
             confidence = 0.72
@@ -117,24 +134,43 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
             action = "keep"
             confidence = 0.93
             reason = "Documentation asset context."
-    elif _looks_like_log_context(context_lower):
+    elif _looks_like_log_context(evidence_context_lower):
         category = CATEGORY_LOG_AUDIT_DEBUG
         action = "keep"
         confidence = 0.96
         reason = "Logging API context."
-    elif _looks_like_error_context(context_lower):
+    elif raw.surface_kind == "string_literal" and looks_like_assert_api_literal(
+        raw.snippet,
+        context,
+        extra_context=condition_extra_context,
+    ):
+        category = CATEGORY_CONDITION_EXPRESSION_LITERAL
+        action = "keep"
+        confidence = 0.94
+        reason = "Condition expression literal context."
+    elif _looks_like_error_context(evidence_context_lower):
         category = CATEGORY_ERROR_VALIDATION_MESSAGE
         action = "fix"
         confidence = 0.95
         end_user_visible = True
         reason = "Error/exception context."
+    elif raw.surface_kind == "string_literal" and looks_like_condition_expression_literal(
+        raw.snippet,
+        context,
+        language=raw.lang,
+        extra_context=condition_extra_context,
+    ):
+        category = CATEGORY_CONDITION_EXPRESSION_LITERAL
+        action = "keep"
+        confidence = 0.92
+        reason = "Condition expression literal context."
     elif raw.file_role == "template" or raw.lang in FRONTEND_LANGS:
         category = CATEGORY_USER_VISIBLE_COPY
         action = "fix"
         confidence = 0.9 if raw.lang in {"html", "vm"} else 0.86
         end_user_visible = True
         reason = "Markup or front-end text context."
-    elif _looks_like_protocol_context(context_lower, text, text_lower):
+    elif _looks_like_protocol_context(evidence_context_lower, text, text_lower):
         category = CATEGORY_PROTOCOL_OR_PERSISTED_LITERAL
         action = "fix"
         confidence = 0.72
@@ -181,6 +217,7 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
         symbol=raw.symbol,
         text=raw.text,
         normalized_text=raw.normalized_text,
+        hit_text=raw.hit_text,
         snippet=raw.snippet,
         category=category,
         action=action,

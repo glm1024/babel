@@ -9,10 +9,12 @@ from typing import Any, Dict, List, Match, Optional, Set, Tuple
 
 from zh_audit.models import (
     CATEGORY_COMMENT,
+    CATEGORY_CONDITION_EXPRESSION_LITERAL,
     CATEGORY_CONFIG_ITEM,
     CATEGORY_DATABASE_SCRIPT,
     CATEGORY_ERROR_VALIDATION_MESSAGE,
     CATEGORY_GENERIC_DOCUMENTATION,
+    CATEGORY_I18N_FILE,
     CATEGORY_LOG_AUDIT_DEBUG,
     CATEGORY_NAMED_FILE,
     CATEGORY_PROTOCOL_OR_PERSISTED_LITERAL,
@@ -24,7 +26,14 @@ from zh_audit.models import (
     CATEGORY_ORDER as MODEL_CATEGORY_ORDER,
     ScanSettings,
 )
-from zh_audit.utils import is_named_keep_file, matches_any_glob
+from zh_audit.utils import (
+    guess_language,
+    is_i18n_messages_file,
+    is_named_keep_file,
+    looks_like_assert_api_literal,
+    looks_like_condition_expression_literal,
+    matches_any_glob,
+)
 
 
 HAN_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
@@ -45,6 +54,8 @@ SAMPLED_CATEGORIES = {
     CATEGORY_DATABASE_SCRIPT,
     CATEGORY_SHELL_SCRIPT,
     CATEGORY_NAMED_FILE,
+    CATEGORY_I18N_FILE,
+    CATEGORY_CONDITION_EXPRESSION_LITERAL,
     CATEGORY_LOG_AUDIT_DEBUG,
     CATEGORY_TEST_SAMPLE_FIXTURE,
     CATEGORY_CONFIG_ITEM,
@@ -390,9 +401,11 @@ def _build_classification_review(
     for finding in selected:
         baseline_entry = baseline.get(finding["path"])
         source_line = _source_line(repo_root, finding["path"], int(finding["line"]))
+        source_context = _source_context(repo_root, finding["path"], int(finding["line"]))
         expected_category, governance_in_scope, reason = _expected_category(
             finding=finding,
             source_line=source_line,
+            source_context=source_context,
             slice_name=baseline_entry.slice_name if baseline_entry else _slice_for_path(finding["path"]),
         )
         status = "match" if finding["category"] == expected_category else "mismatch"
@@ -513,9 +526,22 @@ def _source_line(repo_root: Path, relative_path: str, line_no: int) -> str:
     return ""
 
 
+def _source_context(repo_root: Path, relative_path: str, line_no: int) -> str:
+    content = _read_text(repo_root / relative_path)
+    if content is None:
+        return ""
+    lines = content.splitlines()
+    if not lines:
+        return ""
+    start = max(1, line_no - 1)
+    end = min(len(lines), line_no + 1)
+    return "\n".join(lines[index - 1] for index in range(start, end + 1))
+
+
 def _expected_category(
     finding: Dict[str, Any],
     source_line: str,
+    source_context: str,
     slice_name: str,
 ) -> Tuple[str, bool, str]:
     path = finding["path"]
@@ -524,9 +550,12 @@ def _expected_category(
     source_lower = source_line.lower()
     text_lower = text.lower()
     governance_in_scope = slice_name == "first_party"
+    language = guess_language(Path(path))
 
     if is_named_keep_file(path):
         return CATEGORY_NAMED_FILE, False, "指定文件中的中文统一归为指定文件。"
+    if is_i18n_messages_file(path):
+        return CATEGORY_I18N_FILE, False, "国际化文件中的中文统一归为国际化文件。"
     if ext == ".sql":
         return CATEGORY_DATABASE_SCRIPT, False, "SQL 文件中的中文统一归为数据库脚本。"
     if ext in {".bat", ".sh", ".bash", ".zsh"}:
@@ -552,8 +581,12 @@ def _expected_category(
         return CATEGORY_USER_VISIBLE_COPY, False, "第三方前端库中的中文通常属于界面展示文案。"
     if _looks_like_log_context(source_lower):
         return CATEGORY_LOG_AUDIT_DEBUG, governance_in_scope, "日志或控制台输出上下文。"
+    if looks_like_assert_api_literal(source_line, source_line, extra_context=source_context):
+        return CATEGORY_CONDITION_EXPRESSION_LITERAL, False, "当前命中用于条件判断表达式。"
     if any(token in source_lower for token in ("ajaxresult.warn(", "ajaxresult.error(", "throw ", " alertwarning(", " alerterror(", "$.modal.alert", "return error(", "return fail(", "return warn(")):
         return CATEGORY_ERROR_VALIDATION_MESSAGE, governance_in_scope, "异常、告警或失败返回上下文。"
+    if looks_like_condition_expression_literal(source_line, source_line, language=language, extra_context=source_context):
+        return CATEGORY_CONDITION_EXPRESSION_LITERAL, False, "当前命中用于条件判断表达式。"
     if any(token in text for token in ("失败", "异常", "错误", "不能为空", "不允许", "不存在", "已存在", "非法")) and "static/ajax/libs/" not in path:
         return CATEGORY_ERROR_VALIDATION_MESSAGE, governance_in_scope, "文本语义更接近错误或校验提示。"
     if ext in {".yaml", ".yml", ".properties", ".json", ".toml"}:

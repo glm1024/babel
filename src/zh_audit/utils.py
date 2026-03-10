@@ -7,6 +7,15 @@ from typing import List, Match, Tuple
 
 HAN_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 UNICODE_ESCAPE_RE = re.compile(r"(?:\\u[0-9a-fA-F]{4})+")
+CONDITION_BRANCH_RE = re.compile(r"\b(?:else\s+if|if|while|switch|case|assert)\b")
+CONDITION_METHOD_RE = re.compile(
+    r"\b(?:contains|containsignorecase|equals|equalsignorecase|contentequals|regionmatches|startswith|startswithignorecase|endswith|endswithignorecase|matches|indexof|lastindexof|compareto|comparetoignorecase|includes|match|test|hasprefix|hassuffix|equalfold|replace|replaceall|replacefirst|split|remove|removestart|removeend|substringbefore|substringafter|substringbeforelast|substringafterlast)\s*\("
+)
+CONDITION_OPERATOR_RE = re.compile(r"(?:===|!==|==|!=)")
+PYTHON_IN_RE = re.compile(r"\b(?:not\s+in|in)\b")
+ASSERT_API_RE = re.compile(
+    r"\b(?:assert|assertions|preconditions|validate|objects)\s*(?:\.\s*)?(?:assert[a-z0-9_]*|checkargument|checkstate|checknotnull|istrue|state|notnull|hastext|haslength|notempty|notblank|isinstanceof|assignable|requirenonnull)\s*\("
+)
 COMMENT_LINE_PREFIXES = ("#", "//", "--", ";", "*")
 SOURCE_CODE_EXTENSIONS = {
     ".java",
@@ -117,6 +126,11 @@ def normalize_text(text):
     return value.strip()
 
 
+def extract_hit_text(text):
+    value = decode_unicode_escapes(str(text or ""))
+    return "".join(HAN_RE.findall(value))
+
+
 def sniff_text_file(path, max_size_bytes):
     try:
         stat = path.stat()
@@ -182,6 +196,11 @@ def is_named_keep_file(path_str):
     return file_name in NAMED_KEEP_FILE_NAMES
 
 
+def is_i18n_messages_file(path_str):
+    normalized = str(path_str).replace("\\", "/").lower()
+    return "i18n.messages" in normalized
+
+
 def file_role_from_path(path_str):
     lower = path_str.lower().replace("\\", "/")
     parts = [part for part in lower.split("/") if part]
@@ -227,3 +246,44 @@ def matches_any_glob(path_str, patterns):
             if fnmatch.fnmatch(normalized, candidate) or Path(normalized).match(candidate):
                 return True
     return False
+
+
+def looks_like_condition_expression_literal(snippet, context="", language="", extra_context=""):
+    snippet_text = decode_unicode_escapes(str(snippet or ""))
+    context_text = decode_unicode_escapes(str(context or ""))
+    extra_text = decode_unicode_escapes(str(extra_context or ""))
+
+    snippet_lower = snippet_text.lower()
+    context_lower = context_text.lower()
+    extra_lower = extra_text.lower()
+    combined_lower = "{} {}".format(snippet_lower, context_lower).strip()
+    extended_lower = "{} {}".format(combined_lower, extra_lower).strip()
+
+    if not extended_lower:
+        return False
+    if snippet_lower.lstrip().startswith("case ") and ":" in snippet_lower:
+        return True
+    if "switch" in snippet_lower:
+        return True
+
+    has_branch = bool(CONDITION_BRANCH_RE.search(combined_lower) or CONDITION_BRANCH_RE.search(extra_lower))
+    if not has_branch and not ("?" in extended_lower and ":" in extended_lower):
+        return False
+
+    if CONDITION_METHOD_RE.search(extended_lower):
+        return True
+    if CONDITION_OPERATOR_RE.search(context_lower):
+        return True
+    if str(language or "").lower() == "python" and PYTHON_IN_RE.search(context_lower):
+        return True
+    return False
+
+
+def looks_like_assert_api_literal(snippet, context="", extra_context=""):
+    snippet_text = decode_unicode_escapes(str(snippet or ""))
+    context_text = decode_unicode_escapes(str(context or ""))
+    extra_text = decode_unicode_escapes(str(extra_context or ""))
+    combined_lower = "{} {} {}".format(snippet_text.lower(), context_text.lower(), extra_text.lower()).strip()
+    if not combined_lower:
+        return False
+    return bool(ASSERT_API_RE.search(combined_lower))

@@ -11,6 +11,8 @@ CATEGORY_GENERIC_DOCUMENTATION = "GENERIC_DOCUMENTATION"
 CATEGORY_DATABASE_SCRIPT = "DATABASE_SCRIPT"
 CATEGORY_SHELL_SCRIPT = "SHELL_SCRIPT"
 CATEGORY_NAMED_FILE = "NAMED_FILE"
+CATEGORY_I18N_FILE = "I18N_FILE"
+CATEGORY_CONDITION_EXPRESSION_LITERAL = "CONDITION_EXPRESSION_LITERAL"
 CATEGORY_TEST_SAMPLE_FIXTURE = "TEST_SAMPLE_FIXTURE"
 CATEGORY_CONFIG_ITEM = "CONFIG_ITEM"
 CATEGORY_PROTOCOL_OR_PERSISTED_LITERAL = "PROTOCOL_OR_PERSISTED_LITERAL"
@@ -28,6 +30,8 @@ CATEGORY_ORDER = [
     CATEGORY_DATABASE_SCRIPT,
     CATEGORY_SHELL_SCRIPT,
     CATEGORY_NAMED_FILE,
+    CATEGORY_I18N_FILE,
+    CATEGORY_CONDITION_EXPRESSION_LITERAL,
     CATEGORY_LOG_AUDIT_DEBUG,
     CATEGORY_TEST_SAMPLE_FIXTURE,
 ]
@@ -134,6 +138,7 @@ class RawFinding(Serializable):
         "symbol",
         "text",
         "normalized_text",
+        "hit_text",
         "snippet",
         "context_window",
         "file_role",
@@ -153,6 +158,7 @@ class RawFinding(Serializable):
         symbol,
         text,
         normalized_text,
+        hit_text,
         snippet,
         context_window,
         file_role,
@@ -169,6 +175,7 @@ class RawFinding(Serializable):
         self.symbol = symbol
         self.text = text
         self.normalized_text = normalized_text
+        self.hit_text = hit_text
         self.snippet = snippet
         self.context_window = context_window
         self.file_role = file_role
@@ -188,6 +195,7 @@ class ClassifiedFinding(Serializable):
         "symbol",
         "text",
         "normalized_text",
+        "hit_text",
         "snippet",
         "category",
         "action",
@@ -212,6 +220,7 @@ class ClassifiedFinding(Serializable):
         symbol,
         text,
         normalized_text,
+        hit_text,
         snippet,
         category,
         action,
@@ -233,6 +242,7 @@ class ClassifiedFinding(Serializable):
         self.symbol = symbol
         self.text = text
         self.normalized_text = normalized_text
+        self.hit_text = hit_text
         self.snippet = snippet
         self.category = category
         self.action = action

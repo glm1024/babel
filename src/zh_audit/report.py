@@ -12,6 +12,8 @@ DISPLAY_MAPS = {
         "DATABASE_SCRIPT": "数据库脚本",
         "SHELL_SCRIPT": "Shell 脚本",
         "NAMED_FILE": "指定文件",
+        "I18N_FILE": "国际化文件",
+        "CONDITION_EXPRESSION_LITERAL": "条件判断字面量",
         "TEST_SAMPLE_FIXTURE": "测试与样例",
         "CONFIG_ITEM": "配置项",
         "PROTOCOL_OR_PERSISTED_LITERAL": "协议/持久化字面量",
@@ -66,6 +68,8 @@ DISPLAY_MAPS = {
         "Shell script context.": "当前命中位于 Shell 脚本中。",
         "Swagger/OpenAPI annotation context.": "当前命中位于 Swagger/OpenAPI 注解上下文。",
         "Named file context.": "当前命中位于指定文件中。",
+        "I18n messages file context.": "当前命中位于国际化文件中。",
+        "Condition expression literal context.": "当前命中用于条件判断表达式。",
     },
 }
 
@@ -462,10 +466,10 @@ def render_report(summary, findings):
       white-space: nowrap;
       word-break: keep-all;
     }
-    .hit-text-cell strong {
-      display: block;
+    .hit-text-cell {
       line-height: 1.65;
       overflow-wrap: anywhere;
+      font-weight: 400;
     }
     .text-cell,
     .reason-cell {
@@ -875,7 +879,11 @@ def render_report(summary, findings):
     }
 
     function findingText(item) {
-      return item.normalized_text || item.text || item.snippet || "";
+      if (item.hit_text) {
+        return item.hit_text;
+      }
+      return String(item.normalized_text || item.text || item.snippet || "")
+        .replace(/[^\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g, "");
     }
 
     function displaySnippet(item) {
@@ -916,7 +924,7 @@ def render_report(summary, findings):
       if (excludedKey !== "category" && state.filters.category && item.category !== state.filters.category) return false;
       if (excludedKey !== "lang" && state.filters.lang && item.lang !== state.filters.lang) return false;
       if (keyword) {
-        const target = `${item.path} ${item.text} ${item.snippet || ""} ${item.reason}`.toLowerCase();
+        const target = `${item.path} ${item.hit_text || ""} ${item.text} ${item.snippet || ""} ${item.reason}`.toLowerCase();
         if (!target.includes(keyword)) return false;
       }
       return true;
@@ -1096,7 +1104,7 @@ def render_report(summary, findings):
           <tr>
             <td class="project-cell">${escapeHtml(item.project)}</td>
             <td class="location-cell">${positionMarkup(item)}</td>
-            <td class="hit-text-cell"><strong>${escapeHtml(findingText(item))}</strong></td>
+            <td class="hit-text-cell">${escapeHtml(findingText(item) || "-")}</td>
             <td class="text-cell">${escapeHtml(displaySnippet(item) || "-")}</td>
             <td class="category-cell">${escapeHtml(labelFor("category", item.category))}</td>
             <td class="action-cell"><span class="pill ${item.action}">${escapeHtml(labelFor("action", item.action))}</span></td>

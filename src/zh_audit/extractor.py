@@ -10,6 +10,7 @@ from zh_audit.utils import (
     compact_snippet,
     contains_han,
     decode_unicode_escapes,
+    extract_hit_text,
     file_role_from_path,
     guess_language,
     is_probable_comment_line,
@@ -399,6 +400,7 @@ def _build_finding(
     metadata=None,
 ):
     normalized = normalize_text(raw_text)
+    hit_text = extract_hit_text(raw_text)
     finding_id = sha1_text(f"{repo}|{relative_path}|{line_no}|{column}|{normalized}|{surface_kind}")[:16]
     return RawFinding(
         id=finding_id,
@@ -411,6 +413,7 @@ def _build_finding(
         symbol=symbol,
         text=raw_text.strip(),
         normalized_text=normalized,
+        hit_text=hit_text,
         snippet=compact_snippet(snippet),
         context_window=context_window,
         file_role=file_role,
