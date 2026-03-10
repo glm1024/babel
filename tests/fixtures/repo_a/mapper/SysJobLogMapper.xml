@@ -1,0 +1,3 @@
+<mapper namespace="demo.Mapper">
+  <if test="params.beginTime != null and params.beginTime != ''"><!-- 开始时间检索 --></if>
+</mapper>
