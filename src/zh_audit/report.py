@@ -59,7 +59,7 @@ DISPLAY_MAPS = {
     },
 }
 
-PAGE_SIZES = [10, 100, "ALL"]
+PAGE_SIZES = [10, 100, 500]
 
 
 def render_report(summary, findings):
@@ -764,6 +764,7 @@ def render_report(summary, findings):
     const actionFilter = document.getElementById("actionFilter");
     const keywordFilter = document.getElementById("keywordFilter");
     const rows = document.getElementById("rows");
+    const tableWrap = document.querySelector(".table-wrap");
     const resultCount = document.getElementById("resultCount");
     const pageSizeSelect = document.getElementById("pageSizeSelect");
     const pageInput = document.getElementById("pageInput");
@@ -856,8 +857,7 @@ def render_report(summary, findings):
     function setPageSizeOptions() {
       pageSizeSelect.innerHTML = PAGE_SIZES
         .map(value => {
-          const label = value === "ALL" ? "全部" : `${value} 条`;
-          return `<option value="${value}" ${value === state.pageSize ? "selected" : ""}>${label}</option>`;
+          return `<option value="${value}" ${value === state.pageSize ? "selected" : ""}>${value} 条</option>`;
         })
         .join("");
     }
@@ -879,8 +879,8 @@ def render_report(summary, findings):
 
     function paginateFindings(items) {
       const total = items.length;
-      const pageSize = state.pageSize === "ALL" ? Math.max(total, 1) : state.pageSize;
-      const totalPages = state.pageSize === "ALL" ? 1 : Math.max(1, Math.ceil(total / pageSize));
+      const pageSize = state.pageSize;
+      const totalPages = Math.max(1, Math.ceil(total / pageSize));
       state.currentPage = Math.min(Math.max(1, state.currentPage), totalPages);
       const startIndex = total === 0 ? 0 : (state.currentPage - 1) * pageSize;
       const endIndex = total === 0 ? 0 : Math.min(startIndex + pageSize, total);
@@ -1026,6 +1026,13 @@ def render_report(summary, findings):
       nextPageBtn.disabled = state.currentPage >= page.totalPages || current.length === 0;
     }
 
+    function scrollResultsToTop() {
+      if (tableWrap) {
+        tableWrap.scrollTop = 0;
+      }
+      window.scrollTo(0, 0);
+    }
+
     function exportCsv() {
       const current = filteredFindings();
       const headers = ["项目", "位置", "文本", "分类", "动作", "说明"];
@@ -1055,6 +1062,7 @@ def render_report(summary, findings):
     function resetAndRender() {
       state.currentPage = 1;
       renderRows();
+      scrollResultsToTop();
     }
 
     function goToPage() {
@@ -1065,6 +1073,7 @@ def render_report(summary, findings):
         state.currentPage = value;
       }
       renderRows();
+      scrollResultsToTop();
     }
 
     function showCopyToast(message, isError = false) {
@@ -1148,11 +1157,10 @@ def render_report(summary, findings):
     });
     keywordFilter.addEventListener("input", resetAndRender);
     pageSizeSelect.addEventListener("change", () => {
-      state.pageSize = pageSizeSelect.value === "ALL"
-        ? "ALL"
-        : Number.parseInt(pageSizeSelect.value, 10) || 10;
+      state.pageSize = Number.parseInt(pageSizeSelect.value, 10) || 10;
       state.currentPage = 1;
       renderRows();
+      scrollResultsToTop();
     });
     goPageBtn.addEventListener("click", goToPage);
     pageInput.addEventListener("keydown", event => {
@@ -1163,10 +1171,12 @@ def render_report(summary, findings):
     prevPageBtn.addEventListener("click", () => {
       state.currentPage -= 1;
       renderRows();
+      scrollResultsToTop();
     });
     nextPageBtn.addEventListener("click", () => {
       state.currentPage += 1;
       renderRows();
+      scrollResultsToTop();
     });
     document.getElementById("exportBtn").addEventListener("click", exportCsv);
     openSkipDialogBtn.addEventListener("click", openSkipDialog);
