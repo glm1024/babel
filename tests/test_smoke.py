@@ -64,6 +64,9 @@ class ScanSmokeTest(unittest.TestCase):
                 any(item["text"] == "编码类型" and item["category"] == "COMMENT_DOCUMENTATION" for item in findings)
             )
             self.assertTrue(
+                any("// 编码类型" in item["snippet"] for item in findings if item["category"] == "COMMENT_DOCUMENTATION")
+            )
+            self.assertTrue(
                 any(
                     item["text"] == "菜单已分配,不允许删除"
                     and item["category"] == "ERROR_VALIDATION_MESSAGE"
@@ -93,6 +96,7 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn('id="skipReasonChips"', report)
             self.assertIn('id="skipRows"', report)
             self.assertIn("第三方依赖目录", report)
+            self.assertIn("// 编码类型", report)
             self.assertNotIn("展开详情", report)
             self.assertNotIn("项目与覆盖率", report)
             self.assertNotIn("summaryToggle", report)

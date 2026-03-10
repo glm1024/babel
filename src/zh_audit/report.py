@@ -831,7 +831,7 @@ def render_report(summary, findings):
         if (categoryFilter.value && item.category !== categoryFilter.value) return false;
         if (actionFilter.value && item.action !== actionFilter.value) return false;
         if (keyword) {
-          const target = `${item.path} ${item.text} ${item.reason}`.toLowerCase();
+          const target = `${item.path} ${item.text} ${item.snippet || ""} ${item.reason}`.toLowerCase();
           if (!target.includes(keyword)) return false;
         }
         return true;
@@ -972,7 +972,7 @@ def render_report(summary, findings):
           <tr>
             <td class="project-cell">${escapeHtml(item.project)}</td>
             <td class="location-cell">${positionMarkup(item)}</td>
-            <td class="text-cell"><strong>${escapeHtml(item.normalized_text || item.text)}</strong></td>
+            <td class="text-cell"><strong>${escapeHtml(item.snippet || item.normalized_text || item.text)}</strong></td>
             <td class="category-cell">${escapeHtml(labelFor("category", item.category))}${item.high_risk ? '<span class="pill high-risk">高风险</span>' : ""}</td>
             <td class="action-cell"><span class="pill ${item.action}">${escapeHtml(labelFor("action", item.action))}</span></td>
             <td class="reason-cell">${escapeHtml(labelFor("reason", item.reason) || item.reason || "-")}</td>
@@ -992,7 +992,7 @@ def render_report(summary, findings):
       const rows = current.map(item => [
         item.project || "",
         `${item.path || ""}:${item.line ?? ""}`,
-        item.normalized_text || item.text || "",
+        item.snippet || item.normalized_text || item.text || "",
         labelFor("category", item.category),
         labelFor("action", item.action),
         labelFor("reason", item.reason) || item.reason || "-",
