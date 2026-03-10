@@ -43,6 +43,8 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("SWAGGER_DOCUMENTATION", categories)
             self.assertIn("GENERIC_DOCUMENTATION", categories)
             self.assertIn("DATABASE_SCRIPT", categories)
+            self.assertIn("SHELL_SCRIPT", categories)
+            self.assertIn("NAMED_FILE", categories)
             self.assertIn("TEST_SAMPLE_FIXTURE", categories)
             self.assertIn("CONFIG_ITEM", categories)
             self.assertIn("PROTOCOL_OR_PERSISTED_LITERAL", categories)
@@ -51,9 +53,8 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("scan_policy", summary)
             self.assertIn("**/static/ajax/libs/**", summary["scan_policy"]["exclude_globs"])
             self.assertEqual(summary["excluded_files"], 1)
-            self.assertEqual(summary["skip_reasons"].get("named_file"), 1)
+            self.assertNotIn("named_file", summary["skip_reasons"])
             self.assertFalse(any("static/ajax/libs/" in item["path"] for item in findings))
-            self.assertFalse(any(item["path"] == "Jekinsfiles.slim" for item in findings))
             self.assertTrue(
                 any(
                     item["skip_reason"] == "excluded_by_policy"
@@ -64,11 +65,10 @@ class ScanSmokeTest(unittest.TestCase):
             )
             self.assertTrue(
                 any(
-                    item["relative_path"] == "Jekinsfiles.slim"
-                    and item["skip_reason"] == "named_file"
-                    and "命中指定文件名规则" in item["skip_detail"]
-                    and item["skip_detail"] == "命中指定文件名规则：Jekinsfiles.slim。"
-                    for item in summary["files"]
+                    item["path"] == "Jekinsfiles.slim"
+                    and item["category"] == "NAMED_FILE"
+                    and item["action"] == "keep"
+                    for item in findings
                 )
             )
             self.assertTrue(
@@ -213,12 +213,23 @@ class ScanSmokeTest(unittest.TestCase):
                     for item in findings
                 )
             )
+            self.assertTrue(
+                any(
+                    item["text"] == "发布完成"
+                    and item["path"] == "scripts/deploy.sh"
+                    and item["category"] == "SHELL_SCRIPT"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
             self.assertFalse(any(item["action"] == "review" for item in findings))
             self.assertIn("用户可见文案", report)
             self.assertIn("注释", report)
             self.assertIn("Swagger 文档", report)
             self.assertIn("普通文档", report)
             self.assertIn("数据库脚本", report)
+            self.assertIn("Shell 脚本", report)
+            self.assertIn("指定文件", report)
             self.assertIn("配置项", report)
             self.assertIn("协议/持久化字面量", report)
             self.assertIn("扫描摘要", report)
@@ -236,8 +247,6 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn('id="skipReasonChips"', report)
             self.assertIn('id="skipRows"', report)
             self.assertIn("第三方依赖目录", report)
-            self.assertIn("指定文件名", report)
-            self.assertIn("命中指定文件名规则：Jekinsfiles.slim。", report)
             self.assertIn("Swagger/OpenAPI 注解上下文", report)
             self.assertIn("// 编码类型", report)
             self.assertNotIn("展开详情", report)
@@ -275,6 +284,8 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("window.scrollTo(0, 0);", report)
             self.assertIn('const headers = ["项目", "位置", "文本", "分类", "动作", "说明"];', report)
             self.assertIn('new Blob(["\\ufeff", lines.join("\\n")], { type: "text/csv;charset=utf-8" })', report)
+            self.assertIn("function findingText(item) {", report)
+            self.assertIn("function snippetMarkup(item) {", report)
             self.assertIn(".position-cell {", report)
             self.assertIn("width: 100%;", report)
             self.assertIn("flex: 1 1 auto;", report)
@@ -285,6 +296,7 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("height: calc(100vh - 68px);", report)
             self.assertIn(".findings-table thead th {", report)
             self.assertIn("position: sticky;", report)
+            self.assertNotIn("item.snippet || item.normalized_text || item.text", report)
             self.assertNotIn('setOptions(projectFilter, findings.map(item => item.project), "项目", "project");', report)
             self.assertNotIn('setOptions(categoryFilter, findings.map(item => item.category), "分类", "category");', report)
 

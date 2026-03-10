@@ -83,6 +83,14 @@ BINARY_EXTENSIONS = {
     ".exe",
 }
 
+NAMED_KEEP_FILE_NAMES = {
+    "jenkinsfile",
+    "jenkinsfile.slim",
+    "jekinsfile",
+    "jekinsfile.slim",
+    "jekinsfiles.slim",
+}
+
 
 def sha1_text(value):
     return hashlib.sha1(value.encode("utf-8")).hexdigest()
@@ -160,9 +168,18 @@ def guess_language(path):
         ".md": "markdown",
         ".txt": "text",
         ".sh": "shell",
+        ".bash": "shell",
+        ".zsh": "shell",
+        ".bat": "shell",
         ".xml": "xml",
     }
     return mapping.get(suffix, _suffix_name(suffix))
+
+
+def is_named_keep_file(path_str):
+    normalized = str(path_str).replace("\\", "/")
+    file_name = normalized.rsplit("/", 1)[-1].lower()
+    return file_name in NAMED_KEEP_FILE_NAMES
 
 
 def file_role_from_path(path_str):

@@ -8,7 +8,9 @@ from zh_audit.models import (
     CATEGORY_ERROR_VALIDATION_MESSAGE,
     CATEGORY_GENERIC_DOCUMENTATION,
     CATEGORY_LOG_AUDIT_DEBUG,
+    CATEGORY_NAMED_FILE,
     CATEGORY_PROTOCOL_OR_PERSISTED_LITERAL,
+    CATEGORY_SHELL_SCRIPT,
     CATEGORY_SWAGGER_DOCUMENTATION,
     CATEGORY_TEST_SAMPLE_FIXTURE,
     CATEGORY_UNKNOWN,
@@ -16,6 +18,7 @@ from zh_audit.models import (
     ClassifiedFinding,
     RawFinding,
 )
+from zh_audit.utils import is_named_keep_file
 
 
 CONFIG_LANGS = {"yaml", "json", "properties", "toml"}
@@ -72,10 +75,20 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
     end_user_visible = False
     reason = "No strong rule matched."
 
-    if raw.lang == "sql":
+    if is_named_keep_file(path):
+        category = CATEGORY_NAMED_FILE
+        confidence = 0.99
+        reason = "Named file context."
+        action = "keep"
+    elif raw.lang == "sql":
         category = CATEGORY_DATABASE_SCRIPT
         confidence = 0.93
         reason = "Database script context."
+        action = "keep"
+    elif raw.lang == "shell":
+        category = CATEGORY_SHELL_SCRIPT
+        confidence = 0.93
+        reason = "Shell script context."
         action = "keep"
     elif raw.file_role == "test_or_sample":
         category = CATEGORY_TEST_SAMPLE_FIXTURE

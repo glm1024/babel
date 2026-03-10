@@ -14,7 +14,9 @@ from zh_audit.models import (
     CATEGORY_ERROR_VALIDATION_MESSAGE,
     CATEGORY_GENERIC_DOCUMENTATION,
     CATEGORY_LOG_AUDIT_DEBUG,
+    CATEGORY_NAMED_FILE,
     CATEGORY_PROTOCOL_OR_PERSISTED_LITERAL,
+    CATEGORY_SHELL_SCRIPT,
     CATEGORY_SWAGGER_DOCUMENTATION,
     CATEGORY_TEST_SAMPLE_FIXTURE,
     CATEGORY_UNKNOWN,
@@ -22,7 +24,7 @@ from zh_audit.models import (
     CATEGORY_ORDER as MODEL_CATEGORY_ORDER,
     ScanSettings,
 )
-from zh_audit.utils import matches_any_glob
+from zh_audit.utils import is_named_keep_file, matches_any_glob
 
 
 HAN_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
@@ -41,6 +43,8 @@ SAMPLED_CATEGORIES = {
     CATEGORY_SWAGGER_DOCUMENTATION,
     CATEGORY_GENERIC_DOCUMENTATION,
     CATEGORY_DATABASE_SCRIPT,
+    CATEGORY_SHELL_SCRIPT,
+    CATEGORY_NAMED_FILE,
     CATEGORY_LOG_AUDIT_DEBUG,
     CATEGORY_TEST_SAMPLE_FIXTURE,
     CATEGORY_CONFIG_ITEM,
@@ -91,7 +95,7 @@ def validate_report(
     in_scope_tracked_files = [
         path
         for path in tracked_files
-        if not matches_any_glob(path, effective_scan_settings.exclude_globs) and not _is_builtin_excluded_path(path)
+        if not matches_any_glob(path, effective_scan_settings.exclude_globs)
     ]
     baseline = _build_baseline(repo_root, in_scope_tracked_files)
     coverage_rows, coverage_metrics = _build_coverage_diff(
@@ -334,22 +338,6 @@ def _build_coverage_diff(
                 }
             )
             continue
-        if _is_builtin_excluded_path(finding["path"]):
-            excluded_path_findings += 1
-            rows.append(
-                {
-                    "scope": "full_repo",
-                    "kind": "policy_violation",
-                    "slice": _slice_for_path(finding["path"]),
-                    "path": finding["path"],
-                    "line": finding["line"],
-                    "text": _compact_text(finding.get("normalized_text") or finding.get("text", "")),
-                    "reason": "finding exists under built-in excluded filename",
-                    "reported_category": finding["category"],
-                    "reported_action": finding["action"],
-                }
-            )
-            continue
         key = (finding["path"], int(finding["line"]))
         if key in baseline_lines:
             continue
@@ -537,8 +525,12 @@ def _expected_category(
     text_lower = text.lower()
     governance_in_scope = slice_name == "first_party"
 
+    if is_named_keep_file(path):
+        return CATEGORY_NAMED_FILE, False, "指定文件中的中文统一归为指定文件。"
     if ext == ".sql":
         return CATEGORY_DATABASE_SCRIPT, False, "SQL 文件中的中文统一归为数据库脚本。"
+    if ext in {".bat", ".sh", ".bash", ".zsh"}:
+        return CATEGORY_SHELL_SCRIPT, False, "Shell 脚本中的中文统一归为 Shell 脚本。"
     if slice_name == "demo":
         return CATEGORY_TEST_SAMPLE_FIXTURE, False, "示例或演示路径应视为样例内容。"
     if (
@@ -570,8 +562,6 @@ def _expected_category(
         return CATEGORY_USER_VISIBLE_COPY, governance_in_scope, "模板或前端资源中的中文通常面向用户可见。"
     if _looks_like_protocol_literal(source_lower, text_lower):
         return CATEGORY_PROTOCOL_OR_PERSISTED_LITERAL, governance_in_scope, "文本更接近协议、状态或持久化字面量。"
-    if ext in {".bat", ".sh"} and any(token in source_lower for token in ("echo", "printf")):
-        return CATEGORY_USER_VISIBLE_COPY, False, "脚本回显文本更接近命令行用户提示。"
     if ext == ".xml":
         return CATEGORY_CONFIG_ITEM, governance_in_scope, "XML 非注释中文默认视为配置项。"
     if finding.get("surface_kind") == "string_literal":
@@ -592,12 +582,6 @@ def _looks_like_log_context(source_lower: str) -> bool:
         or "system.err." in source_lower
         or "printstacktrace(" in source_lower
     )
-
-
-def _is_builtin_excluded_path(path: str) -> bool:
-    normalized = path.replace("\\", "/")
-    file_name = normalized.rsplit("/", 1)[-1]
-    return file_name.lower() == "jekinsfiles.slim"
 
 
 def _looks_like_protocol_literal(source_lower: str, text_lower: str) -> bool:

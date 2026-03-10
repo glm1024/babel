@@ -53,21 +53,6 @@ def run_scan(repos, scan_settings, run_id, progress_callback=None):
                     relative_path=relative,
                 )
             lang = guess_language(path)
-            if _is_builtin_excluded_file(relative):
-                file_records.append(
-                    FileRecord(
-                        repo=repo.name,
-                        path=path,
-                        relative_path=relative,
-                        eligible=False,
-                        scanned=False,
-                        skip_reason="named_file",
-                        skip_detail=_skip_detail_for_builtin_file(relative),
-                        lang=lang,
-                        size_bytes=path.stat().st_size if path.exists() else 0,
-                    )
-                )
-                continue
             if matches_any_glob(relative, scan_settings.exclude_globs):
                 matched_glob = _matched_glob(relative, scan_settings.exclude_globs)
                 file_records.append(
@@ -302,12 +287,6 @@ def _matched_glob(path_str, patterns):
     return ""
 
 
-def _is_builtin_excluded_file(relative_path):
-    normalized = relative_path.replace("\\", "/")
-    file_name = normalized.rsplit("/", 1)[-1]
-    return file_name.lower() == "jekinsfiles.slim"
-
-
 def _skip_detail_for_policy(relative_path, matched_glob):
     normalized = relative_path.replace("\\", "/").lower()
     if any(token in normalized for token in ("static/ajax/libs/", "node_modules/", "vendor/", "webjars/")):
@@ -319,12 +298,6 @@ def _skip_detail_for_policy(relative_path, matched_glob):
     if matched_glob:
         return "{}，匹配规则 {}。".format(base, matched_glob)
     return "{}。".format(base)
-
-
-def _skip_detail_for_builtin_file(relative_path):
-    normalized = relative_path.replace("\\", "/")
-    file_name = normalized.rsplit("/", 1)[-1]
-    return "命中指定文件名规则：{}。".format(file_name)
 
 
 def _skip_detail_for_file(path, skip_reason, max_file_size_bytes):

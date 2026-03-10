@@ -10,6 +10,8 @@ DISPLAY_MAPS = {
         "SWAGGER_DOCUMENTATION": "Swagger 文档",
         "GENERIC_DOCUMENTATION": "普通文档",
         "DATABASE_SCRIPT": "数据库脚本",
+        "SHELL_SCRIPT": "Shell 脚本",
+        "NAMED_FILE": "指定文件",
         "TEST_SAMPLE_FIXTURE": "测试与样例",
         "CONFIG_ITEM": "配置项",
         "PROTOCOL_OR_PERSISTED_LITERAL": "协议/持久化字面量",
@@ -61,8 +63,9 @@ DISPLAY_MAPS = {
         "String literal with Chinese text.": "当前命中是包含中文的字符串字面量。",
         "Documentation asset context.": "当前命中位于普通文档资产中。",
         "Database script context.": "当前命中位于数据库脚本中。",
+        "Shell script context.": "当前命中位于 Shell 脚本中。",
         "Swagger/OpenAPI annotation context.": "当前命中位于 Swagger/OpenAPI 注解上下文。",
-        "Built-in filename exclusion.": "当前文件命中内置文件名排除规则。",
+        "Named file context.": "当前命中位于指定文件中。",
     },
 }
 
@@ -463,6 +466,16 @@ def render_report(summary, findings):
       line-height: 1.65;
       overflow-wrap: anywhere;
     }
+    .text-cell {
+      display: grid;
+      gap: 4px;
+    }
+    .text-context {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+      overflow-wrap: anywhere;
+    }
     .skip-dialog {
       width: min(980px, calc(100vw - 48px));
       max-width: 980px;
@@ -859,6 +872,19 @@ def render_report(summary, findings):
       return item.skip_detail || "";
     }
 
+    function findingText(item) {
+      return item.normalized_text || item.text || item.snippet || "";
+    }
+
+    function snippetMarkup(item) {
+      const snippet = item.snippet || "";
+      const text = findingText(item);
+      if (!snippet || snippet === text) {
+        return "";
+      }
+      return `<div class="text-context">${escapeHtml(snippet)}</div>`;
+    }
+
     function setOptions(select, values, label, group, selectedValue) {
       const unique = [...new Set(values.filter(value => value !== undefined && value !== null && value !== ""))]
         .sort((left, right) => labelFor(group, left).localeCompare(labelFor(group, right), "zh-CN"));
@@ -1073,7 +1099,7 @@ def render_report(summary, findings):
           <tr>
             <td class="project-cell">${escapeHtml(item.project)}</td>
             <td class="location-cell">${positionMarkup(item)}</td>
-            <td class="text-cell"><strong>${escapeHtml(item.snippet || item.normalized_text || item.text)}</strong></td>
+            <td class="text-cell"><strong>${escapeHtml(findingText(item))}</strong>${snippetMarkup(item)}</td>
             <td class="category-cell">${escapeHtml(labelFor("category", item.category))}</td>
             <td class="action-cell"><span class="pill ${item.action}">${escapeHtml(labelFor("action", item.action))}</span></td>
             <td class="reason-cell">${escapeHtml(labelFor("reason", item.reason) || item.reason || "-")}</td>
@@ -1100,7 +1126,7 @@ def render_report(summary, findings):
       const rows = current.map(item => [
         item.project || "",
         `${item.path || ""}:${item.line ?? ""}`,
-        item.snippet || item.normalized_text || item.text || "",
+        findingText(item),
         labelFor("category", item.category),
         labelFor("action", item.action),
         labelFor("reason", item.reason) || item.reason || "-",
