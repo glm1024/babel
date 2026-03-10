@@ -1,10 +1,8 @@
-from __future__ import annotations
-
 import fnmatch
 import subprocess
 from collections import Counter
-from dataclasses import asdict
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 from zh_audit.classifier import classify_rule
 from zh_audit.extractor import extract_file
@@ -22,12 +20,8 @@ from zh_audit.utils import contains_han, decode_unicode_escapes, guess_language,
 ENCODINGS = ("utf-8", "utf-8-sig", "gb18030")
 
 
-def run_scan(
-    repos: list[RepoSpec],
-    scan_settings: ScanSettings,
-    run_id: str,
-) -> RunArtifacts:
-    file_records: list[FileRecord] = []
+def run_scan(repos, scan_settings, run_id):
+    file_records = []
     raw_findings = []
 
     for repo in repos:
@@ -120,17 +114,20 @@ def run_scan(
     return RunArtifacts(findings=classified, file_records=file_records, summary=summary)
 
 
-def _walk_files(root: Path):
+def _walk_files(root):
     try:
-        top_level = subprocess.run(
+        top_level_proc = subprocess.run(
             ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
             check=True,
-        ).stdout.strip()
+        )
+        top_level = top_level_proc.stdout.strip()
         proc = subprocess.run(
             ["git", "-C", str(root), "ls-files", "-z"],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             check=True,
         )
     except (OSError, subprocess.CalledProcessError):
@@ -153,7 +150,7 @@ def _walk_files(root: Path):
         yield path
 
 
-def _read_text(path: Path) -> tuple[str | None, str]:
+def _read_text(path):
     for encoding in ENCODINGS:
         try:
             return path.read_text(encoding=encoding), encoding
@@ -164,16 +161,10 @@ def _read_text(path: Path) -> tuple[str | None, str]:
     return None, ""
 
 
-def _build_summary(
-    repos: list[RepoSpec],
-    file_records: list[FileRecord],
-    findings,
-    run_id: str,
-    scan_settings: ScanSettings,
-) -> dict[str, object]:
+def _build_summary(repos, file_records, findings, run_id, scan_settings):
     by_project = Counter()
     by_lang = Counter()
-    by_category = Counter({category: 0 for category in CATEGORY_ORDER})
+    by_category = Counter(dict((category, 0) for category in CATEGORY_ORDER))
     by_action = Counter()
     by_skip_reason = Counter()
     by_project_files = Counter()
@@ -195,19 +186,19 @@ def _build_summary(
         by_lang[finding.lang] += 1
         by_category[finding.category] += 1
         by_action[finding.action] += 1
-        top_files[f"{finding.project}:{finding.path}"] += 1
+        top_files["{}:{}".format(finding.project, finding.path)] += 1
         top_texts[finding.normalized_text] += 1
         if finding.category == CATEGORY_UNKNOWN:
             unknown_count += 1
         if finding.high_risk:
-            top_high_risk[f"{finding.project}:{finding.path}:{finding.normalized_text}"] += 1
+            top_high_risk["{}:{}:{}".format(finding.project, finding.path, finding.normalized_text)] += 1
             project_high_risk[finding.project] += 1
 
     eligible_files = sum(1 for record in file_records if record.eligible)
     scanned_files = sum(1 for record in file_records if record.scanned)
     skipped_files = sum(1 for record in file_records if record.skip_reason)
     excluded_files = sum(1 for record in file_records if record.skip_reason == "excluded_by_policy")
-    unique_text_count = len({finding.normalized_text for finding in findings})
+    unique_text_count = len(set(finding.normalized_text for finding in findings))
 
     return {
         "run_id": run_id,
@@ -219,7 +210,7 @@ def _build_summary(
         "skip_reasons": dict(by_skip_reason),
         "occurrence_count": len(findings),
         "unique_text_count": unique_text_count,
-        "unknown_rate": round((unknown_count / len(findings)) if findings else 0.0, 4),
+        "unknown_rate": round((float(unknown_count) / len(findings)) if findings else 0.0, 4),
         "by_project": dict(by_project),
         "by_project_files": dict(by_project_files),
         "by_lang": dict(by_lang),
@@ -235,15 +226,21 @@ def _build_summary(
             "context_lines": scan_settings.context_lines,
             "exclude_globs": list(scan_settings.exclude_globs),
         },
-        "files": [asdict(record) | {"path": str(record.path)} for record in file_records],
+        "files": [_file_record_payload(record) for record in file_records],
     }
 
 
-def _top(counter: Counter, limit: int = 20):
+def _file_record_payload(record):
+    payload = record.to_dict()
+    payload["path"] = str(record.path)
+    return payload
+
+
+def _top(counter, limit=20):
     return [{"name": name, "count": count} for name, count in counter.most_common(limit)]
 
 
-def _matched_glob(path_str: str, patterns: list[str]) -> str:
+def _matched_glob(path_str, patterns):
     normalized = path_str.replace("\\", "/")
     for pattern in patterns:
         candidates = [pattern]
@@ -255,7 +252,7 @@ def _matched_glob(path_str: str, patterns: list[str]) -> str:
     return ""
 
 
-def _skip_detail_for_policy(relative_path: str, matched_glob: str) -> str:
+def _skip_detail_for_policy(relative_path, matched_glob):
     normalized = relative_path.replace("\\", "/").lower()
     if any(token in normalized for token in ("static/ajax/libs/", "node_modules/", "vendor/", "webjars/")):
         base = "第三方依赖目录"
@@ -264,21 +261,21 @@ def _skip_detail_for_policy(relative_path: str, matched_glob: str) -> str:
     else:
         base = "命中路径排除规则"
     if matched_glob:
-        return f"{base}，匹配规则 {matched_glob}。"
-    return f"{base}。"
+        return "{}，匹配规则 {}。".format(base, matched_glob)
+    return "{}。".format(base)
 
 
-def _skip_detail_for_file(path: Path, skip_reason: str, max_file_size_bytes: int) -> str:
+def _skip_detail_for_file(path, skip_reason, max_file_size_bytes):
     if skip_reason == "binary_extension":
         suffix = path.suffix.lower() or "无扩展名"
-        return f"扩展名 {suffix} 按二进制文件处理。"
+        return "扩展名 {} 按二进制文件处理。".format(suffix)
     if skip_reason == "binary_content":
         return "文件内容包含二进制字节特征（如 NUL 字节）。"
     if skip_reason == "too_large":
         size = path.stat().st_size if path.exists() else 0
-        actual_mb = size / (1024 * 1024)
-        limit_mb = max_file_size_bytes / (1024 * 1024)
-        return f"文件大小 {actual_mb:.1f} MB，超过扫描上限 {limit_mb:.1f} MB。"
+        actual_mb = size / float(1024 * 1024)
+        limit_mb = max_file_size_bytes / float(1024 * 1024)
+        return "文件大小 {:.1f} MB，超过扫描上限 {:.1f} MB。".format(actual_mb, limit_mb)
     if skip_reason == "read_error":
         return "读取文件内容失败。"
     if skip_reason == "stat_error":

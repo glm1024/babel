@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import csv
 import json
 import subprocess
@@ -16,7 +14,13 @@ class ValidationSmokeTest(unittest.TestCase):
             root = Path(temp_dir)
             repo = root / "repo"
             repo.mkdir()
-            subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "init"],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
 
             template = repo / "templates" / "error.html"
             template.parent.mkdir(parents=True)
@@ -33,7 +37,13 @@ class ValidationSmokeTest(unittest.TestCase):
             vendor_file.parent.mkdir(parents=True)
             vendor_file.write_text('const title = "第三方控件";\n', encoding="utf-8")
 
-            subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "add", "."],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
 
             findings_path = root / "findings.json"
             summary_path = root / "summary.json"

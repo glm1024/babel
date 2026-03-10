@@ -1,9 +1,8 @@
-from __future__ import annotations
-
 import fnmatch
 import hashlib
 import re
 from pathlib import Path
+from typing import List, Match, Tuple
 
 
 HAN_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
@@ -85,16 +84,16 @@ BINARY_EXTENSIONS = {
 }
 
 
-def sha1_text(value: str) -> str:
+def sha1_text(value):
     return hashlib.sha1(value.encode("utf-8")).hexdigest()
 
 
-def contains_han(text: str) -> bool:
+def contains_han(text):
     return bool(HAN_RE.search(text))
 
 
-def decode_unicode_escapes(text: str) -> str:
-    def repl(match: re.Match[str]) -> str:
+def decode_unicode_escapes(text):
+    def repl(match):
         raw = match.group(0)
         try:
             return raw.encode("ascii").decode("unicode_escape")
@@ -104,13 +103,13 @@ def decode_unicode_escapes(text: str) -> str:
     return UNICODE_ESCAPE_RE.sub(repl, text)
 
 
-def normalize_text(text: str) -> str:
+def normalize_text(text):
     value = decode_unicode_escapes(text)
     value = re.sub(r"\s+", " ", value)
     return value.strip()
 
 
-def sniff_text_file(path: Path, max_size_bytes: int) -> tuple[bool, str]:
+def sniff_text_file(path, max_size_bytes):
     try:
         stat = path.stat()
     except OSError:
@@ -135,7 +134,13 @@ def sniff_text_file(path: Path, max_size_bytes: int) -> tuple[bool, str]:
     return True, ""
 
 
-def guess_language(path: Path) -> str:
+def _suffix_name(suffix):
+    if suffix.startswith("."):
+        return suffix[1:]
+    return suffix or "text"
+
+
+def guess_language(path):
     suffix = path.suffix.lower()
     mapping = {
         ".java": "java",
@@ -157,10 +162,10 @@ def guess_language(path: Path) -> str:
         ".sh": "shell",
         ".xml": "xml",
     }
-    return mapping.get(suffix, suffix.removeprefix(".") or "text")
+    return mapping.get(suffix, _suffix_name(suffix))
 
 
-def file_role_from_path(path_str: str) -> str:
+def file_role_from_path(path_str):
     lower = path_str.lower().replace("\\", "/")
     parts = [part for part in lower.split("/") if part]
     suffix = Path(lower).suffix.lower()
@@ -178,7 +183,7 @@ def file_role_from_path(path_str: str) -> str:
     return "source"
 
 
-def is_probable_comment_line(line: str, language: str) -> bool:
+def is_probable_comment_line(line, language):
     stripped = line.strip()
     if not stripped:
         return False
@@ -191,11 +196,11 @@ def is_probable_comment_line(line: str, language: str) -> bool:
     return False
 
 
-def compact_snippet(line: str) -> str:
+def compact_snippet(line):
     return line.strip().replace("\t", " ")
 
 
-def matches_any_glob(path_str: str, patterns: list[str]) -> bool:
+def matches_any_glob(path_str, patterns):
     normalized = path_str.replace("\\", "/")
     for pattern in patterns:
         candidates = [pattern]

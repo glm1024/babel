@@ -1,11 +1,9 @@
-from __future__ import annotations
-
 import argparse
 import json
 import sys
-from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
+from typing import List, Optional
 
 from zh_audit.config import load_manifest, load_scan_settings
 from zh_audit.pipeline import run_scan
@@ -13,9 +11,9 @@ from zh_audit.report import render_report
 from zh_audit.validation import validate_report
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser():
     parser = argparse.ArgumentParser(prog="zh-audit")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="command")
 
     scan_parser = subparsers.add_parser("scan", help="Scan repositories for Chinese text.")
     scan_parser.add_argument("--manifest", required=True, type=Path, help="Path to repos manifest.")
@@ -32,9 +30,11 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
+    if not getattr(args, "command", None):
+        parser.error("A command is required.")
 
     try:
         if args.command == "scan":
@@ -55,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
             summary_path = out_dir / "summary.json"
             report_path = out_dir / "report.html"
 
-            findings_payload = [asdict(finding) for finding in artifacts.findings]
+            findings_payload = [finding.to_dict() for finding in artifacts.findings]
             findings_path.write_text(
                 json.dumps(findings_payload, ensure_ascii=False, indent=indent),
                 encoding="utf-8",
@@ -88,8 +88,8 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(artifacts, ensure_ascii=False, indent=2))
             return 0
     except Exception as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print("error: {}".format(exc), file=sys.stderr)
         return 1
 
-    parser.error(f"Unsupported command: {args.command}")
+    parser.error("Unsupported command: {}".format(args.command))
     return 2

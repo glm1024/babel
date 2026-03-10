@@ -1,8 +1,5 @@
-from __future__ import annotations
-
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, Iterable, List
 
 
 CATEGORY_USER_VISIBLE_COPY = "USER_VISIBLE_COPY"
@@ -34,81 +31,221 @@ DEFAULT_EXCLUDE_GLOBS = [
 ]
 
 
-@dataclass(slots=True)
-class RepoSpec:
-    path: Path
+def _copy_value(value):
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, list):
+        return [_copy_value(item) for item in value]
+    if isinstance(value, dict):
+        return dict((key, _copy_value(item)) for key, item in value.items())
+    if hasattr(value, "to_dict"):
+        return value.to_dict()
+    return value
+
+
+class Serializable(object):
+    __slots__ = ()
+
+    def to_dict(self):
+        data = {}
+        for name in self.__slots__:
+            data[name] = _copy_value(getattr(self, name))
+        return data
+
+
+class RepoSpec(object):
+    __slots__ = ("path",)
+
+    def __init__(self, path):
+        self.path = path
 
     @property
-    def name(self) -> str:
+    def name(self):
         return self.path.name or str(self.path)
 
 
-@dataclass(slots=True)
-class ScanSettings:
-    max_file_size_bytes: int = 5 * 1024 * 1024
-    context_lines: int = 1
-    exclude_globs: list[str] = field(default_factory=lambda: list(DEFAULT_EXCLUDE_GLOBS))
+class ScanSettings(object):
+    __slots__ = ("max_file_size_bytes", "context_lines", "exclude_globs")
+
+    def __init__(self, max_file_size_bytes=5 * 1024 * 1024, context_lines=1, exclude_globs=None):
+        self.max_file_size_bytes = max_file_size_bytes
+        self.context_lines = context_lines
+        self.exclude_globs = list(exclude_globs) if exclude_globs is not None else list(DEFAULT_EXCLUDE_GLOBS)
 
 
-@dataclass(slots=True)
-class FileRecord:
-    repo: str
-    path: Path
-    relative_path: str
-    eligible: bool
-    scanned: bool
-    skip_reason: str = ""
-    skip_detail: str = ""
-    encoding: str = ""
-    lang: str = ""
-    size_bytes: int = 0
+class FileRecord(Serializable):
+    __slots__ = (
+        "repo",
+        "path",
+        "relative_path",
+        "eligible",
+        "scanned",
+        "skip_reason",
+        "skip_detail",
+        "encoding",
+        "lang",
+        "size_bytes",
+    )
+
+    def __init__(
+        self,
+        repo,
+        path,
+        relative_path,
+        eligible,
+        scanned,
+        skip_reason="",
+        skip_detail="",
+        encoding="",
+        lang="",
+        size_bytes=0,
+    ):
+        self.repo = repo
+        self.path = path
+        self.relative_path = relative_path
+        self.eligible = eligible
+        self.scanned = scanned
+        self.skip_reason = skip_reason
+        self.skip_detail = skip_detail
+        self.encoding = encoding
+        self.lang = lang
+        self.size_bytes = size_bytes
 
 
-@dataclass(slots=True)
-class RawFinding:
-    id: str
-    project: str
-    path: str
-    lang: str
-    line: int
-    column: int
-    surface_kind: str
-    symbol: str
-    text: str
-    normalized_text: str
-    snippet: str
-    context_window: str
-    file_role: str
-    candidate_roles: list[str]
-    metadata: dict[str, Any] = field(default_factory=dict)
+class RawFinding(Serializable):
+    __slots__ = (
+        "id",
+        "project",
+        "path",
+        "lang",
+        "line",
+        "column",
+        "surface_kind",
+        "symbol",
+        "text",
+        "normalized_text",
+        "snippet",
+        "context_window",
+        "file_role",
+        "candidate_roles",
+        "metadata",
+    )
+
+    def __init__(
+        self,
+        id,
+        project,
+        path,
+        lang,
+        line,
+        column,
+        surface_kind,
+        symbol,
+        text,
+        normalized_text,
+        snippet,
+        context_window,
+        file_role,
+        candidate_roles,
+        metadata=None,
+    ):
+        self.id = id
+        self.project = project
+        self.path = path
+        self.lang = lang
+        self.line = line
+        self.column = column
+        self.surface_kind = surface_kind
+        self.symbol = symbol
+        self.text = text
+        self.normalized_text = normalized_text
+        self.snippet = snippet
+        self.context_window = context_window
+        self.file_role = file_role
+        self.candidate_roles = list(candidate_roles)
+        self.metadata = dict(metadata or {})
 
 
-@dataclass(slots=True)
-class ClassifiedFinding:
-    id: str
-    project: str
-    path: str
-    lang: str
-    line: int
-    column: int
-    surface_kind: str
-    symbol: str
-    text: str
-    normalized_text: str
-    snippet: str
-    category: str
-    action: str
-    confidence: float
-    high_risk: bool
-    end_user_visible: bool
-    reason: str
-    file_role: str
-    candidate_roles: list[str]
-    metadata: dict[str, Any] = field(default_factory=dict)
+class ClassifiedFinding(Serializable):
+    __slots__ = (
+        "id",
+        "project",
+        "path",
+        "lang",
+        "line",
+        "column",
+        "surface_kind",
+        "symbol",
+        "text",
+        "normalized_text",
+        "snippet",
+        "category",
+        "action",
+        "confidence",
+        "high_risk",
+        "end_user_visible",
+        "reason",
+        "file_role",
+        "candidate_roles",
+        "metadata",
+    )
+
+    def __init__(
+        self,
+        id,
+        project,
+        path,
+        lang,
+        line,
+        column,
+        surface_kind,
+        symbol,
+        text,
+        normalized_text,
+        snippet,
+        category,
+        action,
+        confidence,
+        high_risk,
+        end_user_visible,
+        reason,
+        file_role,
+        candidate_roles,
+        metadata=None,
+    ):
+        self.id = id
+        self.project = project
+        self.path = path
+        self.lang = lang
+        self.line = line
+        self.column = column
+        self.surface_kind = surface_kind
+        self.symbol = symbol
+        self.text = text
+        self.normalized_text = normalized_text
+        self.snippet = snippet
+        self.category = category
+        self.action = action
+        self.confidence = confidence
+        self.high_risk = high_risk
+        self.end_user_visible = end_user_visible
+        self.reason = reason
+        self.file_role = file_role
+        self.candidate_roles = list(candidate_roles)
+        self.metadata = dict(metadata or {})
 
 
-@dataclass(slots=True)
-class RunArtifacts:
-    findings: list[ClassifiedFinding]
-    file_records: list[FileRecord]
-    summary: dict[str, Any]
+class RunArtifacts(object):
+    __slots__ = ("findings", "file_records", "summary")
+
+    def __init__(self, findings, file_records, summary):
+        self.findings = list(findings)
+        self.file_records = list(file_records)
+        self.summary = summary
+
+    def to_dict(self):
+        return {
+            "findings": [_copy_value(item) for item in self.findings],
+            "file_records": [_copy_value(item) for item in self.file_records],
+            "summary": _copy_value(self.summary),
+        }

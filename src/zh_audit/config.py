@@ -1,35 +1,33 @@
-from __future__ import annotations
-
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, List, Optional
 
 from zh_audit.models import RepoSpec, ScanSettings
 
 
-def _load_yaml_like(path: Path) -> Any:
+def _load_yaml_like(path):
     text = path.read_text(encoding="utf-8")
     try:
         return json.loads(text)
-    except json.JSONDecodeError:
+    except ValueError:
         pass
 
     try:
         import yaml  # type: ignore
     except ImportError as exc:
         raise ValueError(
-            f"{path} is not valid JSON and PyYAML is not installed for YAML parsing."
-        ) from exc
+            "{} is not valid JSON and PyYAML is not installed for YAML parsing.".format(path)
+        )
 
     return yaml.safe_load(text)
 
 
-def load_manifest(path: Path) -> list[RepoSpec]:
+def load_manifest(path):
     data = _load_yaml_like(path)
     if not isinstance(data, list):
         raise ValueError("Manifest must be a list of repositories.")
 
-    repos: list[RepoSpec] = []
+    repos = []
     for entry in data:
         if not isinstance(entry, str):
             raise ValueError("Manifest entries must be repository path strings.")
@@ -40,7 +38,7 @@ def load_manifest(path: Path) -> list[RepoSpec]:
     return repos
 
 
-def load_scan_settings(path: Path | None) -> ScanSettings:
+def load_scan_settings(path):
     if path is None:
         return ScanSettings()
     data = _load_yaml_like(path)

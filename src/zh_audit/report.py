@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 
 
@@ -65,7 +63,7 @@ DISPLAY_MAPS = {
 PAGE_SIZES = [20, 50, 100, 200]
 
 
-def render_report(summary: dict, findings: list[dict]) -> str:
+def render_report(summary, findings):
     payload = json.dumps({"summary": summary, "findings": findings}, ensure_ascii=False)
     display_maps = json.dumps(DISPLAY_MAPS, ensure_ascii=False)
     page_sizes = json.dumps(PAGE_SIZES, ensure_ascii=False)

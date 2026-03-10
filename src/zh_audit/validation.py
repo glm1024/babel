@@ -1,14 +1,11 @@
-from __future__ import annotations
-
 import csv
 import json
 import random
 import re
 import subprocess
 from collections import defaultdict
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Match, Optional, Set, Tuple
 
 from zh_audit.models import ScanSettings
 from zh_audit.utils import matches_any_glob
@@ -60,13 +57,15 @@ PROTOCOL_CONTEXT_RES = [
 ]
 
 
-@dataclass(slots=True)
-class BaselineFile:
-    path: str
-    lines: list[str]
-    han_lines: dict[int, str]
-    slice_name: str
-    first_party_focus: bool
+class BaselineFile(object):
+    __slots__ = ("path", "lines", "han_lines", "slice_name", "first_party_focus")
+
+    def __init__(self, path, lines, han_lines, slice_name, first_party_focus):
+        self.path = path
+        self.lines = lines
+        self.han_lines = han_lines
+        self.slice_name = slice_name
+        self.first_party_focus = first_party_focus
 
 
 def validate_report(
@@ -74,8 +73,8 @@ def validate_report(
     summary_path: Path,
     findings_path: Path,
     out_dir: Path,
-    scan_settings: ScanSettings | None = None,
-) -> dict[str, Any]:
+    scan_settings: Optional[ScanSettings] = None,
+) -> Dict[str, Any]:
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     findings = json.loads(findings_path.read_text(encoding="utf-8"))
     effective_scan_settings = scan_settings or _scan_settings_from_summary(summary)
@@ -125,10 +124,11 @@ def validate_report(
     }
 
 
-def _tracked_files(repo_root: Path) -> list[str]:
+def _tracked_files(repo_root: Path) -> List[str]:
     proc = subprocess.run(
         ["git", "-C", str(repo_root), "ls-files", "-z"],
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         check=True,
     )
     return [
@@ -138,7 +138,7 @@ def _tracked_files(repo_root: Path) -> list[str]:
     ]
 
 
-def _scan_settings_from_summary(summary: dict[str, Any]) -> ScanSettings:
+def _scan_settings_from_summary(summary: Dict[str, Any]) -> ScanSettings:
     raw = summary.get("scan_policy")
     if not isinstance(raw, dict):
         return ScanSettings()
@@ -152,15 +152,15 @@ def _scan_settings_from_summary(summary: dict[str, Any]) -> ScanSettings:
     )
 
 
-def _build_baseline(repo_root: Path, tracked_files: list[str]) -> dict[str, BaselineFile]:
-    baseline: dict[str, BaselineFile] = {}
+def _build_baseline(repo_root: Path, tracked_files: List[str]) -> Dict[str, BaselineFile]:
+    baseline: Dict[str, BaselineFile] = {}
     for relative_path in tracked_files:
         path = repo_root / relative_path
         content = _read_text(path)
         if content is None:
             continue
         lines = content.splitlines()
-        han_lines: dict[int, str] = {}
+        han_lines: Dict[int, str] = {}
         for index, line in enumerate(lines, start=1):
             if _contains_han(line):
                 han_lines[index] = line.rstrip("\n")
@@ -176,7 +176,7 @@ def _build_baseline(repo_root: Path, tracked_files: list[str]) -> dict[str, Base
     return baseline
 
 
-def _read_text(path: Path) -> str | None:
+def _read_text(path: Path) -> Optional[str]:
     for encoding in TRACKED_ENCODINGS:
         try:
             return path.read_text(encoding=encoding)
@@ -192,7 +192,7 @@ def _contains_han(text: str) -> bool:
     return bool(HAN_RE.search(decoded))
 
 
-def _decode_escape_match(match: re.Match[str]) -> str:
+def _decode_escape_match(match: Match[str]) -> str:
     raw = match.group(0)
     try:
         return raw.encode("ascii").decode("unicode_escape")
@@ -228,14 +228,14 @@ def _is_first_party_focus(path: str) -> bool:
 
 
 def _build_coverage_diff(
-    baseline: dict[str, BaselineFile],
-    findings: list[dict[str, Any]],
-    exclude_globs: list[str],
+    baseline: Dict[str, BaselineFile],
+    findings: List[Dict[str, Any]],
+    exclude_globs: List[str],
     excluded_tracked_count: int,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    findings_by_path: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    findings_by_path_line: set[tuple[str, int]] = set()
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    findings_by_path: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    findings_by_path_line: Set[Tuple[str, int]] = set()
     for finding in findings:
         findings_by_path[finding["path"]].append(finding)
         findings_by_path_line.add((finding["path"], int(finding["line"])))
@@ -353,11 +353,11 @@ def _build_coverage_diff(
 
 def _build_classification_review(
     repo_root: Path,
-    baseline: dict[str, BaselineFile],
-    findings: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    baseline: Dict[str, BaselineFile],
+    findings: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     selected = _select_review_findings(findings)
-    rows: list[dict[str, Any]] = []
+    rows: List[Dict[str, Any]] = []
 
     stats = {
         "full_repo": _blank_stats(),
@@ -401,7 +401,7 @@ def _build_classification_review(
     return rows, metrics
 
 
-def _blank_stats() -> dict[str, Any]:
+def _blank_stats() -> Dict[str, Any]:
     return {
         "reviewed": 0,
         "matched": 0,
@@ -409,7 +409,7 @@ def _blank_stats() -> dict[str, Any]:
     }
 
 
-def _record_review_stat(target: dict[str, Any], row: dict[str, Any]) -> None:
+def _record_review_stat(target: Dict[str, Any], row: Dict[str, Any]) -> None:
     target["reviewed"] += 1
     if row["status"] == "match":
         target["matched"] += 1
@@ -422,7 +422,7 @@ def _record_review_stat(target: dict[str, Any], row: dict[str, Any]) -> None:
         category_bucket["matched"] += 1
 
 
-def _finalize_stats(stats: dict[str, Any]) -> dict[str, Any]:
+def _finalize_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
     reviewed = stats["reviewed"]
     matched = stats["matched"]
     precision = (matched / reviewed) if reviewed else 1.0
@@ -443,9 +443,9 @@ def _finalize_stats(stats: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _select_review_findings(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    selected: list[dict[str, Any]] = []
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+def _select_review_findings(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    selected: List[Dict[str, Any]] = []
+    grouped: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     for finding in findings:
         grouped[finding["category"]].append(finding)
 
@@ -455,10 +455,10 @@ def _select_review_findings(findings: list[dict[str, Any]]) -> list[dict[str, An
     rng = random.Random(0)
     for category in SAMPLED_CATEGORIES:
         items = grouped.get(category, [])
-        by_slice: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        by_slice: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
         for item in items:
             by_slice[_slice_for_path(item["path"])].append(item)
-        chosen: list[dict[str, Any]] = []
+        chosen: List[Dict[str, Any]] = []
         active_groups = [slice_name for slice_name in SLICE_ORDER if by_slice.get(slice_name)]
         if not active_groups:
             continue
@@ -472,7 +472,7 @@ def _select_review_findings(findings: list[dict[str, Any]]) -> list[dict[str, An
             chosen.extend(pool[:take])
             by_slice[slice_name] = pool[take:]
         if len(chosen) < min(quota, len(items)):
-            leftovers: list[dict[str, Any]] = []
+            leftovers: List[Dict[str, Any]] = []
             for slice_name in SLICE_ORDER:
                 leftovers.extend(by_slice.get(slice_name, []))
             rng.shuffle(leftovers)
@@ -492,10 +492,10 @@ def _source_line(repo_root: Path, relative_path: str, line_no: int) -> str:
 
 
 def _expected_category(
-    finding: dict[str, Any],
+    finding: Dict[str, Any],
     source_line: str,
     slice_name: str,
-) -> tuple[str, bool, str]:
+) -> Tuple[str, bool, str]:
     path = finding["path"]
     ext = Path(path).suffix.lower()
     text = str(finding.get("normalized_text") or finding.get("text", ""))
@@ -560,11 +560,11 @@ def _looks_like_protocol_literal(source_lower: str, text_lower: str) -> bool:
 
 
 def _determine_verdict(
-    summary: dict[str, Any],
-    tracked_files: list[str],
-    coverage_metrics: dict[str, Any],
-    review_metrics: dict[str, Any],
-) -> tuple[str, dict[str, bool]]:
+    summary: Dict[str, Any],
+    tracked_files: List[str],
+    coverage_metrics: Dict[str, Any],
+    review_metrics: Dict[str, Any],
+) -> Tuple[str, Dict[str, bool]]:
     tracked_count_ok = len(tracked_files) == (summary.get("eligible_files", 0) + summary.get("skipped_files", 0))
     first_party_sensitive_ok = coverage_metrics["missing_first_party_acceptance_lines"] == 0
     excluded_policy_ok = coverage_metrics["excluded_path_findings"] == 0
@@ -588,16 +588,16 @@ def _determine_verdict(
 
 def _render_validation_summary(
     repo_root: Path,
-    summary: dict[str, Any],
-    tracked_files: list[str],
+    summary: Dict[str, Any],
+    tracked_files: List[str],
     scan_settings: ScanSettings,
-    baseline: dict[str, BaselineFile],
-    coverage_metrics: dict[str, Any],
-    review_metrics: dict[str, Any],
+    baseline: Dict[str, BaselineFile],
+    coverage_metrics: Dict[str, Any],
+    review_metrics: Dict[str, Any],
     verdict: str,
-    checks: dict[str, bool],
-    coverage_rows: list[dict[str, Any]],
-    review_rows: list[dict[str, Any]],
+    checks: Dict[str, bool],
+    coverage_rows: List[Dict[str, Any]],
+    review_rows: List[Dict[str, Any]],
 ) -> str:
     ignored_targets = sorted(str(path.relative_to(repo_root)) for path in repo_root.rglob("target") if path.is_dir())
     confirmed_coverage = _prioritized_coverage_examples(coverage_rows)
@@ -705,7 +705,7 @@ def _render_validation_summary(
     return "\n".join(lines)
 
 
-def _high_risk_summary(high_risk_metrics: dict[str, Any]) -> str:
+def _high_risk_summary(high_risk_metrics: Dict[str, Any]) -> str:
     overall = f"汇总 precision `{high_risk_metrics['precision']:.2%}`"
     by_category = high_risk_metrics.get("by_category", {})
     present = {
@@ -731,7 +731,7 @@ def _high_risk_summary(high_risk_metrics: dict[str, Any]) -> str:
     return overall + f"，最低分项 `{lowest_category}` `{lowest_bucket['precision']:.2%}`"
 
 
-def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+def _write_csv(path: Path, rows: List[Dict[str, Any]]) -> None:
     if rows:
         fieldnames = list(rows[0].keys())
     else:
@@ -750,7 +750,7 @@ def _compact_text(text: str, limit: int = 180) -> str:
     return value[: limit - 3] + "..."
 
 
-def _prioritized_coverage_examples(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _prioritized_coverage_examples(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     preferred_paths = [
         "ruoyi-admin/src/main/resources/templates/error/service.html",
         "ruoyi-quartz/src/main/resources/mapper/quartz/SysJobLogMapper.xml",
@@ -760,13 +760,13 @@ def _prioritized_coverage_examples(rows: list[dict[str, Any]]) -> list[dict[str,
         "ruoyi-admin/src/main/resources/static/html/ie.html",
         "ruoyi-admin/src/main/resources/static/ruoyi/js/ry-ui.js",
     ]
-    by_key: dict[tuple[str, Any], dict[str, Any]] = {}
+    by_key: Dict[Tuple[str, Any], Dict[str, Any]] = {}
     for row in rows:
         if row["kind"] not in {"missing_line", "missing_file"}:
             continue
         by_key.setdefault((row["path"], row["line"]), row)
 
-    picked: list[dict[str, Any]] = []
+    picked: List[Dict[str, Any]] = []
     for path in preferred_paths:
         for key, row in by_key.items():
             if row["path"] == path:
@@ -791,20 +791,20 @@ def _prioritized_coverage_examples(rows: list[dict[str, Any]]) -> list[dict[str,
     return picked[:10]
 
 
-def _prioritized_classification_examples(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _prioritized_classification_examples(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     preferred_paths = [
         "ruoyi-admin/src/main/java/com/ruoyi/web/controller/system/SysMenuController.java",
         "ruoyi-admin/src/main/resources/static/ajax/libs/datapicker/bootstrap-datetimepicker.min.js",
         "ruoyi-admin/src/main/resources/static/ajax/libs/bootstrap-fileinput/fileinput.min.js",
         "ruoyi-admin/src/main/resources/static/ajax/libs/suggest/bootstrap-suggest.min.js",
     ]
-    unique: dict[tuple[str, Any, str, str], dict[str, Any]] = {}
+    unique: Dict[Tuple[str, Any, str, str], Dict[str, Any]] = {}
     for row in rows:
         if row["status"] != "mismatch":
             continue
         unique.setdefault((row["path"], row["line"], row["reported_category"], row["expected_category"]), row)
 
-    picked: list[dict[str, Any]] = []
+    picked: List[Dict[str, Any]] = []
     for path in preferred_paths:
         for row in unique.values():
             if row["path"] == path and row not in picked:

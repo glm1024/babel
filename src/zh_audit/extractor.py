@@ -1,12 +1,9 @@
-from __future__ import annotations
-
 import ast
 import io
 import re
 import tokenize
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from zh_audit.models import RawFinding
 from zh_audit.utils import (
@@ -37,15 +34,17 @@ SYMBOL_PATTERNS = [
 ]
 
 
-@dataclass(slots=True)
-class Fragment:
-    start: int
-    end: int
-    text: str
-    surface_kind: str
+class Fragment(object):
+    __slots__ = ("start", "end", "text", "surface_kind")
+
+    def __init__(self, start, end, text, surface_kind):
+        self.start = start
+        self.end = end
+        self.text = text
+        self.surface_kind = surface_kind
 
 
-def extract_file(repo: str, path: Path, content: str, context_lines: int) -> list[RawFinding]:
+def extract_file(repo, path, content, context_lines):
     language = guess_language(path)
     if language == "python":
         findings = list(_extract_python(repo, path, content, context_lines))
@@ -54,7 +53,7 @@ def extract_file(repo: str, path: Path, content: str, context_lines: int) -> lis
     return _dedupe_findings(findings)
 
 
-def _extract_python(repo: str, path: Path, content: str, context_lines: int) -> Iterable[RawFinding]:
+def _extract_python(repo, path, content, context_lines):
     lines = content.splitlines()
     relative_path = path.as_posix()
     file_role = file_role_from_path(relative_path)
@@ -112,18 +111,12 @@ def _extract_python(repo: str, path: Path, content: str, context_lines: int) -> 
         )
 
 
-def _extract_line_based(
-    repo: str,
-    path: Path,
-    content: str,
-    context_lines: int,
-    language: str,
-) -> Iterable[RawFinding]:
+def _extract_line_based(repo, path, content, context_lines, language):
     lines = content.splitlines()
     relative_path = path.as_posix()
     file_role = file_role_from_path(relative_path)
     current_symbol = ""
-    block_comment_state: str | None = None
+    block_comment_state = None
 
     for index, line in enumerate(lines, start=1):
         symbol = _line_symbol(line)
@@ -159,8 +152,8 @@ def _extract_line_based(
             )
 
 
-def _markup_fragments(line: str, block_state: str | None) -> tuple[list[Fragment], str | None]:
-    fragments: list[Fragment] = []
+def _markup_fragments(line, block_state):
+    fragments = []
     sanitized = list(line)
     index = 0
     active_state = block_state
@@ -211,8 +204,8 @@ def _markup_fragments(line: str, block_state: str | None) -> tuple[list[Fragment
     return fragments, None
 
 
-def _code_fragments(line: str, block_state: str | None, language: str) -> tuple[list[Fragment], str | None]:
-    fragments: list[Fragment] = []
+def _code_fragments(line, block_state, language):
+    fragments = []
     sanitized = list(line)
     index = 0
     active_state = block_state
@@ -270,8 +263,8 @@ def _code_fragments(line: str, block_state: str | None, language: str) -> tuple[
     return fragments, None
 
 
-def _loose_text_fragments(line: str) -> list[Fragment]:
-    fragments: list[Fragment] = []
+def _loose_text_fragments(line):
+    fragments = []
     for match in re.finditer(r"[^\s<>{}\[\]()]+(?:\s+[^\s<>{}\[\]()]+)*", line):
         text = match.group(0)
         if contains_han(decode_unicode_escapes(text)):
@@ -279,20 +272,14 @@ def _loose_text_fragments(line: str) -> list[Fragment]:
     return fragments
 
 
-def _append_fragment(
-    fragments: list[Fragment],
-    start: int,
-    end: int,
-    text: str,
-    surface_kind: str,
-) -> None:
+def _append_fragment(fragments, start, end, text, surface_kind):
     value = text.strip()
     if not value:
         return
     fragments.append(Fragment(start=start, end=max(end, start + 1), text=value, surface_kind=surface_kind))
 
 
-def _find_quote_end(line: str, start: int) -> int:
+def _find_quote_end(line, start):
     quote = line[start]
     index = start + 1
     escaped = False
@@ -308,14 +295,14 @@ def _find_quote_end(line: str, start: int) -> int:
     return len(line)
 
 
-def _blank(chars: list[str], start: int, end: int) -> None:
+def _blank(chars, start, end):
     for index in range(max(0, start), min(len(chars), end)):
         chars[index] = " "
 
 
-def _dedupe_findings(findings: list[RawFinding]) -> list[RawFinding]:
-    deduped: list[RawFinding] = []
-    seen: set[tuple[str, int, int, str, str]] = set()
+def _dedupe_findings(findings):
+    deduped = []
+    seen = set()
     for finding in findings:
         key = (finding.path, finding.line, finding.column, finding.normalized_text, finding.surface_kind)
         if key in seen:
@@ -326,20 +313,20 @@ def _dedupe_findings(findings: list[RawFinding]) -> list[RawFinding]:
 
 
 def _build_finding(
-    repo: str,
-    relative_path: str,
-    language: str,
-    line_no: int,
-    column: int,
-    surface_kind: str,
-    symbol: str,
-    raw_text: str,
-    snippet: str,
-    context_window: str,
-    file_role: str,
-    candidate_roles: list[str],
-    metadata: dict[str, str] | None = None,
-) -> RawFinding:
+    repo,
+    relative_path,
+    language,
+    line_no,
+    column,
+    surface_kind,
+    symbol,
+    raw_text,
+    snippet,
+    context_window,
+    file_role,
+    candidate_roles,
+    metadata=None,
+):
     normalized = normalize_text(raw_text)
     finding_id = sha1_text(f"{repo}|{relative_path}|{line_no}|{column}|{normalized}|{surface_kind}")[:16]
     return RawFinding(
@@ -361,7 +348,7 @@ def _build_finding(
     )
 
 
-def _literal_text(raw: str) -> str:
+def _literal_text(raw):
     try:
         value = ast.literal_eval(raw)
     except Exception:
@@ -371,19 +358,19 @@ def _literal_text(raw: str) -> str:
     return str(value)
 
 
-def _python_symbol_map(content: str) -> list[tuple[int, str]]:
+def _python_symbol_map(content):
     try:
         root = ast.parse(content)
     except SyntaxError:
         return []
-    mapping: list[tuple[int, str]] = []
+    mapping = []
     for node in ast.walk(root):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             mapping.append((node.lineno, node.name))
     return sorted(mapping, key=lambda item: item[0])
 
 
-def _nearest_symbol(mapping: list[tuple[int, str]], line_no: int) -> str:
+def _nearest_symbol(mapping, line_no):
     symbol = ""
     for symbol_line, name in mapping:
         if symbol_line > line_no:
@@ -392,19 +379,13 @@ def _nearest_symbol(mapping: list[tuple[int, str]], line_no: int) -> str:
     return symbol
 
 
-def _context(lines: list[str], line_no: int, context_lines: int) -> str:
+def _context(lines, line_no, context_lines):
     start = max(1, line_no - context_lines)
     end = min(len(lines), line_no + context_lines)
     return "\n".join(f"{idx}: {lines[idx - 1]}" for idx in range(start, end + 1))
 
 
-def _candidate_roles(
-    local_context: str,
-    line: str,
-    language: str,
-    file_role: str,
-    surface_kind: str,
-) -> list[str]:
+def _candidate_roles(local_context, line, language, file_role, surface_kind):
     roles = [file_role]
     lower = local_context.lower()
     if surface_kind == COMMENT_SURFACE or is_probable_comment_line(line, language) or "<!--" in line:
@@ -423,12 +404,12 @@ def _candidate_roles(
     return roles
 
 
-def _local_context(line: str, start: int, end: int) -> str:
+def _local_context(line, start, end):
     anchor_end = max(end, start + 1)
     return line[max(0, start - LOCAL_CONTEXT_WINDOW) : min(len(line), anchor_end + LOCAL_CONTEXT_WINDOW)]
 
 
-def _line_symbol(line: str) -> str:
+def _line_symbol(line):
     for pattern in SYMBOL_PATTERNS:
         match = pattern.search(line)
         if match:
