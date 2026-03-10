@@ -363,16 +363,18 @@ def render_report(summary, findings):
     }
     .findings-table {
       width: 100%;
-      min-width: 1160px;
+      min-width: 1320px;
       border-collapse: collapse;
       table-layout: fixed;
       font-size: 14px;
     }
     .findings-table col.col-project { width: 90px; }
     .findings-table col.col-location { width: 270px; }
+    .findings-table col.col-hit-text { width: 140px; }
+    .findings-table col.col-text { width: 360px; }
     .findings-table col.col-category { width: 150px; }
     .findings-table col.col-action { width: 120px; }
-    .findings-table col.col-reason { width: 300px; }
+    .findings-table col.col-reason { width: 220px; }
     .position-cell {
       display: flex;
       align-items: flex-start;
@@ -460,21 +462,20 @@ def render_report(summary, findings):
       white-space: nowrap;
       word-break: keep-all;
     }
-    .text-cell strong,
+    .hit-text-cell strong {
+      display: block;
+      line-height: 1.65;
+      overflow-wrap: anywhere;
+    }
+    .text-cell,
     .reason-cell {
       display: block;
       line-height: 1.65;
       overflow-wrap: anywhere;
     }
     .text-cell {
-      display: grid;
-      gap: 4px;
-    }
-    .text-context {
-      color: var(--muted);
+      font-family: "SFMono-Regular", "Menlo", monospace;
       font-size: 12px;
-      line-height: 1.55;
-      overflow-wrap: anywhere;
     }
     .skip-dialog {
       width: min(980px, calc(100vw - 48px));
@@ -706,17 +707,19 @@ def render_report(summary, findings):
       <div class="table-wrap">
         <table class="findings-table">
           <colgroup>
-            <col class="col-project">
-            <col class="col-location">
-            <col class="col-text">
-            <col class="col-category">
-            <col class="col-action">
-            <col class="col-reason">
+          <col class="col-project">
+          <col class="col-location">
+          <col class="col-hit-text">
+          <col class="col-text">
+          <col class="col-category">
+          <col class="col-action">
+          <col class="col-reason">
           </colgroup>
           <thead>
             <tr>
               <th>项目</th>
               <th>位置</th>
+              <th>命中文本</th>
               <th>文本</th>
               <th>分类</th>
               <th>动作</th>
@@ -876,13 +879,23 @@ def render_report(summary, findings):
       return item.normalized_text || item.text || item.snippet || "";
     }
 
-    function snippetMarkup(item) {
+    function maskedSnippet(item) {
       const snippet = item.snippet || "";
       const text = findingText(item);
-      if (!snippet || snippet === text) {
+      if (!snippet) {
         return "";
       }
-      return `<div class="text-context">${escapeHtml(snippet)}</div>`;
+      if (!text) {
+        return snippet;
+      }
+      if (snippet.includes(text)) {
+        return snippet.replace(text, "");
+      }
+      const rawText = item.text || "";
+      if (rawText && rawText !== text && snippet.includes(rawText)) {
+        return snippet.replace(rawText, "");
+      }
+      return snippet;
     }
 
     function setOptions(select, values, label, group, selectedValue) {
@@ -1091,7 +1104,7 @@ def render_report(summary, findings):
 
       if (current.length === 0) {
         resultCount.textContent = `当前筛选 0 条，共 ${formatNumber(findings.length)} 条`;
-        rows.innerHTML = `<tr><td colspan="6" class="empty-row">当前筛选条件下没有命中记录</td></tr>`;
+        rows.innerHTML = `<tr><td colspan="7" class="empty-row">当前筛选条件下没有命中记录</td></tr>`;
       } else {
         resultCount.textContent =
           `当前筛选 ${formatNumber(current.length)} 条，共 ${formatNumber(findings.length)} 条；本页显示第 ${formatNumber(page.startIndex + 1)} - ${formatNumber(page.endIndex)} 条`;
@@ -1099,7 +1112,8 @@ def render_report(summary, findings):
           <tr>
             <td class="project-cell">${escapeHtml(item.project)}</td>
             <td class="location-cell">${positionMarkup(item)}</td>
-            <td class="text-cell"><strong>${escapeHtml(findingText(item))}</strong>${snippetMarkup(item)}</td>
+            <td class="hit-text-cell"><strong>${escapeHtml(findingText(item))}</strong></td>
+            <td class="text-cell">${escapeHtml(maskedSnippet(item) || "-")}</td>
             <td class="category-cell">${escapeHtml(labelFor("category", item.category))}</td>
             <td class="action-cell"><span class="pill ${item.action}">${escapeHtml(labelFor("action", item.action))}</span></td>
             <td class="reason-cell">${escapeHtml(labelFor("reason", item.reason) || item.reason || "-")}</td>
@@ -1122,11 +1136,12 @@ def render_report(summary, findings):
 
     function exportCsv() {
       const current = filteredFindings();
-      const headers = ["项目", "位置", "文本", "分类", "动作", "说明"];
+      const headers = ["项目", "位置", "命中文本", "文本", "分类", "动作", "说明"];
       const rows = current.map(item => [
         item.project || "",
         `${item.path || ""}:${item.line ?? ""}`,
         findingText(item),
+        maskedSnippet(item),
         labelFor("category", item.category),
         labelFor("action", item.action),
         labelFor("reason", item.reason) || item.reason || "-",
