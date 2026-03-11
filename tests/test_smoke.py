@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,6 +9,37 @@ from zh_audit.report import render_report
 
 
 class ScanSmokeTest(unittest.TestCase):
+    def test_scan_defaults_to_results_directory_without_timestamp_subdir(self) -> None:
+        fixture_repo = Path(__file__).parent / "fixtures" / "repo_a"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            manifest_path = temp_path / "repos.json"
+            manifest_path.write_text(
+                json.dumps([str(fixture_repo)], ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            previous_cwd = Path.cwd()
+            try:
+                os.chdir(temp_path)
+                exit_code = main(
+                    [
+                        "scan",
+                        "--manifest",
+                        str(manifest_path),
+                        "--pretty",
+                    ]
+                )
+            finally:
+                os.chdir(previous_cwd)
+
+            self.assertEqual(exit_code, 0)
+            results_dir = temp_path / "results"
+            self.assertTrue((results_dir / "findings.json").exists())
+            self.assertTrue((results_dir / "summary.json").exists())
+            self.assertTrue((results_dir / "report.html").exists())
+            self.assertFalse(any(item.is_dir() for item in results_dir.iterdir()))
+
     def test_scan_generates_json_and_report(self) -> None:
         fixture_repo = Path(__file__).parent / "fixtures" / "repo_a"
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -6,7 +6,7 @@
 
 - 从源码、模板、配置、注释中提取中文文本
 - 按上下文把命中归类为用户可见文案、错误提示、配置项、协议/持久化字面量，以及注释、Swagger 文档、普通文档、数据库脚本、日志、测试样例等
-- 产出 离线报告 `babel/results/报告时间戳/report.html`
+- 产出离线报告到 `babel/results/`，默认覆盖同目录下已有的 `findings.json`、`summary.json`、`report.html`
 
 # 动作说明
 

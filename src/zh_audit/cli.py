@@ -111,7 +111,7 @@ def main(argv=None):
     try:
         if args.command == "scan":
             run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
-            out_dir = args.out or Path("results") / run_id
+            out_dir = args.out or Path("results")
             out_dir.mkdir(parents=True, exist_ok=True)
 
             repos = load_manifest(args.manifest)
