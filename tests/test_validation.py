@@ -395,7 +395,7 @@ class ValidationSmokeTest(unittest.TestCase):
                 stderr=subprocess.PIPE,
             )
 
-            prop_file = repo / "config" / "i18n.messages.properties"
+            prop_file = repo / "config" / "i18n" / "messages.properties"
             prop_file.parent.mkdir(parents=True)
             prop_file.write_text("system.busy=系统繁忙\n", encoding="utf-8")
 
@@ -416,7 +416,7 @@ class ValidationSmokeTest(unittest.TestCase):
                     [
                         {
                             "project": "repo",
-                            "path": "config/i18n.messages.properties",
+                            "path": "config/i18n/messages.properties",
                             "line": 1,
                             "category": "I18N_FILE",
                             "action": "keep",
@@ -456,7 +456,7 @@ class ValidationSmokeTest(unittest.TestCase):
                 review_rows = list(csv.DictReader(handle))
             self.assertTrue(
                 any(
-                    row["path"] == "config/i18n.messages.properties"
+                    row["path"] == "config/i18n/messages.properties"
                     and row["reported_category"] == "I18N_FILE"
                     and row["expected_category"] == "I18N_FILE"
                     and row["status"] == "match"

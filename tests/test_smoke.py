@@ -116,6 +116,15 @@ class ScanSmokeTest(unittest.TestCase):
                 )
             )
             self.assertTrue(
+                any(
+                    item["hit_text"] == "系统超时"
+                    and item["path"] == "config/i18n/messages.properties"
+                    and item["category"] == "I18N_FILE"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
                 any(item["text"] == "操作异常！" and item["category"] == "USER_VISIBLE_COPY" for item in findings)
             )
             self.assertTrue(

@@ -198,7 +198,7 @@ def is_named_keep_file(path_str):
 
 def is_i18n_messages_file(path_str):
     normalized = str(path_str).replace("\\", "/").lower()
-    return "i18n.messages" in normalized
+    return "i18n/messages" in normalized or "i18n.messages" in normalized
 
 
 def file_role_from_path(path_str):
