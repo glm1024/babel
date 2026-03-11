@@ -47,6 +47,13 @@ public class ConditionExpressions {
         return value.replace("启动虚拟机：", "开启云主机：").replace("虚拟机：", "云主机：");
     }
 
+    public boolean isHan(char c) {
+        if (c >= '\u4e00' && c <= '\u9fa5') {
+            return true;
+        }
+        return false;
+    }
+
     public void decorate(java.util.List<String> values) {
         values.add("启用");
     }

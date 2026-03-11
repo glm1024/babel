@@ -134,6 +134,15 @@ class ScanSmokeTest(unittest.TestCase):
                 any(item["text"] == "编码类型" and item["category"] == "COMMENT" for item in findings)
             )
             self.assertTrue(
+                any(
+                    item["text"] == "过滤空IP"
+                    and item["path"] == "mapper/SysJobLogMapper.xml"
+                    and item["category"] == "COMMENT"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
                 any("// 编码类型" in item["snippet"] for item in findings if item["category"] == "COMMENT")
             )
             self.assertTrue(
@@ -471,6 +480,24 @@ class ScanSmokeTest(unittest.TestCase):
             )
             self.assertTrue(
                 any(
+                    item["text"] == "\\u4e00"
+                    and item["path"] == "src/ConditionExpressions.java"
+                    and item["category"] == "CONDITION_EXPRESSION_LITERAL"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "\\u9fa5"
+                    and item["path"] == "src/ConditionExpressions.java"
+                    and item["category"] == "CONDITION_EXPRESSION_LITERAL"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
                     item["text"] == "启用"
                     and item["hit_text"] == "启用"
                     and item["path"] == "src/ConditionExpressions.java"
@@ -481,14 +508,14 @@ class ScanSmokeTest(unittest.TestCase):
             )
             self.assertFalse(any(item["action"] == "review" for item in findings))
             self.assertIn("用户可见文案", report)
-            self.assertIn("注释", report)
+            self.assertIn("代码注释", report)
             self.assertIn("Swagger 文档", report)
             self.assertIn("普通文档", report)
             self.assertIn("数据库脚本", report)
             self.assertIn("Shell 脚本", report)
             self.assertIn("指定文件", report)
             self.assertIn("国际化文件", report)
-            self.assertIn("逻辑判断与处理字面量", report)
+            self.assertIn("逻辑判断与字面量处理", report)
             self.assertIn("任务描述", report)
             self.assertIn("配置项", report)
             self.assertIn("协议/持久化字面量", report)

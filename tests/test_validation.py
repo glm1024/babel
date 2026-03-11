@@ -382,6 +382,91 @@ class ValidationSmokeTest(unittest.TestCase):
                 )
             )
 
+    def test_validate_report_matches_unicode_range_logic_literal(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            repo = root / "repo"
+            repo.mkdir()
+            subprocess.run(
+                ["git", "init"],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            java_file = repo / "src" / "Tools.java"
+            java_file.parent.mkdir(parents=True)
+            java_file.write_text(
+                "class Tools { boolean isHan(char c) { if (c >= '\\u4e00' && c <= '\\u9fa5') { return true; } return false; } }\n",
+                encoding="utf-8",
+            )
+
+            subprocess.run(
+                ["git", "add", "."],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            findings_path = root / "findings.json"
+            summary_path = root / "summary.json"
+            out_dir = root / "validation"
+
+            findings_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "project": "repo",
+                            "path": "src/Tools.java",
+                            "line": 1,
+                            "category": "CONDITION_EXPRESSION_LITERAL",
+                            "action": "keep",
+                            "surface_kind": "string_literal",
+                            "normalized_text": "一",
+                            "text": "\\u4e00",
+                            "hit_text": "一",
+                        }
+                    ],
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "run_id": "unicode-range-demo",
+                        "eligible_files": 1,
+                        "skipped_files": 0,
+                        "scan_policy": {
+                            "exclude_globs": ["**/static/ajax/libs/**"],
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            validate_report(
+                repo_root=repo,
+                summary_path=summary_path,
+                findings_path=findings_path,
+                out_dir=out_dir,
+            )
+
+            with (out_dir / "classification_review.csv").open(encoding="utf-8", newline="") as handle:
+                review_rows = list(csv.DictReader(handle))
+            self.assertTrue(
+                any(
+                    row["path"] == "src/Tools.java"
+                    and row["reported_category"] == "CONDITION_EXPRESSION_LITERAL"
+                    and row["expected_category"] == "CONDITION_EXPRESSION_LITERAL"
+                    and row["status"] == "match"
+                    for row in review_rows
+                )
+            )
+
     def test_validate_report_matches_assert_api_condition_expression_literal(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -641,6 +726,101 @@ class ValidationSmokeTest(unittest.TestCase):
                     row["path"] == "src/TaskDescriptionProcess.java"
                     and row["reported_category"] == "TASK_DESCRIPTION"
                     and row["expected_category"] == "TASK_DESCRIPTION"
+                    and row["status"] == "match"
+                    for row in review_rows
+                )
+            )
+
+    def test_validate_report_matches_xml_sql_inline_comment(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            repo = root / "repo"
+            repo.mkdir()
+            subprocess.run(
+                ["git", "init"],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            mapper_file = repo / "mapper" / "SysJobLogMapper.xml"
+            mapper_file.parent.mkdir(parents=True)
+            mapper_file.write_text(
+                "\n".join(
+                    [
+                        '<mapper namespace="demo.Mapper">',
+                        '  <select id="queryIps" resultType="string">',
+                        "    SELECT DISTINCT NULLIF(ip, '') -- 过滤空IP",
+                        "    FROM sys_job_log",
+                        "  </select>",
+                        "</mapper>",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            subprocess.run(
+                ["git", "add", "."],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            findings_path = root / "findings.json"
+            summary_path = root / "summary.json"
+            out_dir = root / "validation"
+
+            findings_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "project": "repo",
+                            "path": "mapper/SysJobLogMapper.xml",
+                            "line": 3,
+                            "category": "COMMENT",
+                            "action": "keep",
+                            "surface_kind": "text",
+                            "normalized_text": "过滤空IP",
+                            "text": "过滤空IP",
+                            "hit_text": "过滤空IP",
+                        }
+                    ],
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "run_id": "xml-sql-comment-demo",
+                        "eligible_files": 1,
+                        "skipped_files": 0,
+                        "scan_policy": {
+                            "exclude_globs": ["**/static/ajax/libs/**"],
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            validate_report(
+                repo_root=repo,
+                summary_path=summary_path,
+                findings_path=findings_path,
+                out_dir=out_dir,
+            )
+
+            with (out_dir / "classification_review.csv").open(encoding="utf-8", newline="") as handle:
+                review_rows = list(csv.DictReader(handle))
+            self.assertTrue(
+                any(
+                    row["path"] == "mapper/SysJobLogMapper.xml"
+                    and row["reported_category"] == "COMMENT"
+                    and row["expected_category"] == "COMMENT"
                     and row["status"] == "match"
                     for row in review_rows
                 )

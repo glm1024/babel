@@ -1,3 +1,7 @@
 <mapper namespace="demo.Mapper">
   <if test="params.beginTime != null and params.beginTime != ''"><!-- 开始时间检索 --></if>
+  <select id="queryIps" resultType="string">
+    SELECT DISTINCT NULLIF(ip, '') -- 过滤空IP
+    FROM sys_job_log
+  </select>
 </mapper>

@@ -12,11 +12,18 @@ LOGIC_STRING_METHOD_RE = re.compile(
     r"\b(?:contains|containsignorecase|equals|equalsignorecase|contentequals|regionmatches|startswith|startswithignorecase|endswith|endswithignorecase|matches|indexof|lastindexof|compareto|comparetoignorecase|includes|match|test|hasprefix|hassuffix|equalfold|replace|replaceall|replacefirst|split|remove|removestart|removeend|substringbefore|substringafter|substringbeforelast|substringafterlast)\s*\("
 )
 CONDITION_OPERATOR_RE = re.compile(r"(?:===|!==|==|!=)")
+RELATIONAL_LITERAL_COMPARE_RE = re.compile(
+    r"(?:[A-Za-z0-9_\)\]\.]+\s*(?:>=|<=|>|<)\s*['\"`][^'\"`]+['\"`]|['\"`][^'\"`]+['\"`]\s*(?:>=|<=|>|<)\s*[A-Za-z0-9_\(\[]+)"
+)
 PYTHON_IN_RE = re.compile(r"\b(?:not\s+in|in)\b")
 ASSERT_API_RE = re.compile(
     r"\b(?:assert|assertions|preconditions|validate|objects)\s*(?:\.\s*)?(?:assert[a-z0-9_]*|checkargument|checkstate|checknotnull|istrue|state|notnull|hastext|haslength|notempty|notblank|isinstanceof|assignable|requirenonnull)\s*\("
 )
 COMMENT_LINE_PREFIXES = ("#", "//", "--", ";", "*")
+SQL_COMMENT_HINT_RE = re.compile(
+    r"\b(?:select|insert|update|delete|from|where|join|left|right|inner|outer|group|order|having|distinct|nullif|case|when|then|else|end|union|limit|offset)\b",
+    re.IGNORECASE,
+)
 SOURCE_CODE_EXTENSIONS = {
     ".java",
     ".go",
@@ -229,7 +236,47 @@ def is_probable_comment_line(line, language):
         return True
     if language in {"html", "xml", "vm"} and stripped.startswith("<!--"):
         return True
+    if find_sql_comment_start(line, language) >= 0:
+        return True
     return False
+
+
+def find_sql_comment_start(line, language=""):
+    text = str(line or "")
+    if not text:
+        return -1
+    language_name = str(language or "").lower()
+    if language_name not in {"sql", "xml", "vm"} and not SQL_COMMENT_HINT_RE.search(text):
+        return -1
+
+    quote = ""
+    escaped = False
+    index = 0
+    while index < len(text) - 1:
+        char = text[index]
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = ""
+            index += 1
+            continue
+
+        if char in {'"', "'", "`"}:
+            quote = char
+            index += 1
+            continue
+
+        if text.startswith("--", index):
+            prev = text[index - 1] if index > 0 else ""
+            next_char = text[index + 2] if index + 2 < len(text) else ""
+            if (index == 0 or prev.isspace() or prev in "(),") and next_char != "-":
+                return index
+        index += 1
+
+    return -1
 
 
 def compact_snippet(line):
@@ -273,6 +320,8 @@ def looks_like_condition_expression_literal(snippet, context="", language="", ex
         return False
 
     if CONDITION_OPERATOR_RE.search(context_lower):
+        return True
+    if RELATIONAL_LITERAL_COMPARE_RE.search(extended_lower):
         return True
     if str(language or "").lower() == "python" and PYTHON_IN_RE.search(context_lower):
         return True

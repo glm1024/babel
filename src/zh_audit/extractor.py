@@ -12,6 +12,7 @@ from zh_audit.utils import (
     decode_unicode_escapes,
     extract_hit_text,
     file_role_from_path,
+    find_sql_comment_start,
     guess_language,
     is_probable_comment_line,
     normalize_text,
@@ -199,7 +200,7 @@ def _extract_line_based(repo, path, content, context_lines, language):
             current_symbol = symbol
 
         if language in MARKUP_LANGUAGES:
-            fragments, block_comment_state = _markup_fragments(line, block_comment_state)
+            fragments, block_comment_state = _markup_fragments(line, block_comment_state, language)
         else:
             fragments, block_comment_state = _code_fragments(line, block_comment_state, language)
 
@@ -236,7 +237,7 @@ def _extract_line_based(repo, path, content, context_lines, language):
             )
 
 
-def _markup_fragments(line, block_state):
+def _markup_fragments(line, block_state, language):
     fragments = []
     sanitized = list(line)
     index = 0
@@ -277,6 +278,13 @@ def _markup_fragments(line, block_state):
         index += 1
 
     masked_line = "".join(sanitized)
+    sql_comment_start = find_sql_comment_start(masked_line, language)
+    if sql_comment_start >= 0:
+        _append_fragment(fragments, sql_comment_start + 2, len(line), line[sql_comment_start + 2 :], COMMENT_SURFACE)
+        masked_chars = list(masked_line)
+        _blank(masked_chars, sql_comment_start, len(masked_chars))
+        masked_line = "".join(masked_chars)
+
     for match in re.finditer(r">([^<]+)<|>([^<]+)$", masked_line):
         text = match.group(1) if match.group(1) is not None else match.group(2)
         if text is None:

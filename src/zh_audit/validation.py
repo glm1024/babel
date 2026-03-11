@@ -30,6 +30,7 @@ from zh_audit.models import (
 )
 from zh_audit.utils import (
     guess_language,
+    find_sql_comment_start,
     is_i18n_messages_file,
     is_named_keep_file,
     looks_like_assert_api_literal,
@@ -577,7 +578,7 @@ def _expected_category(
         or path.endswith("ruoyi.html")
     ):
         return CATEGORY_GENERIC_DOCUMENTATION, False, "文档资产中的中文应归为普通文档。"
-    if finding.get("surface_kind") == "comment" or _looks_like_comment(source_line):
+    if finding.get("surface_kind") == "comment" or _looks_like_comment(source_line, language):
         return CATEGORY_COMMENT, governance_in_scope, "注释语法或注释上下文。"
     if "swagger_annotation" in finding.get("candidate_roles", []):
         return CATEGORY_SWAGGER_DOCUMENTATION, governance_in_scope, "Swagger/OpenAPI 注解中的中文应视为 Swagger 文档。"
@@ -610,9 +611,9 @@ def _expected_category(
     return CATEGORY_UNKNOWN, governance_in_scope, "独立规则无法稳定判断，建议归入 UNKNOWN。"
 
 
-def _looks_like_comment(source_line: str) -> bool:
+def _looks_like_comment(source_line: str, language: str) -> bool:
     stripped = source_line.strip()
-    return stripped.startswith(("//", "#", "/*", "*", "--", "<!--", "rem "))
+    return stripped.startswith(("//", "#", "/*", "*", "--", "<!--", "rem ")) or find_sql_comment_start(source_line, language) >= 0
 
 
 def _looks_like_log_context(source_lower: str) -> bool:
