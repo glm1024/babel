@@ -1,5 +1,6 @@
 import io
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from zh_audit.cli import _open_browser, build_parser, ScanProgressReporter, format_scan_progress_line
@@ -13,9 +14,10 @@ class _TtyBuffer(io.StringIO):
 class CliTest(unittest.TestCase):
     def test_parser_accepts_serve_command(self):
         parser = build_parser()
-        args = parser.parse_args(["serve", "--out", "results", "--no-browser"])
+        args = parser.parse_args(["serve", "--out", "results", "--no-browser", "--config", "zh-audit.config.json"])
         self.assertEqual(args.command, "serve")
         self.assertTrue(args.no_browser)
+        self.assertEqual(args.config, Path("zh-audit.config.json"))
 
     def test_open_browser_returns_true_when_backend_succeeds(self):
         with mock.patch("zh_audit.cli.webbrowser.open", return_value=True) as mocked:

@@ -15,21 +15,32 @@ from zh_audit.annotations import (
     upsert_annotation,
     write_annotation_store,
 )
-from zh_audit.app_state import default_app_state, load_app_state, normalize_scan_policy, normalize_scan_roots, scan_settings_from_state, write_app_state
+from zh_audit.app_state import (
+    default_app_state,
+    diff_model_config_overrides,
+    load_app_state,
+    merge_model_config,
+    normalize_scan_policy,
+    normalize_scan_roots,
+    scan_settings_from_state,
+    write_app_state,
+)
 from zh_audit.app_ui import render_app_shell
+from zh_audit.config import load_project_model_config
 from zh_audit.models import RepoSpec
 from zh_audit.pipeline import refresh_summary, run_scan
 from zh_audit.report import render_report
 
 
 class AppServiceState(object):
-    def __init__(self, out_dir, annotations_path=None, app_state_path=None):
+    def __init__(self, out_dir, annotations_path=None, app_state_path=None, project_config_path=None):
         self.out_dir = Path(out_dir)
         self.findings_path = self.out_dir / "findings.json"
         self.summary_path = self.out_dir / "summary.json"
         self.report_path = self.out_dir / "report.html"
         self.annotations_path = resolve_annotation_path(self.out_dir, annotations_path)
         self.app_state_path = Path(app_state_path) if app_state_path is not None else (self.out_dir / "app_state.json")
+        self.project_config_path = Path(project_config_path) if project_config_path is not None else None
         self.lock = threading.RLock()
         self.scan_thread = None
         self.results_revision = 0
@@ -37,6 +48,9 @@ class AppServiceState(object):
         self.findings = []
         self.annotation_store = load_annotation_store(self.annotations_path)
         self.annotation_stats = dict(ANNOTATION_STATS_DEFAULT)
+        self.project_model_config = (
+            load_project_model_config(self.project_config_path) if self.project_config_path is not None else {}
+        )
         self.app_state = load_app_state(self.app_state_path)
         self.scan_status = self._idle_scan_status()
 
@@ -208,10 +222,14 @@ class AppServiceState(object):
         payload = payload or {}
         roots = payload.get("scan_roots", self.app_state.get("scan_roots", []))
         scan_policy = payload.get("scan_policy", self.app_state.get("scan_policy", {}))
+        model_config_overrides = dict(self.app_state.get("model_config_overrides", {}))
+        if "model_config" in payload:
+            model_config_overrides = diff_model_config_overrides(payload.get("model_config"), self._base_model_config())
         self.app_state = {
             "version": self.app_state.get("version", default_app_state()["version"]),
             "scan_roots": normalize_scan_roots(roots),
             "scan_policy": normalize_scan_policy(scan_policy),
+            "model_config_overrides": model_config_overrides,
         }
 
     def _persist_app_state(self):
@@ -272,8 +290,15 @@ class AppServiceState(object):
         return {
             "scan_roots": list(self.app_state.get("scan_roots", [])),
             "scan_policy": dict(self.app_state.get("scan_policy", default_app_state()["scan_policy"])),
+            "model_config": self._effective_model_config(),
             "out_dir": str(self.out_dir),
         }
+
+    def _base_model_config(self):
+        return merge_model_config(self.project_model_config)
+
+    def _effective_model_config(self):
+        return merge_model_config(self.project_model_config, self.app_state.get("model_config_overrides", {}))
 
     def _idle_scan_status(self):
         return {
@@ -373,13 +398,14 @@ class AppRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(content)
 
 
-def serve_app(out_dir, host="127.0.0.1", port=8765, annotations_path=None, app_state_path=None):
+def serve_app(out_dir, host="127.0.0.1", port=8765, annotations_path=None, app_state_path=None, project_config_path=None):
     output_dir = Path(out_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     state = AppServiceState(
         out_dir=output_dir,
         annotations_path=annotations_path,
         app_state_path=app_state_path,
+        project_config_path=project_config_path,
     )
     server = _ThreadingHTTPServer((host, int(port)), AppRequestHandler)
     server.app_state = state

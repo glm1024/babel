@@ -9,7 +9,7 @@ from typing import List, Optional
 
 from zh_audit.annotations import load_annotation_store, resolve_annotation_path
 from zh_audit.app_server import serve_app
-from zh_audit.config import load_manifest, load_scan_settings
+from zh_audit.config import DEFAULT_APP_CONFIG_NAME, load_manifest, load_scan_settings
 from zh_audit.pipeline import run_scan
 from zh_audit.report import render_report
 from zh_audit.review_server import serve_review
@@ -111,6 +111,7 @@ def build_parser():
     serve_parser.add_argument("--host", default="127.0.0.1", help="Host to bind.")
     serve_parser.add_argument("--port", type=int, default=8765, help="Port to bind.")
     serve_parser.add_argument("--no-browser", action="store_true", help="Do not open the default browser automatically.")
+    serve_parser.add_argument("--config", type=Path, help="Optional path to zh-audit.config.json.")
 
     validate_parser = subparsers.add_parser("validate", help="Validate a generated report against a repository.")
     validate_parser.add_argument("--repo", required=True, type=Path, help="Path to the repository root.")
@@ -205,11 +206,13 @@ def main(argv=None):
                 server.server_close()
             return 0
         if args.command == "serve":
+            project_config_path = args.config.resolve() if args.config else (Path.cwd() / DEFAULT_APP_CONFIG_NAME)
             server = serve_app(
                 out_dir=args.out.resolve(),
                 host=args.host,
                 port=args.port,
                 annotations_path=args.annotations.resolve() if args.annotations else None,
+                project_config_path=project_config_path,
             )
             address = server.server_address
             url = "http://{}:{}/".format(address[0], address[1])
