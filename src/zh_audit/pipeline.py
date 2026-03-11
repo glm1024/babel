@@ -4,6 +4,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from zh_audit.annotations import ANNOTATION_STATS_DEFAULT, apply_annotation_store
 from zh_audit.classifier import classify_rule
 from zh_audit.extractor import extract_file
 from zh_audit.models import (
@@ -20,7 +21,7 @@ from zh_audit.utils import contains_han, decode_unicode_escapes, guess_language,
 ENCODINGS = ("utf-8", "utf-8-sig", "gb18030")
 
 
-def run_scan(repos, scan_settings, run_id, progress_callback=None):
+def run_scan(repos, scan_settings, run_id, progress_callback=None, annotation_store=None):
     file_records = []
     raw_findings = []
     repo_files = []
@@ -135,7 +136,17 @@ def run_scan(repos, scan_settings, run_id, progress_callback=None):
             )
 
     classified = [classify_rule(finding) for finding in raw_findings]
-    summary = _build_summary(repos, file_records, classified, run_id=run_id, scan_settings=scan_settings)
+    annotation_stats = dict(ANNOTATION_STATS_DEFAULT)
+    if annotation_store:
+        annotation_stats = apply_annotation_store(classified, annotation_store)
+    summary = _build_summary(
+        repos,
+        file_records,
+        classified,
+        run_id=run_id,
+        scan_settings=scan_settings,
+        annotation_stats=annotation_stats,
+    )
     if progress_callback is not None:
         progress_callback(stage="done", processed=processed_files, total=total_files)
     return RunArtifacts(findings=classified, file_records=file_records, summary=summary)
@@ -196,58 +207,50 @@ def _read_text(path):
     return None, ""
 
 
-def _build_summary(repos, file_records, findings, run_id, scan_settings):
+def _finding_value(finding, name, default=None):
+    if isinstance(finding, dict):
+        return finding.get(name, default)
+    return getattr(finding, name, default)
+
+
+def refresh_summary(summary, findings, annotation_stats=None):
     by_project = Counter()
     by_lang = Counter()
     by_category = Counter(dict((category, 0) for category in CATEGORY_ORDER))
     by_action = Counter()
-    by_skip_reason = Counter()
-    by_project_files = Counter()
     unknown_count = 0
 
     top_files = Counter()
     top_texts = Counter()
     top_high_risk = Counter()
-
-    for record in file_records:
-        if record.scanned:
-            by_project_files[record.repo] += 1
-        if record.skip_reason:
-            by_skip_reason[record.skip_reason] += 1
-
     project_high_risk = Counter()
     for finding in findings:
-        by_project[finding.project] += 1
-        by_lang[finding.lang] += 1
-        by_category[finding.category] += 1
-        by_action[finding.action] += 1
-        top_files["{}:{}".format(finding.project, finding.path)] += 1
-        top_texts[finding.normalized_text] += 1
-        if finding.category == CATEGORY_UNKNOWN:
+        project = _finding_value(finding, "project", "")
+        path = _finding_value(finding, "path", "")
+        lang = _finding_value(finding, "lang", "")
+        category = _finding_value(finding, "category", "")
+        action = _finding_value(finding, "action", "")
+        normalized_text = _finding_value(finding, "normalized_text", "")
+        high_risk = bool(_finding_value(finding, "high_risk", False))
+
+        by_project[project] += 1
+        by_lang[lang] += 1
+        by_category[category] += 1
+        by_action[action] += 1
+        top_files["{}:{}".format(project, path)] += 1
+        top_texts[normalized_text] += 1
+        if category == CATEGORY_UNKNOWN:
             unknown_count += 1
-        if finding.high_risk:
-            top_high_risk["{}:{}:{}".format(finding.project, finding.path, finding.normalized_text)] += 1
-            project_high_risk[finding.project] += 1
+        if high_risk and action != "keep":
+            top_high_risk["{}:{}:{}".format(project, path, normalized_text)] += 1
+            project_high_risk[project] += 1
 
-    eligible_files = sum(1 for record in file_records if record.eligible)
-    scanned_files = sum(1 for record in file_records if record.scanned)
-    skipped_files = sum(1 for record in file_records if record.skip_reason)
-    excluded_files = sum(1 for record in file_records if record.skip_reason == "excluded_by_policy")
-    unique_text_count = len(set(finding.normalized_text for finding in findings))
-
-    return {
-        "run_id": run_id,
-        "scanned_projects": [repo.name for repo in repos],
-        "eligible_files": eligible_files,
-        "scanned_files": scanned_files,
-        "skipped_files": skipped_files,
-        "excluded_files": excluded_files,
-        "skip_reasons": dict(by_skip_reason),
+    updated = dict(summary)
+    updated.update({
         "occurrence_count": len(findings),
-        "unique_text_count": unique_text_count,
+        "unique_text_count": len(set(_finding_value(finding, "normalized_text", "") for finding in findings)),
         "unknown_rate": round((float(unknown_count) / len(findings)) if findings else 0.0, 4),
         "by_project": dict(by_project),
-        "by_project_files": dict(by_project_files),
         "by_lang": dict(by_lang),
         "by_category": dict(by_category),
         "by_action": dict(by_action),
@@ -256,13 +259,46 @@ def _build_summary(repos, file_records, findings, run_id, scan_settings):
         "top_texts": _top(top_texts),
         "top_high_risk": _top(top_high_risk),
         "project_high_risk": dict(project_high_risk),
-        "scan_policy": {
-            "max_file_size_bytes": scan_settings.max_file_size_bytes,
-            "context_lines": scan_settings.context_lines,
-            "exclude_globs": list(scan_settings.exclude_globs),
+        "annotations": dict(annotation_stats or ANNOTATION_STATS_DEFAULT),
+    })
+    return updated
+
+
+def _build_summary(repos, file_records, findings, run_id, scan_settings, annotation_stats=None):
+    by_skip_reason = Counter()
+    by_project_files = Counter()
+
+    for record in file_records:
+        if record.scanned:
+            by_project_files[record.repo] += 1
+        if record.skip_reason:
+            by_skip_reason[record.skip_reason] += 1
+
+    eligible_files = sum(1 for record in file_records if record.eligible)
+    scanned_files = sum(1 for record in file_records if record.scanned)
+    skipped_files = sum(1 for record in file_records if record.skip_reason)
+    excluded_files = sum(1 for record in file_records if record.skip_reason == "excluded_by_policy")
+
+    return refresh_summary(
+        {
+            "run_id": run_id,
+            "scanned_projects": [repo.name for repo in repos],
+            "eligible_files": eligible_files,
+            "scanned_files": scanned_files,
+            "skipped_files": skipped_files,
+            "excluded_files": excluded_files,
+            "skip_reasons": dict(by_skip_reason),
+            "by_project_files": dict(by_project_files),
+            "scan_policy": {
+                "max_file_size_bytes": scan_settings.max_file_size_bytes,
+                "context_lines": scan_settings.context_lines,
+                "exclude_globs": list(scan_settings.exclude_globs),
+            },
+            "files": [_file_record_payload(record) for record in file_records],
         },
-        "files": [_file_record_payload(record) for record in file_records],
-    }
+        findings,
+        annotation_stats=annotation_stats,
+    )
 
 
 def _file_record_payload(record):

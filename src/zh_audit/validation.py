@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Match, Optional, Set, Tuple
 
 from zh_audit.extractor import _java_task_description_ranges
 from zh_audit.models import (
+    CATEGORY_ANNOTATED_NO_CHANGE,
     CATEGORY_COMMENT,
     CATEGORY_CONDITION_EXPRESSION_LITERAL,
     CATEGORY_CONFIG_ITEM,
@@ -51,6 +52,7 @@ HIGH_RISK_CATEGORIES = {
 }
 SAMPLED_CATEGORIES = {
     CATEGORY_USER_VISIBLE_COPY,
+    CATEGORY_ANNOTATED_NO_CHANGE,
     CATEGORY_COMMENT,
     CATEGORY_SWAGGER_DOCUMENTATION,
     CATEGORY_GENERIC_DOCUMENTATION,
@@ -559,6 +561,8 @@ def _expected_category(
     governance_in_scope = slice_name == "first_party"
     language = guess_language(Path(path))
 
+    if finding.get("annotated") or finding.get("category") == CATEGORY_ANNOTATED_NO_CHANGE:
+        return CATEGORY_ANNOTATED_NO_CHANGE, False, "当前命中已被人工标注为无需修改。"
     if is_named_keep_file(path):
         return CATEGORY_NAMED_FILE, False, "指定文件中的中文统一归为指定文件。"
     if is_i18n_messages_file(path):

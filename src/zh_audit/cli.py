@@ -5,9 +5,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
+from zh_audit.annotations import load_annotation_store, resolve_annotation_path
 from zh_audit.config import load_manifest, load_scan_settings
 from zh_audit.pipeline import run_scan
 from zh_audit.report import render_report
+from zh_audit.review_server import serve_review
 from zh_audit.validation import validate_report
 
 
@@ -90,8 +92,15 @@ def build_parser():
     scan_parser = subparsers.add_parser("scan", help="Scan repositories for Chinese text.")
     scan_parser.add_argument("--manifest", required=True, type=Path, help="Path to repos manifest.")
     scan_parser.add_argument("--out", required=False, type=Path, help="Output directory.")
+    scan_parser.add_argument("--annotations", type=Path, help="Optional annotations file path.")
     scan_parser.add_argument("--scan-policy", type=Path, help="Optional scan policy.")
     scan_parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON outputs.")
+
+    review_parser = subparsers.add_parser("review", help="Serve a local interactive review report.")
+    review_parser.add_argument("--out", type=Path, default=Path("results"), help="Directory containing findings.json and summary.json.")
+    review_parser.add_argument("--annotations", type=Path, help="Optional annotations file path.")
+    review_parser.add_argument("--host", default="127.0.0.1", help="Host to bind.")
+    review_parser.add_argument("--port", type=int, default=8765, help="Port to bind.")
 
     validate_parser = subparsers.add_parser("validate", help="Validate a generated report against a repository.")
     validate_parser.add_argument("--repo", required=True, type=Path, help="Path to the repository root.")
@@ -113,6 +122,8 @@ def main(argv=None):
             run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
             out_dir = args.out or Path("results")
             out_dir.mkdir(parents=True, exist_ok=True)
+            annotations_path = resolve_annotation_path(out_dir, args.annotations)
+            annotation_store = load_annotation_store(annotations_path)
 
             repos = load_manifest(args.manifest)
             scan_settings = load_scan_settings(args.scan_policy)
@@ -122,6 +133,7 @@ def main(argv=None):
                 scan_settings=scan_settings,
                 run_id=run_id,
                 progress_callback=progress_reporter,
+                annotation_store=annotation_store,
             )
 
             indent = 2 if args.pretty else None
@@ -139,7 +151,17 @@ def main(argv=None):
                 encoding="utf-8",
             )
             report_path.write_text(
-                render_report(artifacts.summary, findings_payload),
+                render_report(
+                    artifacts.summary,
+                    findings_payload,
+                    client_config={
+                        "mode": "static",
+                        "annotation_api_path": "",
+                        "annotation_remove_api_path": "",
+                        "readonly_message": "当前报告为只读模式，请使用 zh-audit review 打开可编辑版本。",
+                        "annotation_path": str(annotations_path),
+                    },
+                ),
                 encoding="utf-8",
             )
 
@@ -148,7 +170,29 @@ def main(argv=None):
                 "summary": str(summary_path),
                 "findings": str(findings_path),
                 "report": str(report_path),
+                "annotations": str(annotations_path),
             }, ensure_ascii=False, indent=2))
+            return 0
+        if args.command == "review":
+            server = serve_review(
+                out_dir=args.out.resolve(),
+                host=args.host,
+                port=args.port,
+                annotations_path=args.annotations.resolve() if args.annotations else None,
+            )
+            address = server.server_address
+            print(json.dumps({
+                "mode": "review",
+                "url": "http://{}:{}/".format(address[0], address[1]),
+                "out": str(args.out.resolve()),
+                "annotations": str(resolve_annotation_path(args.out.resolve(), args.annotations.resolve() if args.annotations else None)),
+            }, ensure_ascii=False, indent=2))
+            try:
+                server.serve_forever()
+            except KeyboardInterrupt:
+                pass
+            finally:
+                server.server_close()
             return 0
         if args.command == "validate":
             out_dir = args.out or args.summary.parent

@@ -14,6 +14,7 @@ CATEGORY_NAMED_FILE = "NAMED_FILE"
 CATEGORY_I18N_FILE = "I18N_FILE"
 CATEGORY_CONDITION_EXPRESSION_LITERAL = "CONDITION_EXPRESSION_LITERAL"
 CATEGORY_TASK_DESCRIPTION = "TASK_DESCRIPTION"
+CATEGORY_ANNOTATED_NO_CHANGE = "ANNOTATED_NO_CHANGE"
 CATEGORY_TEST_SAMPLE_FIXTURE = "TEST_SAMPLE_FIXTURE"
 CATEGORY_CONFIG_ITEM = "CONFIG_ITEM"
 CATEGORY_PROTOCOL_OR_PERSISTED_LITERAL = "PROTOCOL_OR_PERSISTED_LITERAL"
@@ -28,6 +29,7 @@ CATEGORY_ORDER = [
     CATEGORY_COMMENT,
     CATEGORY_SWAGGER_DOCUMENTATION,
     CATEGORY_TASK_DESCRIPTION,
+    CATEGORY_ANNOTATED_NO_CHANGE,
     CATEGORY_GENERIC_DOCUMENTATION,
     CATEGORY_DATABASE_SCRIPT,
     CATEGORY_SHELL_SCRIPT,
@@ -207,6 +209,12 @@ class ClassifiedFinding(Serializable):
         "reason",
         "file_role",
         "candidate_roles",
+        "annotated",
+        "annotation_reason",
+        "annotation_updated_at",
+        "original_category",
+        "original_action",
+        "annotation_key",
         "metadata",
     )
 
@@ -232,6 +240,12 @@ class ClassifiedFinding(Serializable):
         reason,
         file_role,
         candidate_roles,
+        annotated=False,
+        annotation_reason="",
+        annotation_updated_at="",
+        original_category="",
+        original_action="",
+        annotation_key="",
         metadata=None,
     ):
         self.id = id
@@ -254,6 +268,12 @@ class ClassifiedFinding(Serializable):
         self.reason = reason
         self.file_role = file_role
         self.candidate_roles = list(candidate_roles)
+        self.annotated = annotated
+        self.annotation_reason = annotation_reason
+        self.annotation_updated_at = annotation_updated_at
+        self.original_category = original_category
+        self.original_action = original_action
+        self.annotation_key = annotation_key
         self.metadata = dict(metadata or {})
 
 
