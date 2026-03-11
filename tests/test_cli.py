@@ -13,9 +13,18 @@ class _TtyBuffer(io.StringIO):
 class CliTest(unittest.TestCase):
     def test_parser_accepts_serve_command(self):
         parser = build_parser()
-        args = parser.parse_args(["serve", "--out", "results", "--no-browser"])
+        args = parser.parse_args(["serve", "--no-browser"])
         self.assertEqual(args.command, "serve")
         self.assertTrue(args.no_browser)
+
+    def test_parser_rejects_scan_and_review_commands(self):
+        parser = build_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["scan"])
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["review"])
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["serve", "--out", "results"])
 
     def test_open_browser_returns_true_when_backend_succeeds(self):
         with mock.patch("zh_audit.cli.webbrowser.open", return_value=True) as mocked:

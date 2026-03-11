@@ -50,23 +50,8 @@ class AppServiceState(object):
                 "scan_status_api_path": "/api/scan/status",
                 "annotation_api_path": "/api/annotations",
                 "annotation_remove_api_path": "/api/annotations/remove",
-                "embedded_report_path": "/embedded/report",
             },
         )
-
-    def render_embedded_report(self):
-        with self.lock:
-            return render_report(
-                self.summary,
-                self.findings,
-                client_config={
-                    "mode": "review",
-                    "annotation_api_path": "/api/annotations",
-                    "annotation_remove_api_path": "/api/annotations/remove",
-                    "readonly_message": "",
-                    "annotation_path": str(self.annotations_path),
-                },
-            )
 
     def bootstrap_payload(self):
         with self.lock:
@@ -303,9 +288,6 @@ class AppRequestHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path in {"/", "/index.html"}:
             self._send_html(self.server.app_state.render_home())
-            return
-        if parsed.path == "/embedded/report":
-            self._send_html(self.server.app_state.render_embedded_report())
             return
         if parsed.path == "/api/bootstrap":
             self._send_json(200, self.server.app_state.bootstrap_payload())

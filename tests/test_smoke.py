@@ -1,68 +1,54 @@
 import json
-import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
-from zh_audit.cli import main
+from zh_audit.app_server import AppServiceState
 from zh_audit.report import render_report
 
 
 class ScanSmokeTest(unittest.TestCase):
-    def test_scan_defaults_to_results_directory_without_timestamp_subdir(self) -> None:
+    def _run_service_scan(self, repo_root: Path, out_dir: Path) -> AppServiceState:
+        state = AppServiceState(out_dir=out_dir)
+        status = state.start_scan(
+            {
+                "scan_roots": [str(repo_root)],
+                "scan_policy": {
+                    "max_file_size_bytes": 5 * 1024 * 1024,
+                    "context_lines": 1,
+                    "exclude_globs": ["**/static/ajax/libs/**"],
+                },
+            }
+        )
+        self.assertEqual(status["status"], "running")
+        deadline = time.time() + 15
+        latest = status
+        while time.time() < deadline:
+            latest = state.scan_status_payload()
+            if latest["status"] in {"done", "failed"}:
+                break
+            time.sleep(0.1)
+        self.assertEqual(latest["status"], "done")
+        return state
+
+    def test_service_scan_writes_results_directory_without_timestamp_subdir(self) -> None:
         fixture_repo = Path(__file__).parent / "fixtures" / "repo_a"
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            manifest_path = temp_path / "repos.json"
-            manifest_path.write_text(
-                json.dumps([str(fixture_repo)], ensure_ascii=False),
-                encoding="utf-8",
-            )
-
-            previous_cwd = Path.cwd()
-            try:
-                os.chdir(temp_path)
-                exit_code = main(
-                    [
-                        "scan",
-                        "--manifest",
-                        str(manifest_path),
-                        "--pretty",
-                    ]
-                )
-            finally:
-                os.chdir(previous_cwd)
-
-            self.assertEqual(exit_code, 0)
             results_dir = temp_path / "results"
+            self._run_service_scan(fixture_repo, results_dir)
             self.assertTrue((results_dir / "findings.json").exists())
             self.assertTrue((results_dir / "summary.json").exists())
             self.assertTrue((results_dir / "report.html").exists())
             self.assertFalse(any(item.is_dir() for item in results_dir.iterdir()))
 
-    def test_scan_generates_json_and_report(self) -> None:
+    def test_service_scan_generates_json_and_report(self) -> None:
         fixture_repo = Path(__file__).parent / "fixtures" / "repo_a"
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            manifest_path = temp_path / "repos.json"
             out_dir = temp_path / "out"
-            manifest_path.write_text(
-                json.dumps([str(fixture_repo)], ensure_ascii=False),
-                encoding="utf-8",
-            )
-
-            exit_code = main(
-                [
-                    "scan",
-                    "--manifest",
-                    str(manifest_path),
-                    "--out",
-                    str(out_dir),
-                    "--pretty",
-                ]
-            )
-
-            self.assertEqual(exit_code, 0)
+            self._run_service_scan(fixture_repo, out_dir)
             findings = json.loads((out_dir / "findings.json").read_text(encoding="utf-8"))
             summary = json.loads((out_dir / "summary.json").read_text(encoding="utf-8"))
             report = (out_dir / "report.html").read_text(encoding="utf-8")

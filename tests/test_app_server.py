@@ -67,6 +67,7 @@ class AppServerSmokeTest(unittest.TestCase):
 
             html = state.render_home()
             self.assertIn("扫描目录", html)
+            self.assertIn("扫描结果", html)
             self.assertIn("标注管理", html)
             self.assertIn("设置", html)
             self.assertNotIn("Local Service", html)
@@ -74,15 +75,18 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn('class="root-remove-btn"', html)
             self.assertIn('aria-label="删除目录"', html)
             self.assertNotIn('>删除<', html)
-            self.assertIn('id="resultsFullscreenBtn"', html)
-            self.assertIn('id="resultsCloseFullscreenBtn"', html)
+            self.assertIn('data-tab="results"', html)
+            self.assertIn('id="viewResultsBtn"', html)
+            self.assertIn('id="resultsReportHost"', html)
+            self.assertIn("window.ZhAuditReport", html)
+            self.assertNotIn("<iframe", html)
+            self.assertNotIn("resultsFullscreenBtn", html)
+            self.assertNotIn("resultsCloseFullscreenBtn", html)
             self.assertIn("overflow-wrap: anywhere;", html)
-            self.assertIn("grid-template-columns: auto minmax(0, 1fr);", html)
             self.assertIn("min-width: 0;", html)
             self.assertIn("transform: translateY(-1px);", html)
             self.assertIn("scale(0.98)", html)
-            self.assertIn("body.results-fullscreen-active::before", html)
-            self.assertIn(".results-panel.is-fullscreen", html)
+            self.assertIn("当前还没有扫描结果，请先到首页配置扫描目录并点击“开始扫描”。", html)
             self.assertFalse(state.bootstrap_payload()["has_results"])
 
             status = state.start_scan(
@@ -113,10 +117,6 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertTrue((out_dir / "summary.json").exists())
             self.assertTrue((out_dir / "report.html").exists())
             self.assertTrue((out_dir / "app_state.json").exists())
-
-            embedded = state.render_embedded_report()
-            self.assertIn("明细筛选", embedded)
-            self.assertNotIn("当前报告为只读模式", embedded)
 
             target = next(item for item in bootstrap["findings"] if item["action"] == "fix")
             updated = state.annotate(target["id"], "本地保留")

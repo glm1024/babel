@@ -1025,8 +1025,8 @@ def render_report(summary, findings, client_config=None):
       return parts.join("\\n");
     }
 
-    function isReviewMode() {
-      return CLIENT_CONFIG.mode === "review";
+    function isInteractiveMode() {
+      return CLIENT_CONFIG.mode === "serve";
     }
 
     function setOptions(select, values, label, group, selectedValue) {
@@ -1238,7 +1238,7 @@ def render_report(summary, findings, client_config=None):
         ? `<div class="annotation-note"${noteTitle ? ` title="${escapeAttr(noteTitle)}"` : ""}><strong>已标注</strong>${escapeHtml(item.annotation_reason || "无需修改")}</div>`
         : "";
 
-      if (isReviewMode()) {
+      if (isInteractiveMode()) {
         if (item.annotated) {
           return `
             <div class="action-stack">
@@ -1265,9 +1265,9 @@ def render_report(summary, findings, client_config=None):
       if (item.action === "fix") {
         return `
           <div class="action-stack">
-            <span class="pill ${item.action}">${escapeHtml(labelFor("action", item.action))}</span>
-            <div class="annotation-row">
-              <button class="annotation-btn" type="button" disabled title="${escapeAttr(CLIENT_CONFIG.readonly_message || "请使用 zh-audit review 打开可编辑版本。")}">标注无需修改</button>
+              <span class="pill ${item.action}">${escapeHtml(labelFor("action", item.action))}</span>
+              <div class="annotation-row">
+              <button class="annotation-btn" type="button" disabled title="${escapeAttr(CLIENT_CONFIG.readonly_message || "请使用 zh-audit serve 打开本地服务版本。")}">标注无需修改</button>
             </div>
           </div>
         `;

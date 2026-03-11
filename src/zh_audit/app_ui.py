@@ -1,12 +1,14 @@
 import json
 
 from zh_audit.report import DISPLAY_MAPS
+from zh_audit.report_embed import render_report_component_bundle
 
 
 def render_app_shell(bootstrap_payload, client_config):
     payload = json.dumps(bootstrap_payload, ensure_ascii=False)
     display_maps = json.dumps(DISPLAY_MAPS, ensure_ascii=False)
     config_payload = json.dumps(client_config, ensure_ascii=False)
+    report_bundle = render_report_component_bundle()
     template = """<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -74,6 +76,7 @@ def render_app_shell(bootstrap_payload, client_config):
       border: 1px solid var(--line);
       border-radius: 20px;
       box-shadow: 0 10px 30px rgba(64, 47, 30, 0.06);
+      min-width: 0;
     }
     .tab-bar {
       display: inline-flex;
@@ -102,7 +105,6 @@ def render_app_shell(bootstrap_payload, client_config):
       color: var(--muted);
       cursor: pointer;
       white-space: nowrap;
-      transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
     }
     .tab-btn.is-active {
       background: var(--panel);
@@ -114,17 +116,22 @@ def render_app_shell(bootstrap_payload, client_config):
       display: none;
       width: 100%;
       gap: 20px;
+      min-width: 0;
     }
     .page.is-active {
       display: grid;
     }
-    .grid {
+    .home-workspace {
+      width: min(820px, 100%);
       display: grid;
-      grid-template-columns: minmax(360px, 420px) minmax(0, 1fr);
       gap: 20px;
-      align-items: start;
     }
-    .grid > * {
+    .results-tab-shell {
+      display: grid;
+      gap: 20px;
+      min-width: 0;
+    }
+    .results-report-host {
       min-width: 0;
     }
     .card {
@@ -138,6 +145,7 @@ def render_app_shell(bootstrap_payload, client_config):
       justify-content: space-between;
       gap: 12px;
       align-items: center;
+      min-width: 0;
     }
     .card-title {
       font-size: 18px;
@@ -156,7 +164,11 @@ def render_app_shell(bootstrap_payload, client_config):
       align-items: center;
       min-width: 0;
     }
-    .root-input, .field-input, .field-textarea, .filter-input, .filter-select {
+    .root-input,
+    .field-input,
+    .field-textarea,
+    .filter-input,
+    .filter-select {
       width: 100%;
       border: 1px solid var(--line);
       border-radius: 14px;
@@ -172,7 +184,10 @@ def render_app_shell(bootstrap_payload, client_config):
       min-height: 140px;
       resize: vertical;
     }
-    .small-btn, .primary-btn, .secondary-btn, .danger-btn {
+    .small-btn,
+    .primary-btn,
+    .secondary-btn,
+    .danger-btn {
       border-radius: 14px;
       padding: 10px 16px;
       border: 1px solid var(--line);
@@ -301,67 +316,6 @@ def render_app_shell(bootstrap_payload, client_config):
       overflow-wrap: anywhere;
       word-break: break-word;
     }
-    .results-frame-wrap {
-      padding: 14px;
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      background: rgba(255,255,255,0.74);
-    }
-    .results-panel {
-      position: relative;
-      min-width: 0;
-    }
-    .card-actions {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-    .report-action-btn {
-      min-width: 92px;
-    }
-    body.results-fullscreen-active {
-      overflow: hidden;
-    }
-    body.results-fullscreen-active::before {
-      content: "";
-      position: fixed;
-      inset: 0;
-      background: rgba(31,35,40,0.16);
-      backdrop-filter: blur(2px);
-      z-index: 2100;
-    }
-    .results-panel.is-fullscreen {
-      position: fixed;
-      inset: 16px;
-      z-index: 2200;
-      display: grid;
-      grid-template-rows: auto minmax(0, 1fr);
-      align-content: stretch;
-      padding: 20px;
-      border-radius: 24px;
-      background: rgba(255,253,250,0.98);
-      box-shadow: 0 24px 56px rgba(31,35,40,0.18);
-    }
-    .results-panel.is-fullscreen .results-frame-wrap {
-      min-height: 0;
-      height: 100%;
-      display: flex;
-      flex-direction: column;
-    }
-    .report-frame {
-      width: 100%;
-      min-height: 980px;
-      height: calc(100vh - 180px);
-      border: none;
-      border-radius: 14px;
-      background: #fff;
-    }
-    .results-panel.is-fullscreen .report-frame {
-      min-height: 0;
-      height: 100%;
-      flex: 1 1 auto;
-    }
     .empty-state {
       padding: 34px 28px;
       border: 1px dashed var(--line);
@@ -434,14 +388,12 @@ def render_app_shell(bootstrap_payload, client_config):
       display: none !important;
     }
     @media (max-width: 1100px) {
-      .grid {
-        grid-template-columns: 1fr;
-      }
       .annotated-filters {
         grid-template-columns: 1fr;
       }
-      .report-frame {
-        height: 75vh;
+      .shell {
+        padding-left: 20px;
+        padding-right: 20px;
       }
     }
   </style>
@@ -450,12 +402,13 @@ def render_app_shell(bootstrap_payload, client_config):
   <div class="shell">
     <div class="tab-bar" id="tabBar">
       <button class="tab-btn is-active" type="button" data-tab="home">首页</button>
+      <button class="tab-btn" type="button" data-tab="results">扫描结果</button>
       <button class="tab-btn" type="button" data-tab="annotations">标注管理</button>
       <button class="tab-btn" type="button" data-tab="settings">设置</button>
     </div>
 
     <section class="page is-active" id="homePage">
-      <div class="grid">
+      <div class="home-workspace">
         <div class="panel card">
           <div class="card-head">
             <div>
@@ -469,15 +422,18 @@ def render_app_shell(bootstrap_payload, client_config):
             <button id="saveRootsBtn" class="secondary-btn" type="button">保存目录</button>
             <button id="startScanBtn" class="primary-btn" type="button">开始扫描</button>
           </div>
+        </div>
+
+        <div class="panel card">
+          <div class="card-head">
+            <div>
+              <div class="muted">Workspace</div>
+              <h2 class="card-title">状态与进度</h2>
+            </div>
+            <span id="scanStatusPill" class="pill keep">空闲</span>
+          </div>
           <div id="homeStatus" class="status-banner">等待扫描</div>
           <div class="progress-box">
-            <div class="card-head">
-              <div>
-                <div class="muted">Progress</div>
-                <h3 class="card-title">扫描进度</h3>
-              </div>
-              <span id="scanStatusPill" class="pill keep">空闲</span>
-            </div>
             <div class="progress-bar"><span id="progressBarInner"></span></div>
             <div class="progress-meta">
               <div id="progressCounts">0 / 0</div>
@@ -495,26 +451,19 @@ def render_app_shell(bootstrap_payload, client_config):
               </div>
             </div>
           </div>
+          <div class="btn-row">
+            <button id="viewResultsBtn" class="secondary-btn" type="button" disabled>查看扫描结果</button>
+          </div>
         </div>
+      </div>
+    </section>
 
-        <div id="resultsPanel" class="panel card results-panel">
-          <div class="card-head">
-            <div>
-              <div class="muted">Report</div>
-              <h2 class="card-title">扫描结果</h2>
-            </div>
-            <div class="card-actions">
-              <button id="resultsFullscreenBtn" class="secondary-btn report-action-btn" type="button" disabled>全屏</button>
-              <button id="resultsCloseFullscreenBtn" class="secondary-btn report-action-btn hidden" type="button">关闭全屏</button>
-            </div>
-          </div>
-          <div id="resultsEmpty" class="empty-state">
-            暂无当前会话扫描结果。请先配置扫描目录并点击“开始扫描”。服务重启后默认不会自动恢复上一次的结果视图。
-          </div>
-          <div id="resultsFrameWrap" class="results-frame-wrap hidden">
-            <iframe id="reportFrame" class="report-frame" title="扫描结果"></iframe>
-          </div>
+    <section class="page" id="resultsPage">
+      <div class="results-tab-shell">
+        <div id="resultsPageEmpty" class="panel card empty-state">
+          当前还没有扫描结果，请先到首页配置扫描目录并点击“开始扫描”。
         </div>
+        <div id="resultsReportHost" class="results-report-host hidden"></div>
       </div>
     </section>
 
@@ -583,6 +532,9 @@ def render_app_shell(bootstrap_payload, client_config):
   </div>
 
   <script>
+__REPORT_COMPONENT_BUNDLE__
+  </script>
+  <script>
     const BOOTSTRAP = __BOOTSTRAP__;
     const DISPLAY_MAP = __DISPLAY_MAP__;
     const CLIENT_CONFIG = __CLIENT_CONFIG__;
@@ -600,12 +552,12 @@ def render_app_shell(bootstrap_payload, client_config):
       findings: BOOTSTRAP.findings || [],
       hasResults: !!BOOTSTRAP.has_results,
       resultsRevision: Number(BOOTSTRAP.results_revision || 0),
-      isResultsFullscreen: false,
     };
     state.draftConfig = cloneConfig(state.config);
 
     const tabBar = document.getElementById("tabBar");
     const homePage = document.getElementById("homePage");
+    const resultsPage = document.getElementById("resultsPage");
     const annotationsPage = document.getElementById("annotationsPage");
     const settingsPage = document.getElementById("settingsPage");
     const rootsList = document.getElementById("rootsList");
@@ -619,12 +571,9 @@ def render_app_shell(bootstrap_payload, client_config):
     const progressCurrentPath = document.getElementById("progressCurrentPath");
     const progressStartedAt = document.getElementById("progressStartedAt");
     const scanStatusPill = document.getElementById("scanStatusPill");
-    const resultsPanel = document.getElementById("resultsPanel");
-    const resultsEmpty = document.getElementById("resultsEmpty");
-    const resultsFrameWrap = document.getElementById("resultsFrameWrap");
-    const reportFrame = document.getElementById("reportFrame");
-    const resultsFullscreenBtn = document.getElementById("resultsFullscreenBtn");
-    const resultsCloseFullscreenBtn = document.getElementById("resultsCloseFullscreenBtn");
+    const viewResultsBtn = document.getElementById("viewResultsBtn");
+    const resultsPageEmpty = document.getElementById("resultsPageEmpty");
+    const resultsReportHost = document.getElementById("resultsReportHost");
     const annotationKeyword = document.getElementById("annotationKeyword");
     const annotationProject = document.getElementById("annotationProject");
     const annotationCategory = document.getElementById("annotationCategory");
@@ -635,9 +584,18 @@ def render_app_shell(bootstrap_payload, client_config):
     const outDirValue = document.getElementById("outDirValue");
     const saveSettingsBtn = document.getElementById("saveSettingsBtn");
     let scanTimer = null;
+    let reportController = null;
 
     function cloneConfig(config) {
       return JSON.parse(JSON.stringify(config || { scan_roots: [], scan_policy: DEFAULT_POLICY, out_dir: "" }));
+    }
+
+    function parseInteger(value, fallback, minValue) {
+      const parsed = Number.parseInt(value, 10);
+      if (Number.isNaN(parsed)) {
+        return fallback;
+      }
+      return Math.max(minValue, parsed);
     }
 
     function labelFor(group, value) {
@@ -674,8 +632,8 @@ def render_app_shell(bootstrap_payload, client_config):
       return {
         scan_roots: state.draftConfig.scan_roots.filter(item => String(item || "").trim()).map(item => String(item).trim()),
         scan_policy: {
-          max_file_size_bytes: Number.parseInt(maxFileSizeInput.value, 10) || DEFAULT_POLICY.max_file_size_bytes,
-          context_lines: Number.parseInt(contextLinesInput.value, 10) || DEFAULT_POLICY.context_lines,
+          max_file_size_bytes: parseInteger(maxFileSizeInput.value, DEFAULT_POLICY.max_file_size_bytes, 1),
+          context_lines: parseInteger(contextLinesInput.value, DEFAULT_POLICY.context_lines, 0),
           exclude_globs: excludeGlobsInput.value
             .split("\\n")
             .map(item => item.trim())
@@ -703,6 +661,7 @@ def render_app_shell(bootstrap_payload, client_config):
         button.classList.toggle("is-active", button.dataset.tab === state.activeTab);
       });
       homePage.classList.toggle("is-active", state.activeTab === "home");
+      resultsPage.classList.toggle("is-active", state.activeTab === "results");
       annotationsPage.classList.toggle("is-active", state.activeTab === "annotations");
       settingsPage.classList.toggle("is-active", state.activeTab === "settings");
     }
@@ -732,32 +691,39 @@ def render_app_shell(bootstrap_payload, client_config):
       scanStatusPill.textContent = status.status === "running" ? "运行中" : status.status === "done" ? "完成" : status.status === "failed" ? "失败" : "空闲";
       scanStatusPill.className = `pill ${status.status === "running" ? "fix" : "keep"}`;
       startScanBtn.disabled = status.status === "running";
+      viewResultsBtn.disabled = !state.hasResults;
     }
 
-    function setResultsFullscreen(enabled) {
-      const nextValue = Boolean(enabled) && state.hasResults;
-      state.isResultsFullscreen = nextValue;
-      document.body.classList.toggle("results-fullscreen-active", nextValue);
-      resultsPanel.classList.toggle("is-fullscreen", nextValue);
-      resultsFullscreenBtn.classList.toggle("hidden", nextValue);
-      resultsCloseFullscreenBtn.classList.toggle("hidden", !nextValue);
-    }
-
-    function renderResults() {
-      resultsFullscreenBtn.disabled = !state.hasResults;
+    function renderResultsPage() {
+      viewResultsBtn.disabled = !state.hasResults;
       if (!state.hasResults) {
-        setResultsFullscreen(false);
-        resultsEmpty.classList.remove("hidden");
-        resultsFrameWrap.classList.add("hidden");
+        resultsPageEmpty.classList.remove("hidden");
+        resultsReportHost.classList.add("hidden");
         return;
       }
-      resultsEmpty.classList.add("hidden");
-      resultsFrameWrap.classList.remove("hidden");
-      setResultsFullscreen(state.isResultsFullscreen);
-      const nextSrc = `${CLIENT_CONFIG.embedded_report_path}?rev=${state.resultsRevision}`;
-      if (reportFrame.dataset.src !== nextSrc) {
-        reportFrame.src = nextSrc;
-        reportFrame.dataset.src = nextSrc;
+      resultsPageEmpty.classList.add("hidden");
+      resultsReportHost.classList.remove("hidden");
+      const controllerConfig = {
+        mode: "serve",
+        annotation_api_path: CLIENT_CONFIG.annotation_api_path,
+        annotation_remove_api_path: CLIENT_CONFIG.annotation_remove_api_path,
+        readonly_message: "",
+        annotation_path: state.config.out_dir || "",
+      };
+      const payload = {
+        summary: state.summary || {},
+        findings: state.findings || [],
+      };
+      if (!reportController) {
+        reportController = window.ZhAuditReport.mount(resultsReportHost, payload, controllerConfig, {
+          shadow: true,
+          embedded: true,
+        });
+      } else {
+        reportController.update(payload, controllerConfig, {
+          shadow: true,
+          embedded: true,
+        });
       }
     }
 
@@ -812,7 +778,7 @@ def render_app_shell(bootstrap_payload, client_config):
     function renderSettings() {
       const policy = state.draftConfig.scan_policy || DEFAULT_POLICY;
       maxFileSizeInput.value = policy.max_file_size_bytes || DEFAULT_POLICY.max_file_size_bytes;
-      contextLinesInput.value = policy.context_lines || DEFAULT_POLICY.context_lines;
+      contextLinesInput.value = policy.context_lines ?? DEFAULT_POLICY.context_lines;
       excludeGlobsInput.value = (policy.exclude_globs || []).join("\\n");
       outDirValue.textContent = state.config.out_dir || "";
     }
@@ -821,7 +787,7 @@ def render_app_shell(bootstrap_payload, client_config):
       renderTabs();
       renderRoots();
       renderStatus();
-      renderResults();
+      renderResultsPage();
       renderAnnotations();
       renderSettings();
     }
@@ -865,7 +831,7 @@ def render_app_shell(bootstrap_payload, client_config):
 
     async function removeAnnotation(findingId) {
       const data = await requestJson(CLIENT_CONFIG.annotation_remove_api_path, { finding_id: findingId });
-      applyBootstrap(data);
+      applyBootstrap(data, true);
     }
 
     function syncRootsFromInputs() {
@@ -904,9 +870,6 @@ def render_app_shell(bootstrap_payload, client_config):
       const target = event.target instanceof Element ? event.target.closest(".tab-btn") : null;
       if (!target) return;
       const nextTab = target.dataset.tab || "home";
-      if (state.isResultsFullscreen && nextTab !== "home") {
-        setResultsFullscreen(false);
-      }
       state.activeTab = nextTab;
       renderTabs();
       if (nextTab === "annotations") {
@@ -939,6 +902,12 @@ def render_app_shell(bootstrap_payload, client_config):
       renderRoots();
     });
 
+    viewResultsBtn.addEventListener("click", () => {
+      if (!state.hasResults) return;
+      state.activeTab = "results";
+      renderTabs();
+    });
+
     saveRootsBtn.addEventListener("click", async () => {
       try {
         await saveConfig();
@@ -966,15 +935,6 @@ def render_app_shell(bootstrap_payload, client_config):
       }
     });
 
-    resultsFullscreenBtn.addEventListener("click", () => {
-      if (!state.hasResults) return;
-      setResultsFullscreen(true);
-    });
-
-    resultsCloseFullscreenBtn.addEventListener("click", () => {
-      setResultsFullscreen(false);
-    });
-
     annotationKeyword.addEventListener("input", renderAnnotations);
     annotationProject.addEventListener("change", renderAnnotations);
     annotationCategory.addEventListener("change", renderAnnotations);
@@ -989,22 +949,15 @@ def render_app_shell(bootstrap_payload, client_config):
       }
     });
 
-    window.addEventListener("message", async event => {
-      if (!event.data || event.data.type !== "zh-audit-updated") {
-        return;
-      }
-      try {
-        await refreshBootstrap(true);
-      } catch (error) {
-        homeStatus.textContent = error.message || "刷新结果失败";
-        homeStatus.classList.add("is-error");
-      }
-    });
-
-    window.addEventListener("keydown", event => {
-      if (event.key === "Escape" && state.isResultsFullscreen) {
-        setResultsFullscreen(false);
-      }
+    resultsReportHost.addEventListener("zh-audit-report-updated", event => {
+      if (!event.detail) return;
+      state.summary = event.detail.summary || state.summary;
+      state.findings = Array.isArray(event.detail.findings) ? event.detail.findings : state.findings;
+      state.hasResults = state.findings.length > 0;
+      state.resultsRevision += 1;
+      renderResultsPage();
+      renderAnnotations();
+      renderStatus();
     });
 
     renderAll();
@@ -1015,7 +968,8 @@ def render_app_shell(bootstrap_payload, client_config):
 </body>
 </html>"""
     return (
-        template.replace("__BOOTSTRAP__", payload)
+        template.replace("__REPORT_COMPONENT_BUNDLE__", report_bundle)
+        .replace("__BOOTSTRAP__", payload)
         .replace("__DISPLAY_MAP__", display_maps)
         .replace("__CLIENT_CONFIG__", config_payload)
     )
