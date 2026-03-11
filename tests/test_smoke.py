@@ -79,6 +79,7 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("NAMED_FILE", categories)
             self.assertIn("I18N_FILE", categories)
             self.assertIn("CONDITION_EXPRESSION_LITERAL", categories)
+            self.assertIn("TASK_DESCRIPTION", categories)
             self.assertIn("TEST_SAMPLE_FIXTURE", categories)
             self.assertIn("CONFIG_ITEM", categories)
             self.assertIn("PROTOCOL_OR_PERSISTED_LITERAL", categories)
@@ -234,6 +235,44 @@ class ScanSmokeTest(unittest.TestCase):
                     item["text"] == "请求体说明"
                     and item["category"] == "SWAGGER_DOCUMENTATION"
                     and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "停用主机"
+                    and item["path"] == "src/TaskDescriptionProcesses.java"
+                    and item["category"] == "TASK_DESCRIPTION"
+                    and item["action"] == "keep"
+                    and "task_description_annotation" in item["candidate_roles"]
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "创建节点"
+                    and item["path"] == "src/TaskDescriptionProcesses.java"
+                    and item["category"] == "TASK_DESCRIPTION"
+                    and item["action"] == "keep"
+                    and "task_description_annotation" in item["candidate_roles"]
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "多行停用主机"
+                    and item["path"] == "src/TaskDescriptionProcesses.java"
+                    and item["category"] == "TASK_DESCRIPTION"
+                    and item["action"] == "keep"
+                    and "task_description_annotation" in item["candidate_roles"]
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "普通描述"
+                    and item["path"] == "src/TaskDescriptionProcesses.java"
+                    and item["category"] != "TASK_DESCRIPTION"
                     for item in findings
                 )
             )
@@ -423,11 +462,12 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("指定文件", report)
             self.assertIn("国际化文件", report)
             self.assertIn("条件判断字面量", report)
+            self.assertIn("任务描述", report)
             self.assertIn("配置项", report)
             self.assertIn("协议/持久化字面量", report)
             self.assertIn("扫描摘要", report)
             self.assertIn("明细筛选", report)
-            self.assertIn("命中文本", report)
+            self.assertNotIn("命中文本", report)
             self.assertIn("每页条数", report)
             self.assertIn("上一页", report)
             self.assertIn("下一页", report)
@@ -444,6 +484,7 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("当前命中位于国际化文件中。", report)
             self.assertIn("Swagger/OpenAPI 注解上下文", report)
             self.assertIn("当前命中用于条件判断表达式。", report)
+            self.assertIn("当前命中位于任务描述注解中。", report)
             self.assertIn("// 编码类型", report)
             self.assertNotIn("展开详情", report)
             self.assertNotIn("项目与覆盖率", report)
@@ -478,18 +519,14 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("function scrollResultsToTop() {", report)
             self.assertIn("tableWrap.scrollTop = 0;", report)
             self.assertIn("window.scrollTo(0, 0);", report)
-            self.assertIn('const headers = ["项目", "位置", "命中文本", "文本", "分类", "动作", "说明"];', report)
+            self.assertIn('const headers = ["项目", "位置", "文本", "分类", "动作", "说明"];', report)
             self.assertIn('new Blob(["\\ufeff", lines.join("\\n")], { type: "text/csv;charset=utf-8" })', report)
-            self.assertIn("function findingText(item) {", report)
-            self.assertIn("if (item.hit_text) {", report)
-            self.assertIn("return item.hit_text;", report)
             self.assertIn("function displaySnippet(item) {", report)
             self.assertIn('return item.snippet || item.normalized_text || item.text || "";', report)
             self.assertIn('${item.path} ${item.hit_text || ""} ${item.text} ${item.snippet || ""} ${item.reason}', report)
-            self.assertIn('<td class="hit-text-cell">${escapeHtml(findingText(item) || "-")}</td>', report)
-            self.assertNotIn('<td class="hit-text-cell"><strong>', report)
-            self.assertIn(".hit-text-cell {", report)
-            self.assertIn("font-weight: 400;", report)
+            self.assertNotIn("function findingText(item) {", report)
+            self.assertNotIn('<td class="hit-text-cell">${escapeHtml(findingText(item) || "-")}</td>', report)
+            self.assertNotIn(".hit-text-cell {", report)
             self.assertIn(".position-cell {", report)
             self.assertIn("width: 100%;", report)
             self.assertIn("flex: 1 1 auto;", report)
@@ -500,7 +537,7 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("height: calc(100vh - 68px);", report)
             self.assertIn(".findings-table thead th {", report)
             self.assertIn("position: sticky;", report)
-            self.assertIn('rows.innerHTML = `<tr><td colspan="7" class="empty-row">当前筛选条件下没有命中记录</td></tr>`;', report)
+            self.assertIn('rows.innerHTML = `<tr><td colspan="6" class="empty-row">当前筛选条件下没有命中记录</td></tr>`;', report)
             self.assertNotIn('setOptions(projectFilter, findings.map(item => item.project), "项目", "project");', report)
             self.assertNotIn('setOptions(categoryFilter, findings.map(item => item.category), "分类", "category");', report)
 

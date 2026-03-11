@@ -35,6 +35,10 @@ SYMBOL_PATTERNS = [
 ]
 JAVA_IMPORT_RE = re.compile(r"^\s*import\s+([A-Za-z_][A-Za-z0-9_$.]*(?:\.\*)?)\s*;", re.MULTILINE)
 JAVA_ANNOTATION_RE = re.compile(r"@([A-Za-z_][A-Za-z0-9_$.]*)")
+JAVA_TASK_DESCRIPTION_RE = re.compile(
+    r"""\bdescription\s*=\s*(?P<quote>["'])(?P<text>(?:\\.|(?!(?P=quote)).)*)(?P=quote)""",
+    re.DOTALL,
+)
 JAVA_SWAGGER_PACKAGE_PREFIXES = (
     "io.swagger.annotations",
     "com.wordnik.swagger.annotations",
@@ -100,6 +104,7 @@ JAVA_SWAGGER_ANNOTATIONS = {
     "Tag",
     "Tags",
 }
+JAVA_TASK_DESCRIPTION_ANNOTATIONS = {"AsynTask", "AsynTaskStep"}
 
 
 class Fragment(object):
@@ -186,6 +191,7 @@ def _extract_line_based(repo, path, content, context_lines, language):
     current_symbol = ""
     block_comment_state = None
     swagger_annotation_lines = _java_swagger_annotation_lines(content) if language == "java" else set()
+    task_description_ranges = _java_task_description_ranges(content) if language == "java" else {}
 
     for index, line in enumerate(lines, start=1):
         symbol = _line_symbol(line)
@@ -207,6 +213,12 @@ def _extract_line_based(repo, path, content, context_lines, language):
             candidate_roles = _candidate_roles(local_context, line, language, file_role, fragment.surface_kind)
             if index in swagger_annotation_lines and "swagger_annotation" not in candidate_roles:
                 candidate_roles.append("swagger_annotation")
+            if fragment.surface_kind == STRING_SURFACE and _matches_task_description_range(
+                task_description_ranges.get(index, []),
+                fragment.start,
+                fragment.end,
+            ) and "task_description_annotation" not in candidate_roles:
+                candidate_roles.append("task_description_annotation")
             yield _build_finding(
                 repo=repo,
                 relative_path=relative_path,
@@ -531,6 +543,37 @@ def _java_swagger_annotation_lines(content):
     return lines
 
 
+def _java_task_description_ranges(content):
+    ranges = {}
+    for match in JAVA_ANNOTATION_RE.finditer(content):
+        annotation_name = match.group(1)
+        if not _is_java_task_description_annotation(annotation_name):
+            continue
+        annotation_end = _java_annotation_span_end(content, match.end())
+        block = content[match.start() : annotation_end]
+        for description_match in JAVA_TASK_DESCRIPTION_RE.finditer(block):
+            start_offset = match.start() + description_match.start("text")
+            end_offset = match.start() + description_match.end("text")
+            start_line, start_column = _line_column_for_offset(content, start_offset)
+            end_line, end_column = _line_column_for_offset(content, end_offset)
+            if start_line != end_line:
+                continue
+            ranges.setdefault(start_line, []).append((start_column, end_column))
+    return ranges
+
+
+def _is_java_task_description_annotation(annotation_name):
+    simple_name = annotation_name.rpartition(".")[2] if "." in annotation_name else annotation_name
+    return simple_name in JAVA_TASK_DESCRIPTION_ANNOTATIONS
+
+
+def _matches_task_description_range(ranges, start, end):
+    for range_start, range_end in ranges:
+        if max(range_start, start) < min(range_end, end):
+            return True
+    return False
+
+
 def _is_java_swagger_annotation(annotation_name, explicit_imports, wildcard_imports):
     if "." in annotation_name:
         package_name, _, simple_name = annotation_name.rpartition(".")
@@ -553,12 +596,24 @@ def _line_number_for_offset(content, offset):
     return content.count("\n", 0, offset) + 1
 
 
+def _line_column_for_offset(content, offset):
+    line_no = _line_number_for_offset(content, offset)
+    line_start = content.rfind("\n", 0, offset)
+    if line_start == -1:
+        return line_no, offset
+    return line_no, offset - line_start - 1
+
+
 def _java_annotation_end_line(content, annotation_end, start_line):
+    return _line_number_for_offset(content, _java_annotation_span_end(content, annotation_end) - 1)
+
+
+def _java_annotation_span_end(content, annotation_end):
     index = annotation_end
     while index < len(content) and content[index].isspace():
         index += 1
     if index >= len(content) or content[index] != "(":
-        return start_line
+        return annotation_end
 
     depth = 0
     quote = ""
@@ -581,6 +636,6 @@ def _java_annotation_end_line(content, annotation_end, start_line):
             elif char == ")":
                 depth -= 1
                 if depth == 0:
-                    return _line_number_for_offset(content, cursor)
+                    return cursor + 1
         cursor += 1
-    return _line_number_for_offset(content, len(content))
+    return len(content)

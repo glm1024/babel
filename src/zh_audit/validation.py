@@ -7,6 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Match, Optional, Set, Tuple
 
+from zh_audit.extractor import _java_task_description_ranges
 from zh_audit.models import (
     CATEGORY_COMMENT,
     CATEGORY_CONDITION_EXPRESSION_LITERAL,
@@ -20,6 +21,7 @@ from zh_audit.models import (
     CATEGORY_PROTOCOL_OR_PERSISTED_LITERAL,
     CATEGORY_SHELL_SCRIPT,
     CATEGORY_SWAGGER_DOCUMENTATION,
+    CATEGORY_TASK_DESCRIPTION,
     CATEGORY_TEST_SAMPLE_FIXTURE,
     CATEGORY_UNKNOWN,
     CATEGORY_USER_VISIBLE_COPY,
@@ -56,6 +58,7 @@ SAMPLED_CATEGORIES = {
     CATEGORY_NAMED_FILE,
     CATEGORY_I18N_FILE,
     CATEGORY_CONDITION_EXPRESSION_LITERAL,
+    CATEGORY_TASK_DESCRIPTION,
     CATEGORY_LOG_AUDIT_DEBUG,
     CATEGORY_TEST_SAMPLE_FIXTURE,
     CATEGORY_CONFIG_ITEM,
@@ -400,12 +403,14 @@ def _build_classification_review(
 
     for finding in selected:
         baseline_entry = baseline.get(finding["path"])
+        source_content = _read_text(repo_root / finding["path"]) or ""
         source_line = _source_line(repo_root, finding["path"], int(finding["line"]))
         source_context = _source_context(repo_root, finding["path"], int(finding["line"]))
         expected_category, governance_in_scope, reason = _expected_category(
             finding=finding,
             source_line=source_line,
             source_context=source_context,
+            source_content=source_content,
             slice_name=baseline_entry.slice_name if baseline_entry else _slice_for_path(finding["path"]),
         )
         status = "match" if finding["category"] == expected_category else "mismatch"
@@ -542,6 +547,7 @@ def _expected_category(
     finding: Dict[str, Any],
     source_line: str,
     source_context: str,
+    source_content: str,
     slice_name: str,
 ) -> Tuple[str, bool, str]:
     path = finding["path"]
@@ -575,6 +581,8 @@ def _expected_category(
         return CATEGORY_COMMENT, governance_in_scope, "注释语法或注释上下文。"
     if "swagger_annotation" in finding.get("candidate_roles", []):
         return CATEGORY_SWAGGER_DOCUMENTATION, governance_in_scope, "Swagger/OpenAPI 注解中的中文应视为 Swagger 文档。"
+    if _finding_in_task_description_annotation(finding, source_content):
+        return CATEGORY_TASK_DESCRIPTION, False, "当前命中位于任务描述注解中。"
     if slice_name == "third_party_lib":
         if finding.get("surface_kind") == "comment":
             return CATEGORY_COMMENT, False, "第三方库中的注释文本。"
@@ -615,6 +623,23 @@ def _looks_like_log_context(source_lower: str) -> bool:
         or "system.err." in source_lower
         or "printstacktrace(" in source_lower
     )
+
+
+def _finding_in_task_description_annotation(finding: Dict[str, Any], source_content: str) -> bool:
+    if "task_description_annotation" in finding.get("candidate_roles", []):
+        return True
+    if not source_content or guess_language(Path(finding["path"])) != "java":
+        return False
+    line_ranges = _java_task_description_ranges(source_content).get(int(finding.get("line", 0)), [])
+    if not line_ranges:
+        return False
+    column = finding.get("column")
+    if not isinstance(column, int):
+        return True
+    start = max(0, column - 1)
+    text = str(finding.get("text") or finding.get("normalized_text") or "")
+    end = start + len(text)
+    return any(max(range_start, start) < min(range_end, end) for range_start, range_end in line_ranges)
 
 
 def _looks_like_protocol_literal(source_lower: str, text_lower: str) -> bool:

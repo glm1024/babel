@@ -14,6 +14,7 @@ from zh_audit.models import (
     CATEGORY_PROTOCOL_OR_PERSISTED_LITERAL,
     CATEGORY_SHELL_SCRIPT,
     CATEGORY_SWAGGER_DOCUMENTATION,
+    CATEGORY_TASK_DESCRIPTION,
     CATEGORY_TEST_SAMPLE_FIXTURE,
     CATEGORY_UNKNOWN,
     CATEGORY_USER_VISIBLE_COPY,
@@ -122,6 +123,11 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
         action = "keep"
         confidence = 0.98
         reason = "Swagger/OpenAPI annotation context."
+    elif "task_description_annotation" in raw.candidate_roles:
+        category = CATEGORY_TASK_DESCRIPTION
+        action = "keep"
+        confidence = 0.98
+        reason = "Task description annotation context."
     elif _is_doc_asset(path):
         if _looks_like_protocol_context(evidence_context_lower, text, text_lower):
             category = CATEGORY_PROTOCOL_OR_PERSISTED_LITERAL

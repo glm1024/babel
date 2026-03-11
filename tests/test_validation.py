@@ -464,6 +464,103 @@ class ValidationSmokeTest(unittest.TestCase):
                 )
             )
 
+    def test_validate_report_matches_multiline_task_description_annotation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            repo = root / "repo"
+            repo.mkdir()
+            subprocess.run(
+                ["git", "init"],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            java_file = repo / "src" / "TaskDescriptionProcess.java"
+            java_file.parent.mkdir(parents=True)
+            java_file.write_text(
+                "\n".join(
+                    [
+                        "class TaskDescriptionProcess {",
+                        "    @AsynTask(",
+                        '        opType = "JOB_DISABLE_HOST",',
+                        "        description =",
+                        '            "停用主机"',
+                        "    )",
+                        "    void disableHost() {}",
+                        "}",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            subprocess.run(
+                ["git", "add", "."],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            findings_path = root / "findings.json"
+            summary_path = root / "summary.json"
+            out_dir = root / "validation"
+
+            findings_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "project": "repo",
+                            "path": "src/TaskDescriptionProcess.java",
+                            "line": 5,
+                            "category": "TASK_DESCRIPTION",
+                            "action": "keep",
+                            "surface_kind": "string_literal",
+                            "normalized_text": "停用主机",
+                            "text": "停用主机",
+                            "hit_text": "停用主机",
+                        }
+                    ],
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "run_id": "task-description-demo",
+                        "eligible_files": 1,
+                        "skipped_files": 0,
+                        "scan_policy": {
+                            "exclude_globs": ["**/static/ajax/libs/**"],
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            validate_report(
+                repo_root=repo,
+                summary_path=summary_path,
+                findings_path=findings_path,
+                out_dir=out_dir,
+            )
+
+            with (out_dir / "classification_review.csv").open(encoding="utf-8", newline="") as handle:
+                review_rows = list(csv.DictReader(handle))
+            self.assertTrue(
+                any(
+                    row["path"] == "src/TaskDescriptionProcess.java"
+                    and row["reported_category"] == "TASK_DESCRIPTION"
+                    and row["expected_category"] == "TASK_DESCRIPTION"
+                    and row["status"] == "match"
+                    for row in review_rows
+                )
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

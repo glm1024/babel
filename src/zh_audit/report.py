@@ -14,6 +14,7 @@ DISPLAY_MAPS = {
         "NAMED_FILE": "指定文件",
         "I18N_FILE": "国际化文件",
         "CONDITION_EXPRESSION_LITERAL": "条件判断字面量",
+        "TASK_DESCRIPTION": "任务描述",
         "TEST_SAMPLE_FIXTURE": "测试与样例",
         "CONFIG_ITEM": "配置项",
         "PROTOCOL_OR_PERSISTED_LITERAL": "协议/持久化字面量",
@@ -70,6 +71,7 @@ DISPLAY_MAPS = {
         "Named file context.": "当前命中位于指定文件中。",
         "I18n messages file context.": "当前命中位于国际化文件中。",
         "Condition expression literal context.": "当前命中用于条件判断表达式。",
+        "Task description annotation context.": "当前命中位于任务描述注解中。",
     },
 }
 
@@ -374,7 +376,6 @@ def render_report(summary, findings):
     }
     .findings-table col.col-project { width: 90px; }
     .findings-table col.col-location { width: 270px; }
-    .findings-table col.col-hit-text { width: 140px; }
     .findings-table col.col-text { width: 360px; }
     .findings-table col.col-category { width: 150px; }
     .findings-table col.col-action { width: 120px; }
@@ -465,11 +466,6 @@ def render_report(summary, findings):
     .action-cell {
       white-space: nowrap;
       word-break: keep-all;
-    }
-    .hit-text-cell {
-      line-height: 1.65;
-      overflow-wrap: anywhere;
-      font-weight: 400;
     }
     .text-cell,
     .reason-cell {
@@ -712,7 +708,6 @@ def render_report(summary, findings):
           <colgroup>
           <col class="col-project">
           <col class="col-location">
-          <col class="col-hit-text">
           <col class="col-text">
           <col class="col-category">
           <col class="col-action">
@@ -722,7 +717,6 @@ def render_report(summary, findings):
             <tr>
               <th>项目</th>
               <th>位置</th>
-              <th>命中文本</th>
               <th>文本</th>
               <th>分类</th>
               <th>动作</th>
@@ -876,14 +870,6 @@ def render_report(summary, findings):
 
     function skipDetail(item) {
       return item.skip_detail || "";
-    }
-
-    function findingText(item) {
-      if (item.hit_text) {
-        return item.hit_text;
-      }
-      return String(item.normalized_text || item.text || item.snippet || "")
-        .replace(/[^\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g, "");
     }
 
     function displaySnippet(item) {
@@ -1096,7 +1082,7 @@ def render_report(summary, findings):
 
       if (current.length === 0) {
         resultCount.textContent = `当前筛选 0 条，共 ${formatNumber(findings.length)} 条`;
-        rows.innerHTML = `<tr><td colspan="7" class="empty-row">当前筛选条件下没有命中记录</td></tr>`;
+        rows.innerHTML = `<tr><td colspan="6" class="empty-row">当前筛选条件下没有命中记录</td></tr>`;
       } else {
         resultCount.textContent =
           `当前筛选 ${formatNumber(current.length)} 条，共 ${formatNumber(findings.length)} 条；本页显示第 ${formatNumber(page.startIndex + 1)} - ${formatNumber(page.endIndex)} 条`;
@@ -1104,7 +1090,6 @@ def render_report(summary, findings):
           <tr>
             <td class="project-cell">${escapeHtml(item.project)}</td>
             <td class="location-cell">${positionMarkup(item)}</td>
-            <td class="hit-text-cell">${escapeHtml(findingText(item) || "-")}</td>
             <td class="text-cell">${escapeHtml(displaySnippet(item) || "-")}</td>
             <td class="category-cell">${escapeHtml(labelFor("category", item.category))}</td>
             <td class="action-cell"><span class="pill ${item.action}">${escapeHtml(labelFor("action", item.action))}</span></td>
@@ -1128,11 +1113,10 @@ def render_report(summary, findings):
 
     function exportCsv() {
       const current = filteredFindings();
-      const headers = ["项目", "位置", "命中文本", "文本", "分类", "动作", "说明"];
+      const headers = ["项目", "位置", "文本", "分类", "动作", "说明"];
       const rows = current.map(item => [
         item.project || "",
         `${item.path || ""}:${item.line ?? ""}`,
-        findingText(item),
         displaySnippet(item),
         labelFor("category", item.category),
         labelFor("action", item.action),
