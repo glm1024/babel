@@ -9,6 +9,7 @@
 - 通过本地 Web 服务在页面上配置扫描目录、发起扫描、查看进度和结果
 - 扫描完成后把结果写到 `babel/results/`，覆盖同目录下已有的 `findings.json`、`summary.json`、`report.html`
 - 支持研发在结果页中把部分 `需要整改` 命中标注为 `无需修改`
+- 支持在本地服务的“模型配置”页里维护 OpenAI-compatible 模型配置，也支持通过项目根目录的 `zh-audit.config.json` 提供可随仓库分发的默认值
 - 标注会持久化到 `results/annotations.json`，服务配置会持久化到 `results/app_state.json`
 
 # 动作说明
@@ -39,6 +40,7 @@ python3 -m zh_audit serve
 - 自动打开默认浏览器首页
 - 在首页中配置多个扫描目录
 - 支持 `results/` 为空时冷启动，首页会先显示“暂无当前会话扫描结果”空态
+- 在“模型配置”页中查看或覆盖项目默认模型配置
 - 点击“开始扫描”后实时展示扫描进度
 - 扫描完成后在首页内嵌展示与 `report.html` 同风格的结果界面，并生成结果文件
 
@@ -65,6 +67,34 @@ python3 -m zh_audit serve --no-browser
 - `annotations.json`
 - `app_state.json`
 
+# 模型配置
+
+如果你希望把默认模型配置随项目一起发给其他研发，可以在项目根目录放一个 `zh-audit.config.json`：
+
+```json
+{
+  "model_config": {
+    "base_url": "http://100.7.69.249:7777/v1",
+    "api_key": "",
+    "model": "deepseek-v3",
+    "max_tokens": 100
+  }
+}
+```
+
+本地服务启动时会按下面的优先级取模型配置：
+
+1. 硬编码默认值
+2. 项目根目录下的 `zh-audit.config.json`
+3. `results/app_state.json` 中由 UI 保存的本地覆盖值
+
+也可以显式指定配置文件路径：
+
+```bash
+PYTHONPATH=src python3 -m zh_audit serve --config /absolute/path/to/zh-audit.config.json
+```
+
+模型配置页里的“供应商”固定为 `openai compatible`。`Base URL` 支持填写主机根、`/v1` 或完整 `/v1/chat/completions`，保存时会自动归一化为 `.../v1`。UI 保存只会写本地 `results/app_state.json`，不会回写项目默认配置文件。
 # 运行要求
 
 - Python 3.6.1+

@@ -2,7 +2,10 @@ import json
 from pathlib import Path
 from typing import Any, List, Optional
 
+from zh_audit.app_state import normalize_model_config_overrides
 from zh_audit.models import RepoSpec, ScanSettings
+
+DEFAULT_APP_CONFIG_NAME = "zh-audit.config.json"
 
 
 def _load_yaml_like(path):
@@ -36,6 +39,24 @@ def load_manifest(path):
             raise ValueError("Manifest entries must be non-empty repository path strings.")
         repos.append(RepoSpec(path=Path(repo_path).expanduser().resolve()))
     return repos
+
+
+def load_project_model_config(path):
+    config_path = Path(path)
+    if not config_path.exists():
+        return {}
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        raise ValueError("Invalid project config file {}: {}".format(config_path, exc))
+    if not isinstance(payload, dict):
+        raise ValueError("Invalid project config file {}: root must be an object.".format(config_path))
+    raw_model_config = payload.get("model_config", {})
+    try:
+        return normalize_model_config_overrides(raw_model_config)
+    except ValueError as exc:
+        message = str(exc).replace("Invalid app state: ", "").replace("Invalid app state file {}: ".format(config_path), "")
+        raise ValueError("Invalid project config file {}: {}".format(config_path, message))
 
 
 def load_scan_settings(path):

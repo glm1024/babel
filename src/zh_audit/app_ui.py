@@ -422,7 +422,7 @@ def render_app_shell(bootstrap_payload, client_config):
       <button class="tab-btn is-active" type="button" data-tab="home">首页</button>
       <button class="tab-btn" type="button" data-tab="results">扫描结果</button>
       <button class="tab-btn" type="button" data-tab="annotations">标注管理</button>
-      <button class="tab-btn" type="button" data-tab="settings">设置</button>
+      <button class="tab-btn" type="button" data-tab="settings">模型配置</button>
     </div>
 
     <section class="page is-active" id="homePage">
@@ -520,30 +520,35 @@ def render_app_shell(bootstrap_payload, client_config):
       <div class="panel card">
         <div class="card-head">
           <div>
-            <div class="muted">Settings</div>
-            <h2 class="card-title">扫描设置</h2>
+            <div class="muted">Model Config</div>
+            <h2 class="card-title">模型配置</h2>
           </div>
         </div>
         <div class="field-grid">
-          <label>
-            <div class="field-label">最大文件大小（字节）</div>
-            <input id="maxFileSizeInput" class="field-input" type="number" min="1">
-          </label>
-          <label>
-            <div class="field-label">上下文行数</div>
-            <input id="contextLinesInput" class="field-input" type="number" min="0">
-          </label>
-          <label>
-            <div class="field-label">排除规则（每行一个 glob）</div>
-            <textarea id="excludeGlobsInput" class="field-textarea"></textarea>
-          </label>
           <div>
-            <div class="field-label">输出目录</div>
-            <div id="outDirValue" class="readonly-output"></div>
+            <div class="field-label">供应商</div>
+            <div id="providerValue" class="readonly-output"></div>
           </div>
+          <label>
+            <div class="field-label">Base URL</div>
+            <input id="baseUrlInput" class="field-input" type="url" placeholder="http://127.0.0.1:8000/v1">
+          </label>
+          <div class="muted">支持填写主机根、`/v1` 或完整 `/v1/chat/completions`，保存时会统一归一化为 `/v1`。</div>
+          <label>
+            <div class="field-label">API Key</div>
+            <input id="apiKeyInput" class="field-input" type="password" placeholder="sk-...">
+          </label>
+          <label>
+            <div class="field-label">模型名称</div>
+            <input id="modelNameInput" class="field-input" type="text" placeholder="deepseek-v3">
+          </label>
+          <label>
+            <div class="field-label">Max Tokens</div>
+            <input id="maxTokensInput" class="field-input" type="number" min="1" placeholder="100">
+          </label>
         </div>
         <div class="btn-row">
-          <button id="saveSettingsBtn" class="primary-btn" type="button">保存设置</button>
+          <button id="saveModelConfigBtn" class="primary-btn" type="button">保存模型配置</button>
         </div>
       </div>
     </section>
@@ -556,14 +561,16 @@ __REPORT_COMPONENT_BUNDLE__
     const BOOTSTRAP = __BOOTSTRAP__;
     const DISPLAY_MAP = __DISPLAY_MAP__;
     const CLIENT_CONFIG = __CLIENT_CONFIG__;
-    const DEFAULT_POLICY = {
-      max_file_size_bytes: 5 * 1024 * 1024,
-      context_lines: 1,
-      exclude_globs: [],
+    const DEFAULT_MODEL_CONFIG = {
+      provider: "openai compatible",
+      base_url: "",
+      api_key: "",
+      model: "",
+      max_tokens: 100,
     };
     const state = {
       activeTab: "home",
-      config: BOOTSTRAP.config || { scan_roots: [], scan_policy: DEFAULT_POLICY, out_dir: "" },
+      config: BOOTSTRAP.config || { scan_roots: [], scan_policy: {}, model_config: DEFAULT_MODEL_CONFIG, out_dir: "" },
       draftConfig: null,
       scanStatus: BOOTSTRAP.scan_status || {},
       summary: BOOTSTRAP.summary || {},
@@ -596,16 +603,17 @@ __REPORT_COMPONENT_BUNDLE__
     const annotationProject = document.getElementById("annotationProject");
     const annotationCategory = document.getElementById("annotationCategory");
     const annotationRows = document.getElementById("annotationRows");
-    const maxFileSizeInput = document.getElementById("maxFileSizeInput");
-    const contextLinesInput = document.getElementById("contextLinesInput");
-    const excludeGlobsInput = document.getElementById("excludeGlobsInput");
-    const outDirValue = document.getElementById("outDirValue");
-    const saveSettingsBtn = document.getElementById("saveSettingsBtn");
+    const providerValue = document.getElementById("providerValue");
+    const baseUrlInput = document.getElementById("baseUrlInput");
+    const apiKeyInput = document.getElementById("apiKeyInput");
+    const modelNameInput = document.getElementById("modelNameInput");
+    const maxTokensInput = document.getElementById("maxTokensInput");
+    const saveModelConfigBtn = document.getElementById("saveModelConfigBtn");
     let scanTimer = null;
     let reportController = null;
 
     function cloneConfig(config) {
-      return JSON.parse(JSON.stringify(config || { scan_roots: [], scan_policy: DEFAULT_POLICY, out_dir: "" }));
+      return JSON.parse(JSON.stringify(config || { scan_roots: [], scan_policy: {}, model_config: DEFAULT_MODEL_CONFIG, out_dir: "" }));
     }
 
     function parseInteger(value, fallback, minValue) {
@@ -646,16 +654,19 @@ __REPORT_COMPONENT_BUNDLE__
       return item.snippet || item.normalized_text || item.text || "";
     }
 
-    function buildConfigPayload() {
+    function buildScanPayload() {
       return {
         scan_roots: state.draftConfig.scan_roots.filter(item => String(item || "").trim()).map(item => String(item).trim()),
-        scan_policy: {
-          max_file_size_bytes: parseInteger(maxFileSizeInput.value, DEFAULT_POLICY.max_file_size_bytes, 1),
-          context_lines: parseInteger(contextLinesInput.value, DEFAULT_POLICY.context_lines, 0),
-          exclude_globs: excludeGlobsInput.value
-            .split("\\n")
-            .map(item => item.trim())
-            .filter(Boolean),
+      };
+    }
+
+    function buildModelConfigPayload() {
+      return {
+        model_config: {
+          base_url: baseUrlInput.value,
+          api_key: apiKeyInput.value,
+          model: modelNameInput.value,
+          max_tokens: Number.parseInt(maxTokensInput.value, 10) || DEFAULT_MODEL_CONFIG.max_tokens,
         },
       };
     }
@@ -794,11 +805,12 @@ __REPORT_COMPONENT_BUNDLE__
     }
 
     function renderSettings() {
-      const policy = state.draftConfig.scan_policy || DEFAULT_POLICY;
-      maxFileSizeInput.value = policy.max_file_size_bytes || DEFAULT_POLICY.max_file_size_bytes;
-      contextLinesInput.value = policy.context_lines ?? DEFAULT_POLICY.context_lines;
-      excludeGlobsInput.value = (policy.exclude_globs || []).join("\\n");
-      outDirValue.textContent = state.config.out_dir || "";
+      const modelConfig = state.draftConfig.model_config || DEFAULT_MODEL_CONFIG;
+      providerValue.textContent = modelConfig.provider || DEFAULT_MODEL_CONFIG.provider;
+      baseUrlInput.value = modelConfig.base_url || "";
+      apiKeyInput.value = modelConfig.api_key || "";
+      modelNameInput.value = modelConfig.model || "";
+      maxTokensInput.value = modelConfig.max_tokens || DEFAULT_MODEL_CONFIG.max_tokens;
     }
 
     function renderAll() {
@@ -829,22 +841,31 @@ __REPORT_COMPONENT_BUNDLE__
       applyBootstrap(data, keepDraft);
     }
 
-    async function saveConfig() {
+    async function saveRoots() {
       syncRootsFromInputs();
-      const payload = buildConfigPayload();
+      const payload = buildScanPayload();
       const data = await requestJson(CLIENT_CONFIG.config_api_path, payload);
       applyBootstrap(data);
-      homeStatus.textContent = "配置已保存";
+      homeStatus.textContent = "目录已保存";
       homeStatus.classList.remove("is-error");
     }
 
     async function startScan() {
       syncRootsFromInputs();
-      const payload = buildConfigPayload();
+      const payload = buildScanPayload();
       const data = await requestJson(CLIENT_CONFIG.scan_start_api_path, payload);
       state.scanStatus = data;
       renderStatus();
       startPolling();
+    }
+
+    async function saveModelConfig() {
+      syncModelConfigFromInputs();
+      const payload = buildModelConfigPayload();
+      const data = await requestJson(CLIENT_CONFIG.config_api_path, payload);
+      applyBootstrap(data);
+      homeStatus.textContent = "模型配置已保存";
+      homeStatus.classList.remove("is-error");
     }
 
     async function removeAnnotation(findingId) {
@@ -855,7 +876,10 @@ __REPORT_COMPONENT_BUNDLE__
     function syncRootsFromInputs() {
       const inputs = rootsList.querySelectorAll(".root-input");
       state.draftConfig.scan_roots = Array.from(inputs).map(input => input.value);
-      state.draftConfig.scan_policy = buildConfigPayload().scan_policy;
+    }
+
+    function syncModelConfigFromInputs() {
+      state.draftConfig.model_config = buildModelConfigPayload().model_config;
     }
 
     function startPolling() {
@@ -928,18 +952,18 @@ __REPORT_COMPONENT_BUNDLE__
 
     saveRootsBtn.addEventListener("click", async () => {
       try {
-        await saveConfig();
+        await saveRoots();
       } catch (error) {
         homeStatus.textContent = error.message || "保存目录失败";
         homeStatus.classList.add("is-error");
       }
     });
 
-    saveSettingsBtn.addEventListener("click", async () => {
+    saveModelConfigBtn.addEventListener("click", async () => {
       try {
-        await saveConfig();
+        await saveModelConfig();
       } catch (error) {
-        homeStatus.textContent = error.message || "保存设置失败";
+        homeStatus.textContent = error.message || "保存模型配置失败";
         homeStatus.classList.add("is-error");
       }
     });

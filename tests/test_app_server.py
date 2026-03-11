@@ -21,20 +21,101 @@ class AppServerSmokeTest(unittest.TestCase):
                         "context_lines": 3,
                         "exclude_globs": ["**/vendor/**"],
                     },
+                    "model_config": {
+                        "provider": "custom",
+                        "base_url": "http://127.0.0.1:8000/v1/chat/completions",
+                        "api_key": "sk-local",
+                        "model": "deepseek-v3",
+                        "max_tokens": 256,
+                    },
                 }
             )
 
             self.assertFalse(payload["has_results"])
             self.assertEqual(payload["config"]["scan_roots"], ["/tmp/repo-a", "/tmp/repo-b"])
             self.assertEqual(payload["config"]["scan_policy"]["context_lines"], 3)
+            self.assertEqual(payload["config"]["model_config"]["provider"], "openai compatible")
+            self.assertEqual(payload["config"]["model_config"]["base_url"], "http://127.0.0.1:8000/v1")
+            self.assertEqual(payload["config"]["model_config"]["model"], "deepseek-v3")
+            self.assertEqual(payload["config"]["model_config"]["max_tokens"], 256)
             self.assertTrue((out_dir / "app_state.json").exists())
 
             reloaded = AppServiceState(out_dir=out_dir)
             bootstrap = reloaded.bootstrap_payload()
             self.assertEqual(bootstrap["config"]["scan_roots"], ["/tmp/repo-a", "/tmp/repo-b"])
             self.assertEqual(bootstrap["config"]["scan_policy"]["max_file_size_bytes"], 1234)
+            self.assertEqual(bootstrap["config"]["model_config"]["base_url"], "http://127.0.0.1:8000/v1")
+            self.assertEqual(bootstrap["config"]["model_config"]["api_key"], "sk-local")
             self.assertFalse(bootstrap["has_results"])
             self.assertEqual(bootstrap["findings"], [])
+
+    def test_project_model_config_defaults_and_local_overrides(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            out_dir = root / "results"
+            config_path = root / "zh-audit.config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "model_config": {
+                            "provider": "ignored",
+                            "base_url": "http://100.7.69.249:7777/v1/chat/completions",
+                            "api_key": "sk-shared",
+                            "model": "deepseek-v3",
+                            "max_tokens": 100,
+                        }
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            state = AppServiceState(out_dir=out_dir, project_config_path=config_path)
+            bootstrap = state.bootstrap_payload()
+            self.assertEqual(bootstrap["config"]["model_config"]["provider"], "openai compatible")
+            self.assertEqual(bootstrap["config"]["model_config"]["base_url"], "http://100.7.69.249:7777/v1")
+            self.assertEqual(bootstrap["config"]["model_config"]["api_key"], "sk-shared")
+
+            updated = state.save_config(
+                {
+                    "model_config": {
+                        "base_url": "http://127.0.0.1:9000",
+                        "api_key": "",
+                        "model": "deepseek-v3.1",
+                        "max_tokens": 180,
+                    }
+                }
+            )
+            self.assertEqual(updated["config"]["model_config"]["base_url"], "http://127.0.0.1:9000/v1")
+            self.assertEqual(updated["config"]["model_config"]["api_key"], "")
+            self.assertEqual(updated["config"]["model_config"]["model"], "deepseek-v3.1")
+            self.assertEqual(updated["config"]["model_config"]["max_tokens"], 180)
+
+            persisted = json.loads((out_dir / "app_state.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                persisted["model_config_overrides"],
+                {
+                    "api_key": "",
+                    "base_url": "http://127.0.0.1:9000/v1",
+                    "max_tokens": 180,
+                    "model": "deepseek-v3.1",
+                },
+            )
+
+            reloaded = AppServiceState(out_dir=out_dir, project_config_path=config_path)
+            reloaded_bootstrap = reloaded.bootstrap_payload()
+            self.assertEqual(reloaded_bootstrap["config"]["model_config"]["api_key"], "")
+            self.assertEqual(reloaded_bootstrap["config"]["model_config"]["base_url"], "http://127.0.0.1:9000/v1")
+
+    def test_invalid_project_config_raises_value_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            out_dir = root / "results"
+            config_path = root / "zh-audit.config.json"
+            config_path.write_text("{", encoding="utf-8")
+
+            with self.assertRaises(ValueError):
+                AppServiceState(out_dir=out_dir, project_config_path=config_path)
 
     def test_service_scan_state_and_annotation_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -69,7 +150,9 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("扫描目录", html)
             self.assertIn("扫描结果", html)
             self.assertIn("标注管理", html)
-            self.assertIn("设置", html)
+            self.assertIn("模型配置", html)
+            self.assertIn("Base URL", html)
+            self.assertIn("保存模型配置", html)
             self.assertNotIn("Local Service", html)
             self.assertNotIn("首页先配置扫描目录，再启动扫描。", html)
             self.assertIn('class="root-remove-btn"', html)
@@ -91,6 +174,8 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("transform: translateY(-1px);", html)
             self.assertIn("scale(0.98)", html)
             self.assertIn("当前还没有扫描结果，请先到首页配置扫描目录并点击“开始扫描”。", html)
+            self.assertNotIn("扫描设置", html)
+            self.assertNotIn("最大文件大小（字节）", html)
             self.assertFalse(state.bootstrap_payload()["has_results"])
 
             status = state.start_scan(
