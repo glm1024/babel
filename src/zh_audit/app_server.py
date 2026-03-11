@@ -17,19 +17,28 @@ from zh_audit.annotations import (
 )
 from zh_audit.app_state import (
     default_app_state,
+    default_translation_config,
     diff_model_config_overrides,
     load_app_state,
     merge_model_config,
     normalize_scan_policy,
     normalize_scan_roots,
+    normalize_translation_config,
     scan_settings_from_state,
     write_app_state,
 )
 from zh_audit.app_ui import render_app_shell
 from zh_audit.config import load_project_model_config
+from zh_audit.model_client import call_openai_compatible_json
 from zh_audit.models import RepoSpec
 from zh_audit.pipeline import refresh_summary, run_scan
 from zh_audit.report import render_report
+from zh_audit.terminology_xlsx import ensure_default_terminology_xlsx, load_terminology_xlsx
+from zh_audit.translation_workflow import (
+    TranslationSession,
+    build_translation_system_prompt,
+    build_translation_user_prompt,
+)
 
 
 class AppServiceState(object):
@@ -43,16 +52,23 @@ class AppServiceState(object):
         self.project_config_path = Path(project_config_path) if project_config_path is not None else None
         self.lock = threading.RLock()
         self.scan_thread = None
+        self.translation_thread = None
         self.results_revision = 0
         self.summary = {}
         self.findings = []
+        self.translation_session = None
         self.annotation_store = load_annotation_store(self.annotations_path)
         self.annotation_stats = dict(ANNOTATION_STATS_DEFAULT)
         self.project_model_config = (
             load_project_model_config(self.project_config_path) if self.project_config_path is not None else {}
         )
         self.app_state = load_app_state(self.app_state_path)
+        self.translation_auto_accept = bool(self.app_state.get("translation_config", {}).get("auto_accept", False))
         self.scan_status = self._idle_scan_status()
+        self.terminology_path = ensure_default_terminology_xlsx(Path(__file__).resolve().parents[2] / "resources" / "terminology.xlsx")
+        self.terminology = {}
+        self.terminology_error = ""
+        self._reload_terminology()
 
     def render_home(self):
         return render_app_shell(
@@ -64,6 +80,12 @@ class AppServiceState(object):
                 "scan_status_api_path": "/api/scan/status",
                 "annotation_api_path": "/api/annotations",
                 "annotation_remove_api_path": "/api/annotations/remove",
+                "translation_start_api_path": "/api/translation/start",
+                "translation_stop_api_path": "/api/translation/stop",
+                "translation_status_api_path": "/api/translation/status",
+                "translation_accept_api_path": "/api/translation/accept",
+                "translation_regenerate_api_path": "/api/translation/regenerate",
+                "translation_reject_api_path": "/api/translation/reject",
             },
         )
 
@@ -76,6 +98,7 @@ class AppServiceState(object):
                 "findings": [dict(item) for item in self.findings],
                 "has_results": bool(self.findings),
                 "results_revision": self.results_revision,
+                "translation": self.translation_payload_locked(),
             }
 
     def scan_status_payload(self):
@@ -92,6 +115,8 @@ class AppServiceState(object):
         with self.lock:
             if self.scan_status["status"] == "running":
                 raise ValueError("A scan is already running.")
+            if self.translation_session is not None and self.translation_session.snapshot()["status"]["status"] == "running":
+                raise ValueError("A translation task is already running.")
             self._update_config(payload)
             repos = self._build_repos(self.app_state["scan_roots"])
             self._persist_app_state()
@@ -115,6 +140,74 @@ class AppServiceState(object):
             )
             self.scan_thread.start()
             return self.scan_status_payload()
+
+    def start_translation(self, payload):
+        with self.lock:
+            if self.scan_status["status"] == "running":
+                raise ValueError("A scan is already running.")
+            if self.translation_session is not None and self.translation_session.snapshot()["status"]["status"] == "running":
+                raise ValueError("A translation task is already running.")
+            self._update_config({"translation_config": payload})
+            self._persist_app_state()
+            translation_config = self.app_state.get("translation_config", default_translation_config())
+            source_path = Path(translation_config.get("source_path", "")).expanduser()
+            target_path = Path(translation_config.get("target_path", "")).expanduser()
+            if not source_path.exists():
+                raise ValueError("Chinese properties file does not exist: {}".format(source_path))
+            if not target_path.exists():
+                raise ValueError("English properties file does not exist: {}".format(target_path))
+            if source_path.is_dir() or target_path.is_dir():
+                raise ValueError("Translation paths must point to files, not directories.")
+            model_config = self._effective_model_config()
+            if not model_config.get("base_url") or not model_config.get("api_key") or not model_config.get("model"):
+                raise ValueError("Model config is incomplete. Please complete Base URL, API Key and model first.")
+            self._reload_terminology()
+            if self.terminology_error:
+                raise ValueError(self.terminology_error)
+            self.translation_session = TranslationSession(
+                source_path=source_path.resolve(),
+                target_path=target_path.resolve(),
+                glossary=self.terminology,
+                model_config=model_config,
+                model_runner=self._translation_model_runner,
+            )
+            self.translation_session.start()
+            self.translation_thread = threading.Thread(
+                target=self._run_translation_job,
+                args=(self.translation_session,),
+                name="zh-audit-translation",
+                daemon=True,
+            )
+            self.translation_thread.start()
+            return self.translation_payload_locked()
+
+    def stop_translation(self):
+        with self.lock:
+            session = self._require_translation_session()
+            session.stop()
+            return self.translation_payload_locked()
+
+    def translation_accept(self, item_id):
+        with self.lock:
+            session = self._require_translation_session()
+        session.accept(item_id)
+        return self.translation_payload()
+
+    def translation_regenerate(self, item_id, prompt):
+        with self.lock:
+            session = self._require_translation_session()
+        session.regenerate(item_id, prompt)
+        return self.translation_payload()
+
+    def translation_reject(self, item_id):
+        with self.lock:
+            session = self._require_translation_session()
+        session.reject(item_id)
+        return self.translation_payload()
+
+    def translation_payload(self):
+        with self.lock:
+            return self.translation_payload_locked()
 
     def annotate(self, finding_id, reason):
         with self.lock:
@@ -182,6 +275,20 @@ class AppServiceState(object):
             with self.lock:
                 self.scan_thread = None
 
+    def _run_translation_job(self, session):
+        try:
+            session.run(should_auto_accept=self._translation_auto_accept)
+        except Exception as exc:
+            with session.lock:
+                session.status = "failed"
+                session.message = "校译失败"
+                session.error = str(exc)
+                session.finished_at = self._timestamp()
+                session.current = {"key": "", "source_text": "", "status": ""}
+        finally:
+            with self.lock:
+                self.translation_thread = None
+
     def _scan_progress(self, stage, **payload):
         with self.lock:
             current = dict(self.scan_status)
@@ -207,6 +314,7 @@ class AppServiceState(object):
         payload = payload or {}
         roots = payload.get("scan_roots", self.app_state.get("scan_roots", []))
         scan_policy = payload.get("scan_policy", self.app_state.get("scan_policy", {}))
+        translation_config = payload.get("translation_config", self.app_state.get("translation_config", {}))
         model_config_overrides = dict(self.app_state.get("model_config_overrides", {}))
         if "model_config" in payload:
             model_config_overrides = diff_model_config_overrides(payload.get("model_config"), self._base_model_config())
@@ -215,7 +323,9 @@ class AppServiceState(object):
             "scan_roots": normalize_scan_roots(roots),
             "scan_policy": normalize_scan_policy(scan_policy),
             "model_config_overrides": model_config_overrides,
+            "translation_config": normalize_translation_config(translation_config),
         }
+        self.translation_auto_accept = bool(self.app_state["translation_config"].get("auto_accept", False))
 
     def _persist_app_state(self):
         write_app_state(self.app_state_path, self.app_state)
@@ -276,6 +386,7 @@ class AppServiceState(object):
             "scan_roots": list(self.app_state.get("scan_roots", [])),
             "scan_policy": dict(self.app_state.get("scan_policy", default_app_state()["scan_policy"])),
             "model_config": self._effective_model_config(),
+            "translation_config": dict(self.app_state.get("translation_config", default_translation_config())),
             "out_dir": str(self.out_dir),
         }
 
@@ -297,6 +408,79 @@ class AppServiceState(object):
             "finished_at": "",
             "error": "",
         }
+
+    def _reload_terminology(self):
+        try:
+            self.terminology = load_terminology_xlsx(self.terminology_path)
+            self.terminology_error = ""
+        except Exception as exc:
+            self.terminology = {}
+            self.terminology_error = str(exc)
+
+    def translation_payload_locked(self):
+        self._reload_terminology()
+        session_snapshot = None
+        if self.translation_session is not None:
+            session_snapshot = self.translation_session.snapshot()
+        if session_snapshot is None:
+            session_snapshot = {
+                "config": dict(self.app_state.get("translation_config", default_translation_config())),
+                "status": {
+                    "status": "idle",
+                    "message": "等待校译",
+                    "error": "",
+                    "started_at": "",
+                    "finished_at": "",
+                    "backup_path": "",
+                    "current": {"key": "", "source_text": "", "status": ""},
+                    "counts": {
+                        "total": 0,
+                        "processed": 0,
+                        "skipped": 0,
+                        "pending": 0,
+                        "accepted": 0,
+                        "appended": 0,
+                        "failed": 0,
+                        "rejected": 0,
+                        "regenerated": 0,
+                        "glossary_applied": 0,
+                    },
+                },
+                "pending_items": [],
+                "recent_items": [],
+                "events": [],
+            }
+        session_snapshot["config"] = dict(self.app_state.get("translation_config", default_translation_config()))
+        session_snapshot["terminology"] = {
+            "path": str(self.terminology_path),
+            "count": len(self.terminology),
+            "error": self.terminology_error,
+        }
+        return session_snapshot
+
+    def _translation_model_runner(self, key, source_text, target_text, locked_terms, model_config, extra_prompt, target_missing):
+        response = call_openai_compatible_json(
+            model_config=model_config,
+            system_prompt=build_translation_system_prompt(),
+            user_prompt=build_translation_user_prompt(
+                key=key,
+                source_text=source_text,
+                target_text=target_text,
+                locked_terms=locked_terms,
+                extra_prompt=extra_prompt,
+                target_missing=target_missing,
+            ),
+            max_tokens=model_config.get("max_tokens"),
+        )
+        return response
+
+    def _translation_auto_accept(self):
+        return bool(self.translation_auto_accept)
+
+    def _require_translation_session(self):
+        if self.translation_session is None:
+            raise ValueError("No translation task has been created yet.")
+        return self.translation_session
 
     def _timestamp(self):
         return datetime.now().astimezone().replace(microsecond=0).isoformat()
@@ -320,6 +504,9 @@ class AppRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/scan/status":
             self._send_json(200, self.server.app_state.scan_status_payload())
             return
+        if parsed.path == "/api/translation/status":
+            self._send_json(200, self.server.app_state.translation_payload())
+            return
         self._send_json(404, {"error": "not_found"})
 
     def do_POST(self):
@@ -340,6 +527,24 @@ class AppRequestHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/annotations/remove":
                 self._send_json(200, self.server.app_state.remove_annotation(payload.get("finding_id", "")))
+                return
+            if parsed.path == "/api/translation/start":
+                self._send_json(200, self.server.app_state.start_translation(payload))
+                return
+            if parsed.path == "/api/translation/stop":
+                self._send_json(200, self.server.app_state.stop_translation())
+                return
+            if parsed.path == "/api/translation/accept":
+                self._send_json(200, self.server.app_state.translation_accept(payload.get("item_id", "")))
+                return
+            if parsed.path == "/api/translation/regenerate":
+                self._send_json(
+                    200,
+                    self.server.app_state.translation_regenerate(payload.get("item_id", ""), payload.get("prompt", "")),
+                )
+                return
+            if parsed.path == "/api/translation/reject":
+                self._send_json(200, self.server.app_state.translation_reject(payload.get("item_id", "")))
                 return
         except Exception as exc:
             self._send_json(400, {"error": str(exc)})

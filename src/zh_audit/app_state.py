@@ -32,6 +32,7 @@ def default_app_state():
             "exclude_globs": list(defaults.exclude_globs),
         },
         "model_config_overrides": {},
+        "translation_config": default_translation_config(),
     }
 
 
@@ -69,11 +70,13 @@ def normalize_app_state(payload, path=None):
         path=path,
         field_name="model_config_overrides",
     )
+    translation_config = normalize_translation_config(payload.get("translation_config", {}), path=path)
     return {
         "version": APP_STATE_VERSION,
         "scan_roots": roots,
         "scan_policy": scan_policy,
         "model_config_overrides": model_config_overrides,
+        "translation_config": translation_config,
     }
 
 
@@ -144,6 +147,27 @@ def merge_model_config(*configs):
         merged.update(normalize_model_config_overrides(raw_config))
     merged["provider"] = MODEL_PROVIDER
     return merged
+
+
+def default_translation_config():
+    return {
+        "source_path": "",
+        "target_path": "",
+        "auto_accept": False,
+    }
+
+
+def normalize_translation_config(raw_config, path=None):
+    defaults = default_translation_config()
+    if raw_config is None:
+        return dict(defaults)
+    if not isinstance(raw_config, dict):
+        raise ValueError(_format_error(path, "translation_config must be an object."))
+    return {
+        "source_path": _normalize_model_text(raw_config.get("source_path", defaults["source_path"])),
+        "target_path": _normalize_model_text(raw_config.get("target_path", defaults["target_path"])),
+        "auto_accept": bool(raw_config.get("auto_accept", defaults["auto_accept"])),
+    }
 
 
 def diff_model_config_overrides(model_config, baseline_config):

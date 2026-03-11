@@ -10,6 +10,7 @@
 - 扫描完成后把结果写到 `babel/results/`，覆盖同目录下已有的 `findings.json`、`summary.json`、`report.html`
 - 支持研发在结果页中把部分 `需要整改` 命中标注为 `无需修改`
 - 支持在本地服务的“模型配置”页里维护 OpenAI-compatible 模型配置，也支持通过项目根目录的 `zh-audit.config.json` 提供可随仓库分发的默认值
+- 支持在“码值校译”页中对中英 `.properties` 码表做 AI 校对、审批和回写，并强制应用项目内 `resources/terminology.xlsx` 中的标准术语
 - 标注会持久化到 `results/annotations.json`，服务配置会持久化到 `results/app_state.json`
 
 # 动作说明
@@ -42,7 +43,8 @@ python3 -m zh_audit serve
 - 支持 `results/` 为空时冷启动，首页会先显示“暂无当前会话扫描结果”空态
 - 在“模型配置”页中查看或覆盖项目默认模型配置
 - 点击“开始扫描”后实时展示扫描进度
-- 扫描完成后在首页内嵌展示与 `report.html` 同风格的结果界面，并生成结果文件
+- 扫描完成后在“扫描结果”页中查看与 `report.html` 同风格的结果界面，并生成结果文件
+- 在“码值校译”页中输入中英配置文件绝对路径，按标准术语词典和模型建议逐条审批翻译
 
 如果不希望自动打开浏览器：
 
@@ -66,6 +68,12 @@ python3 -m zh_audit serve --no-browser
 - `report.html`
 - `annotations.json`
 - `app_state.json`
+
+项目内还维护一份术语词典 Excel：
+
+- `resources/terminology.xlsx`
+
+它会被“码值校译”页加载，凡是命中词典中文术语的翻译都必须使用词典中定义的英文，不允许模型自由改写。
 
 # 模型配置
 

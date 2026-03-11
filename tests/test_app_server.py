@@ -4,6 +4,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from zh_audit.app_server import AppServiceState
 
@@ -150,9 +151,12 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("扫描目录", html)
             self.assertIn("扫描结果", html)
             self.assertIn("标注管理", html)
+            self.assertIn("码值校译", html)
             self.assertIn("模型配置", html)
             self.assertIn("Base URL", html)
             self.assertIn("保存模型配置", html)
+            self.assertIn("开始校译", html)
+            self.assertIn("已加载术语", html)
             self.assertNotIn("Local Service", html)
             self.assertNotIn("首页先配置扫描目录，再启动扫描。", html)
             self.assertIn('class="root-remove-btn"', html)
@@ -163,8 +167,6 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn('id="resultsReportHost"', html)
             self.assertIn("window.ZhAuditReport", html)
             self.assertNotIn("<iframe", html)
-            self.assertNotIn("resultsFullscreenBtn", html)
-            self.assertNotIn("resultsCloseFullscreenBtn", html)
             self.assertIn("overflow-wrap: anywhere;", html)
             self.assertIn("min-width: 0;", html)
             self.assertIn("margin: 0 auto;", html)
@@ -223,6 +225,69 @@ class AppServerSmokeTest(unittest.TestCase):
             state = AppServiceState(out_dir=out_dir)
             with self.assertRaises(ValueError):
                 state.start_scan({"scan_roots": ["/path/not/exist"]})
+
+    def test_translation_task_roundtrip(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            out_dir = root / "results"
+            source = root / "messages_zh.properties"
+            target = root / "messages_en.properties"
+            source.write_text("RESOURCE_POOL=资源池\nNETWORK_LINK_ADD=创建对等连接：{0}\n", encoding="utf-8")
+            target.write_text("RESOURCE_POOL=wrong\n", encoding="utf-8")
+
+            config_path = root / "zh-audit.config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "model_config": {
+                            "base_url": "http://127.0.0.1:8000/v1",
+                            "api_key": "sk-local",
+                            "model": "demo",
+                            "max_tokens": 120,
+                        }
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            state = AppServiceState(out_dir=out_dir, project_config_path=config_path)
+
+            with patch("zh_audit.app_server.call_openai_compatible_json") as mocked:
+                mocked.return_value = {
+                    "verdict": "needs_update",
+                    "candidate_translation": "create link: {0}",
+                    "reason": "ok",
+                }
+                payload = state.start_translation(
+                    {
+                        "source_path": str(source),
+                        "target_path": str(target),
+                        "auto_accept": False,
+                    }
+                )
+                self.assertIn(payload["status"]["status"], {"running", "done"})
+
+                deadline = time.time() + 10
+                latest = payload
+                while time.time() < deadline:
+                    latest = state.translation_payload()
+                    if latest["status"]["status"] in {"done", "failed", "stopped"}:
+                        break
+                    time.sleep(0.1)
+
+                self.assertEqual(latest["status"]["status"], "done")
+                self.assertEqual(latest["status"]["counts"]["glossary_applied"], 1)
+                self.assertEqual(latest["status"]["counts"]["pending"], 1)
+                pending = latest["pending_items"][0]
+                self.assertEqual(pending["candidate_text"], "create link: {0}")
+
+                accepted = state.translation_accept(pending["id"])
+                self.assertEqual(accepted["status"]["counts"]["accepted"], 2)
+                target_text = target.read_text(encoding="utf-8")
+                self.assertIn("RESOURCE_POOL=resource pool", target_text)
+                self.assertIn("NETWORK_LINK_ADD=create link: {0}", target_text)
+                self.assertTrue(any(path.name.startswith("messages_en.properties.bak.") for path in root.iterdir()))
 
 
 if __name__ == "__main__":
