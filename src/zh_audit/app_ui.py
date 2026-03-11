@@ -40,11 +40,34 @@ def render_app_shell(bootstrap_payload, client_config):
     button, input, textarea, select {
       font: inherit;
     }
+    button {
+      transition:
+        transform 0.16s ease,
+        box-shadow 0.16s ease,
+        background-color 0.16s ease,
+        border-color 0.16s ease,
+        color 0.16s ease,
+        opacity 0.16s ease;
+    }
+    button:not(:disabled) {
+      will-change: transform;
+    }
+    button:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(159,61,42,0.18);
+    }
+    button:disabled {
+      opacity: 0.58;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
     .shell {
       min-height: 100vh;
       padding: 28px 32px 40px;
-      display: grid;
-      gap: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
     }
     .panel {
       background: var(--panel);
@@ -52,50 +75,44 @@ def render_app_shell(bootstrap_payload, client_config):
       border-radius: 20px;
       box-shadow: 0 10px 30px rgba(64, 47, 30, 0.06);
     }
-    .hero {
-      padding: 24px 26px;
-      display: grid;
-      gap: 10px;
-      background: linear-gradient(135deg, rgba(159,61,42,0.10), rgba(255,255,255,0.94));
-    }
-    .hero-kicker {
-      font-size: 12px;
-      letter-spacing: 0.14em;
-      color: var(--muted);
-      text-transform: uppercase;
-    }
-    .hero-title {
-      font-size: 30px;
-    }
-    .hero-subtitle {
-      color: var(--muted);
-      line-height: 1.6;
-    }
     .tab-bar {
-      display: flex;
-      gap: 10px;
-      padding: 8px;
+      display: inline-flex;
+      justify-self: start;
+      align-self: start;
+      gap: 4px;
+      align-items: center;
+      min-height: 0;
+      padding: 4px;
       background: rgba(255,255,255,0.55);
-      border-radius: 18px;
+      border-radius: 14px;
       border: 1px solid var(--line);
-      width: fit-content;
+      width: auto;
     }
     .tab-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 34px;
+      min-height: 34px;
+      line-height: 1;
       border: 1px solid transparent;
       background: transparent;
-      border-radius: 14px;
-      padding: 10px 18px;
+      border-radius: 10px;
+      padding: 0 16px;
       color: var(--muted);
       cursor: pointer;
+      white-space: nowrap;
+      transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
     }
     .tab-btn.is-active {
       background: var(--panel);
       color: var(--ink);
       border-color: var(--line);
-      box-shadow: 0 8px 18px rgba(64, 47, 30, 0.08);
+      box-shadow: 0 4px 12px rgba(64, 47, 30, 0.08);
     }
     .page {
       display: none;
+      width: 100%;
       gap: 20px;
     }
     .page.is-active {
@@ -107,10 +124,14 @@ def render_app_shell(bootstrap_payload, client_config):
       gap: 20px;
       align-items: start;
     }
+    .grid > * {
+      min-width: 0;
+    }
     .card {
       padding: 18px;
       display: grid;
       gap: 14px;
+      min-width: 0;
     }
     .card-head {
       display: flex;
@@ -127,11 +148,13 @@ def render_app_shell(bootstrap_payload, client_config):
     .roots-list {
       display: grid;
       gap: 10px;
+      min-width: 0;
     }
     .root-row {
       display: flex;
       gap: 10px;
       align-items: center;
+      min-width: 0;
     }
     .root-input, .field-input, .field-textarea, .filter-input, .filter-select {
       width: 100%;
@@ -140,6 +163,10 @@ def render_app_shell(bootstrap_payload, client_config):
       background: rgba(255,255,255,0.84);
       padding: 12px 14px;
       color: var(--ink);
+    }
+    .root-input {
+      flex: 1 1 auto;
+      min-width: 0;
     }
     .field-textarea {
       min-height: 140px;
@@ -160,10 +187,55 @@ def render_app_shell(bootstrap_payload, client_config):
     .danger-btn {
       color: var(--danger);
     }
+    .root-remove-btn {
+      flex: 0 0 36px;
+      width: 36px;
+      height: 36px;
+      padding: 0;
+      border-radius: 999px;
+      border: 1px solid rgba(157,47,47,0.18);
+      background: rgba(157,47,47,0.08);
+      color: var(--danger);
+      font-size: 20px;
+      line-height: 1;
+    }
+    .tab-btn:not(:disabled):hover,
+    .small-btn:not(:disabled):hover,
+    .secondary-btn:not(:disabled):hover,
+    .danger-btn:not(:disabled):hover,
+    .root-remove-btn:not(:disabled):hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 20px rgba(64, 47, 30, 0.10);
+    }
+    .tab-btn:not(:disabled):active,
+    .small-btn:not(:disabled):active,
+    .secondary-btn:not(:disabled):active,
+    .danger-btn:not(:disabled):active,
+    .root-remove-btn:not(:disabled):active,
+    .primary-btn:not(:disabled):active {
+      transform: translateY(0) scale(0.98);
+      box-shadow: 0 4px 10px rgba(64, 47, 30, 0.10);
+    }
+    .tab-btn:not(:disabled):hover {
+      background: rgba(255,255,255,0.72);
+    }
+    .primary-btn:not(:disabled):hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 24px rgba(159,61,42,0.28);
+    }
+    .danger-btn:not(:disabled):hover,
+    .root-remove-btn:not(:disabled):hover {
+      box-shadow: 0 10px 22px rgba(157,47,47,0.16);
+    }
+    .root-remove-btn:not(:disabled):hover {
+      background: rgba(157,47,47,0.12);
+      border-color: rgba(157,47,47,0.22);
+    }
     .btn-row {
       display: flex;
       gap: 10px;
       flex-wrap: wrap;
+      min-width: 0;
     }
     .pill {
       display: inline-flex;
@@ -192,6 +264,7 @@ def render_app_shell(bootstrap_payload, client_config):
       border: 1px solid var(--line);
       border-radius: 16px;
       background: var(--soft-bg);
+      min-width: 0;
     }
     .progress-bar {
       height: 12px;
@@ -211,12 +284,70 @@ def render_app_shell(bootstrap_payload, client_config):
       gap: 8px;
       font-size: 13px;
       color: var(--muted);
+      min-width: 0;
+    }
+    .progress-meta-item {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 6px;
+      align-items: start;
+      min-width: 0;
+    }
+    .progress-meta-label {
+      white-space: nowrap;
+    }
+    .progress-meta-value {
+      min-width: 0;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     .results-frame-wrap {
       padding: 14px;
       border: 1px solid var(--line);
       border-radius: 18px;
       background: rgba(255,255,255,0.74);
+    }
+    .results-panel {
+      position: relative;
+      min-width: 0;
+    }
+    .card-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .report-action-btn {
+      min-width: 92px;
+    }
+    body.results-fullscreen-active {
+      overflow: hidden;
+    }
+    body.results-fullscreen-active::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background: rgba(31,35,40,0.16);
+      backdrop-filter: blur(2px);
+      z-index: 2100;
+    }
+    .results-panel.is-fullscreen {
+      position: fixed;
+      inset: 16px;
+      z-index: 2200;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      align-content: stretch;
+      padding: 20px;
+      border-radius: 24px;
+      background: rgba(255,253,250,0.98);
+      box-shadow: 0 24px 56px rgba(31,35,40,0.18);
+    }
+    .results-panel.is-fullscreen .results-frame-wrap {
+      min-height: 0;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
     }
     .report-frame {
       width: 100%;
@@ -225,6 +356,11 @@ def render_app_shell(bootstrap_payload, client_config):
       border: none;
       border-radius: 14px;
       background: #fff;
+    }
+    .results-panel.is-fullscreen .report-frame {
+      min-height: 0;
+      height: 100%;
+      flex: 1 1 auto;
     }
     .empty-state {
       padding: 34px 28px;
@@ -240,6 +376,9 @@ def render_app_shell(bootstrap_payload, client_config):
       border: 1px solid var(--line);
       background: rgba(255,255,255,0.72);
       color: var(--muted);
+      min-width: 0;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     .status-banner.is-error {
       color: var(--danger);
@@ -309,12 +448,6 @@ def render_app_shell(bootstrap_payload, client_config):
 </head>
 <body>
   <div class="shell">
-    <section class="panel hero">
-      <div class="hero-kicker">Local Service</div>
-      <h1 class="hero-title">中文硬编码盘点</h1>
-      <p class="hero-subtitle">首页先配置扫描目录，再启动扫描。扫描完成后，结果会直接展示在首页中，并继续沿用报告页的筛选、导出和标注能力。</p>
-    </section>
-
     <div class="tab-bar" id="tabBar">
       <button class="tab-btn is-active" type="button" data-tab="home">首页</button>
       <button class="tab-btn" type="button" data-tab="annotations">标注管理</button>
@@ -348,18 +481,31 @@ def render_app_shell(bootstrap_payload, client_config):
             <div class="progress-bar"><span id="progressBarInner"></span></div>
             <div class="progress-meta">
               <div id="progressCounts">0 / 0</div>
-              <div id="progressCurrentRepo">当前项目：-</div>
-              <div id="progressCurrentPath">当前文件：-</div>
-              <div id="progressStartedAt">开始时间：-</div>
+              <div class="progress-meta-item">
+                <span class="progress-meta-label">当前项目：</span>
+                <span id="progressCurrentRepo" class="progress-meta-value">-</span>
+              </div>
+              <div class="progress-meta-item">
+                <span class="progress-meta-label">当前文件：</span>
+                <span id="progressCurrentPath" class="progress-meta-value">-</span>
+              </div>
+              <div class="progress-meta-item">
+                <span class="progress-meta-label">开始时间：</span>
+                <span id="progressStartedAt" class="progress-meta-value">-</span>
+              </div>
             </div>
           </div>
         </div>
 
-        <div class="panel card">
+        <div id="resultsPanel" class="panel card results-panel">
           <div class="card-head">
             <div>
               <div class="muted">Report</div>
               <h2 class="card-title">扫描结果</h2>
+            </div>
+            <div class="card-actions">
+              <button id="resultsFullscreenBtn" class="secondary-btn report-action-btn" type="button" disabled>全屏</button>
+              <button id="resultsCloseFullscreenBtn" class="secondary-btn report-action-btn hidden" type="button">关闭全屏</button>
             </div>
           </div>
           <div id="resultsEmpty" class="empty-state">
@@ -454,6 +600,7 @@ def render_app_shell(bootstrap_payload, client_config):
       findings: BOOTSTRAP.findings || [],
       hasResults: !!BOOTSTRAP.has_results,
       resultsRevision: Number(BOOTSTRAP.results_revision || 0),
+      isResultsFullscreen: false,
     };
     state.draftConfig = cloneConfig(state.config);
 
@@ -472,9 +619,12 @@ def render_app_shell(bootstrap_payload, client_config):
     const progressCurrentPath = document.getElementById("progressCurrentPath");
     const progressStartedAt = document.getElementById("progressStartedAt");
     const scanStatusPill = document.getElementById("scanStatusPill");
+    const resultsPanel = document.getElementById("resultsPanel");
     const resultsEmpty = document.getElementById("resultsEmpty");
     const resultsFrameWrap = document.getElementById("resultsFrameWrap");
     const reportFrame = document.getElementById("reportFrame");
+    const resultsFullscreenBtn = document.getElementById("resultsFullscreenBtn");
+    const resultsCloseFullscreenBtn = document.getElementById("resultsCloseFullscreenBtn");
     const annotationKeyword = document.getElementById("annotationKeyword");
     const annotationProject = document.getElementById("annotationProject");
     const annotationCategory = document.getElementById("annotationCategory");
@@ -562,7 +712,7 @@ def render_app_shell(bootstrap_payload, client_config):
       rootsList.innerHTML = roots.map((root, index) => `
         <div class="root-row">
           <input class="root-input" data-index="${index}" value="${escapeAttr(root)}" placeholder="/absolute/path/to/repo">
-          <button class="small-btn" type="button" data-action="remove-root" data-index="${index}">删除</button>
+          <button class="root-remove-btn" type="button" data-action="remove-root" data-index="${index}" aria-label="删除目录" title="删除目录">×</button>
         </div>
       `).join("");
     }
@@ -574,9 +724,9 @@ def render_app_shell(bootstrap_payload, client_config):
       const percent = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
       progressBarInner.style.width = `${percent}%`;
       progressCounts.textContent = `${processed} / ${total}`;
-      progressCurrentRepo.textContent = `当前项目：${status.current_repo || "-"}`;
-      progressCurrentPath.textContent = `当前文件：${status.current_path || "-"}`;
-      progressStartedAt.textContent = `开始时间：${status.started_at || "-"}`;
+      progressCurrentRepo.textContent = status.current_repo || "-";
+      progressCurrentPath.textContent = status.current_path || "-";
+      progressStartedAt.textContent = status.started_at || "-";
       homeStatus.textContent = status.error ? `${status.message || "扫描失败"}：${status.error}` : (status.message || "等待扫描");
       homeStatus.classList.toggle("is-error", Boolean(status.error));
       scanStatusPill.textContent = status.status === "running" ? "运行中" : status.status === "done" ? "完成" : status.status === "failed" ? "失败" : "空闲";
@@ -584,14 +734,26 @@ def render_app_shell(bootstrap_payload, client_config):
       startScanBtn.disabled = status.status === "running";
     }
 
+    function setResultsFullscreen(enabled) {
+      const nextValue = Boolean(enabled) && state.hasResults;
+      state.isResultsFullscreen = nextValue;
+      document.body.classList.toggle("results-fullscreen-active", nextValue);
+      resultsPanel.classList.toggle("is-fullscreen", nextValue);
+      resultsFullscreenBtn.classList.toggle("hidden", nextValue);
+      resultsCloseFullscreenBtn.classList.toggle("hidden", !nextValue);
+    }
+
     function renderResults() {
+      resultsFullscreenBtn.disabled = !state.hasResults;
       if (!state.hasResults) {
+        setResultsFullscreen(false);
         resultsEmpty.classList.remove("hidden");
         resultsFrameWrap.classList.add("hidden");
         return;
       }
       resultsEmpty.classList.add("hidden");
       resultsFrameWrap.classList.remove("hidden");
+      setResultsFullscreen(state.isResultsFullscreen);
       const nextSrc = `${CLIENT_CONFIG.embedded_report_path}?rev=${state.resultsRevision}`;
       if (reportFrame.dataset.src !== nextSrc) {
         reportFrame.src = nextSrc;
@@ -742,6 +904,9 @@ def render_app_shell(bootstrap_payload, client_config):
       const target = event.target instanceof Element ? event.target.closest(".tab-btn") : null;
       if (!target) return;
       const nextTab = target.dataset.tab || "home";
+      if (state.isResultsFullscreen && nextTab !== "home") {
+        setResultsFullscreen(false);
+      }
       state.activeTab = nextTab;
       renderTabs();
       if (nextTab === "annotations") {
@@ -801,6 +966,15 @@ def render_app_shell(bootstrap_payload, client_config):
       }
     });
 
+    resultsFullscreenBtn.addEventListener("click", () => {
+      if (!state.hasResults) return;
+      setResultsFullscreen(true);
+    });
+
+    resultsCloseFullscreenBtn.addEventListener("click", () => {
+      setResultsFullscreen(false);
+    });
+
     annotationKeyword.addEventListener("input", renderAnnotations);
     annotationProject.addEventListener("change", renderAnnotations);
     annotationCategory.addEventListener("change", renderAnnotations);
@@ -824,6 +998,12 @@ def render_app_shell(bootstrap_payload, client_config):
       } catch (error) {
         homeStatus.textContent = error.message || "刷新结果失败";
         homeStatus.classList.add("is-error");
+      }
+    });
+
+    window.addEventListener("keydown", event => {
+      if (event.key === "Escape" && state.isResultsFullscreen) {
+        setResultsFullscreen(false);
       }
     });
 
