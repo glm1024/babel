@@ -43,6 +43,10 @@ public class ConditionExpressions {
         Assert.isTrue(value.replace("前缀", "").equals("启用"), "状态非法");
     }
 
+    public String rewrite(String value) {
+        return value.replace("启动虚拟机：", "开启云主机：").replace("虚拟机：", "云主机：");
+    }
+
     public void decorate(java.util.List<String> values) {
         values.add("启用");
     }

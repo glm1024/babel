@@ -453,6 +453,24 @@ class ScanSmokeTest(unittest.TestCase):
             )
             self.assertTrue(
                 any(
+                    item["text"] == "启动虚拟机："
+                    and item["path"] == "src/ConditionExpressions.java"
+                    and item["category"] == "CONDITION_EXPRESSION_LITERAL"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["text"] == "开启云主机："
+                    and item["path"] == "src/ConditionExpressions.java"
+                    and item["category"] == "CONDITION_EXPRESSION_LITERAL"
+                    and item["action"] == "keep"
+                    for item in findings
+                )
+            )
+            self.assertTrue(
+                any(
                     item["text"] == "启用"
                     and item["hit_text"] == "启用"
                     and item["path"] == "src/ConditionExpressions.java"
@@ -470,7 +488,7 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("Shell 脚本", report)
             self.assertIn("指定文件", report)
             self.assertIn("国际化文件", report)
-            self.assertIn("条件判断字面量", report)
+            self.assertIn("逻辑判断与处理字面量", report)
             self.assertIn("任务描述", report)
             self.assertIn("配置项", report)
             self.assertIn("协议/持久化字面量", report)
@@ -492,7 +510,7 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("第三方依赖目录", report)
             self.assertIn("当前命中位于国际化文件中。", report)
             self.assertIn("Swagger/OpenAPI 注解上下文", report)
-            self.assertIn("当前命中用于条件判断表达式。", report)
+            self.assertIn("当前命中用于逻辑判断或字符串处理。", report)
             self.assertIn("当前命中位于任务描述注解中。", report)
             self.assertIn("// 编码类型", report)
             self.assertNotIn("展开详情", report)

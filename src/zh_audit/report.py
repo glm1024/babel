@@ -13,7 +13,7 @@ DISPLAY_MAPS = {
         "SHELL_SCRIPT": "Shell 脚本",
         "NAMED_FILE": "指定文件",
         "I18N_FILE": "国际化文件",
-        "CONDITION_EXPRESSION_LITERAL": "条件判断字面量",
+        "CONDITION_EXPRESSION_LITERAL": "逻辑判断与处理字面量",
         "TASK_DESCRIPTION": "任务描述",
         "TEST_SAMPLE_FIXTURE": "测试与样例",
         "CONFIG_ITEM": "配置项",
@@ -70,7 +70,8 @@ DISPLAY_MAPS = {
         "Swagger/OpenAPI annotation context.": "当前命中位于 Swagger/OpenAPI 注解上下文。",
         "Named file context.": "当前命中位于指定文件中。",
         "I18n messages file context.": "当前命中位于国际化文件中。",
-        "Condition expression literal context.": "当前命中用于条件判断表达式。",
+        "Condition expression literal context.": "当前命中用于逻辑判断或字符串处理。",
+        "Logic processing literal context.": "当前命中用于逻辑判断或字符串处理。",
         "Task description annotation context.": "当前命中位于任务描述注解中。",
     },
 }

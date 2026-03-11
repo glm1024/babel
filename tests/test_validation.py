@@ -297,6 +297,91 @@ class ValidationSmokeTest(unittest.TestCase):
                 )
             )
 
+    def test_validate_report_matches_plain_replace_logic_literal(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            repo = root / "repo"
+            repo.mkdir()
+            subprocess.run(
+                ["git", "init"],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            java_file = repo / "src" / "ConditionExpressions.java"
+            java_file.parent.mkdir(parents=True)
+            java_file.write_text(
+                'class ConditionExpressions { String rewrite(String value) { return value.replace("启动虚拟机：", "开启云主机："); } }\n',
+                encoding="utf-8",
+            )
+
+            subprocess.run(
+                ["git", "add", "."],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            findings_path = root / "findings.json"
+            summary_path = root / "summary.json"
+            out_dir = root / "validation"
+
+            findings_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "project": "repo",
+                            "path": "src/ConditionExpressions.java",
+                            "line": 1,
+                            "category": "CONDITION_EXPRESSION_LITERAL",
+                            "action": "keep",
+                            "surface_kind": "string_literal",
+                            "normalized_text": "启动虚拟机：",
+                            "text": "启动虚拟机：",
+                            "hit_text": "启动虚拟机",
+                        }
+                    ],
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "run_id": "plain-replace-demo",
+                        "eligible_files": 1,
+                        "skipped_files": 0,
+                        "scan_policy": {
+                            "exclude_globs": ["**/static/ajax/libs/**"],
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            validate_report(
+                repo_root=repo,
+                summary_path=summary_path,
+                findings_path=findings_path,
+                out_dir=out_dir,
+            )
+
+            with (out_dir / "classification_review.csv").open(encoding="utf-8", newline="") as handle:
+                review_rows = list(csv.DictReader(handle))
+            self.assertTrue(
+                any(
+                    row["path"] == "src/ConditionExpressions.java"
+                    and row["reported_category"] == "CONDITION_EXPRESSION_LITERAL"
+                    and row["expected_category"] == "CONDITION_EXPRESSION_LITERAL"
+                    and row["status"] == "match"
+                    for row in review_rows
+                )
+            )
+
     def test_validate_report_matches_assert_api_condition_expression_literal(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

@@ -8,7 +8,7 @@ from typing import List, Match, Tuple
 HAN_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 UNICODE_ESCAPE_RE = re.compile(r"(?:\\u[0-9a-fA-F]{4})+")
 CONDITION_BRANCH_RE = re.compile(r"\b(?:else\s+if|if|while|switch|case|assert)\b")
-CONDITION_METHOD_RE = re.compile(
+LOGIC_STRING_METHOD_RE = re.compile(
     r"\b(?:contains|containsignorecase|equals|equalsignorecase|contentequals|regionmatches|startswith|startswithignorecase|endswith|endswithignorecase|matches|indexof|lastindexof|compareto|comparetoignorecase|includes|match|test|hasprefix|hassuffix|equalfold|replace|replaceall|replacefirst|split|remove|removestart|removeend|substringbefore|substringafter|substringbeforelast|substringafterlast)\s*\("
 )
 CONDITION_OPERATOR_RE = re.compile(r"(?:===|!==|==|!=)")
@@ -265,13 +265,13 @@ def looks_like_condition_expression_literal(snippet, context="", language="", ex
         return True
     if "switch" in snippet_lower:
         return True
+    if LOGIC_STRING_METHOD_RE.search(extended_lower):
+        return True
 
     has_branch = bool(CONDITION_BRANCH_RE.search(combined_lower) or CONDITION_BRANCH_RE.search(extra_lower))
     if not has_branch and not ("?" in extended_lower and ":" in extended_lower):
         return False
 
-    if CONDITION_METHOD_RE.search(extended_lower):
-        return True
     if CONDITION_OPERATOR_RE.search(context_lower):
         return True
     if str(language or "").lower() == "python" and PYTHON_IN_RE.search(context_lower):

@@ -590,11 +590,11 @@ def _expected_category(
     if _looks_like_log_context(source_lower):
         return CATEGORY_LOG_AUDIT_DEBUG, governance_in_scope, "日志或控制台输出上下文。"
     if looks_like_assert_api_literal(source_line, source_line, extra_context=source_context):
-        return CATEGORY_CONDITION_EXPRESSION_LITERAL, False, "当前命中用于条件判断表达式。"
+        return CATEGORY_CONDITION_EXPRESSION_LITERAL, False, "当前命中用于逻辑判断或字符串处理。"
     if any(token in source_lower for token in ("ajaxresult.warn(", "ajaxresult.error(", "throw ", " alertwarning(", " alerterror(", "$.modal.alert", "return error(", "return fail(", "return warn(")):
         return CATEGORY_ERROR_VALIDATION_MESSAGE, governance_in_scope, "异常、告警或失败返回上下文。"
     if looks_like_condition_expression_literal(source_line, source_line, language=language, extra_context=source_context):
-        return CATEGORY_CONDITION_EXPRESSION_LITERAL, False, "当前命中用于条件判断表达式。"
+        return CATEGORY_CONDITION_EXPRESSION_LITERAL, False, "当前命中用于逻辑判断或字符串处理。"
     if any(token in text for token in ("失败", "异常", "错误", "不能为空", "不允许", "不存在", "已存在", "非法")) and "static/ajax/libs/" not in path:
         return CATEGORY_ERROR_VALIDATION_MESSAGE, governance_in_scope, "文本语义更接近错误或校验提示。"
     if ext in {".yaml", ".yml", ".properties", ".json", ".toml"}:
