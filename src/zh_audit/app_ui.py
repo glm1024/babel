@@ -82,6 +82,9 @@ def render_app_shell(bootstrap_payload, client_config):
       display: inline-flex;
       justify-self: start;
       align-self: start;
+      position: sticky;
+      top: 16px;
+      z-index: 30;
       gap: 4px;
       align-items: center;
       min-height: 0;
@@ -122,7 +125,8 @@ def render_app_shell(bootstrap_payload, client_config):
       display: grid;
     }
     .home-workspace {
-      width: min(820px, 100%);
+      width: min(920px, 100%);
+      margin: 0 auto;
       display: grid;
       gap: 20px;
     }
@@ -130,9 +134,15 @@ def render_app_shell(bootstrap_payload, client_config):
       display: grid;
       gap: 20px;
       min-width: 0;
+      min-height: 0;
+      height: calc(100vh - 124px);
+      overflow: hidden;
     }
     .results-report-host {
       min-width: 0;
+      min-height: 0;
+      height: 100%;
+      overflow: hidden;
     }
     .card {
       padding: 18px;
@@ -394,6 +404,14 @@ def render_app_shell(bootstrap_payload, client_config):
       .shell {
         padding-left: 20px;
         padding-right: 20px;
+      }
+      .results-tab-shell {
+        height: auto;
+        overflow: visible;
+      }
+      .results-report-host {
+        height: auto;
+        overflow: visible;
       }
     }
   </style>

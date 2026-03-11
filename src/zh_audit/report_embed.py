@@ -59,6 +59,7 @@ h2, h3 { margin: 0; }
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 .panel h2 {
   margin: 0 0 14px;
@@ -273,7 +274,7 @@ button:disabled {
 .findings-table col.col-location { width: 270px; }
 .findings-table col.col-text { width: 360px; }
 .findings-table col.col-category { width: 150px; }
-.findings-table col.col-action { width: 220px; }
+.findings-table col.col-action { width: 280px; }
 .position-cell {
   display: flex;
   align-items: flex-start;
@@ -381,17 +382,23 @@ th {
 }
 .action-cell {
   white-space: normal;
+  min-width: 0;
 }
 .action-stack {
   display: grid;
   gap: 8px;
   align-items: flex-start;
+  width: 100%;
+  min-width: 0;
 }
 .annotation-row {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 .annotation-btn {
   padding: 6px 10px;
@@ -400,6 +407,10 @@ th {
   background: rgba(255, 255, 255, 0.92);
   color: var(--ink, #1f2328);
   font-size: 12px;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
 }
 .annotation-btn.is-danger {
   border-color: rgba(157,47,47,0.24);
@@ -407,13 +418,15 @@ th {
   background: rgba(157,47,47,0.08);
 }
 .annotation-note {
-  display: inline-flex;
-  align-items: center;
+  display: block;
   max-width: 100%;
   color: var(--muted, #6a6f76);
   font-size: 12px;
   line-height: 1.5;
   overflow-wrap: anywhere;
+}
+.annotation-note strong {
+  display: inline-block;
 }
 .annotation-note strong {
   font-weight: 600;
@@ -579,30 +592,53 @@ th {
   display: grid;
   grid-template-columns: minmax(320px, 360px) minmax(0, 1fr);
   gap: 24px;
-  align-items: start;
+  align-items: stretch;
   min-height: 0;
+  height: 100%;
 }
 [data-report-root][data-layout="embedded"] .summary-shell {
-  position: static;
+  position: sticky;
+  top: 0;
   width: 100%;
   flex: initial;
-  max-height: none;
-  overflow: visible;
+  align-self: start;
+  max-height: 100%;
+  overflow: auto;
 }
 [data-report-root][data-layout="embedded"] .detail-shell {
-  align-self: auto;
+  align-self: stretch;
+  min-height: 0;
+  height: 100%;
 }
 [data-report-root][data-layout="embedded"] .detail-shell .panel {
-  height: auto;
+  height: 100%;
   min-height: 0;
+  overflow: hidden;
 }
 [data-report-root][data-layout="embedded"] .table-wrap {
-  overflow: visible;
-  min-height: auto;
+  overflow: auto;
+  min-height: 0;
 }
 @media (max-width: 1180px) {
   [data-report-root][data-layout="embedded"] {
     grid-template-columns: 1fr;
+    height: auto;
+  }
+  [data-report-root][data-layout="embedded"] .summary-shell {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+  [data-report-root][data-layout="embedded"] .detail-shell {
+    height: auto;
+  }
+  [data-report-root][data-layout="embedded"] .detail-shell .panel {
+    height: auto;
+    overflow: visible;
+  }
+  [data-report-root][data-layout="embedded"] .table-wrap {
+    overflow: visible;
+    min-height: auto;
   }
 }
 @media (max-width: 960px) {
