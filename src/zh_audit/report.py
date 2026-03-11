@@ -1479,12 +1479,17 @@ def render_report(summary, findings, client_config=None):
 
     function applyServerUpdate(data) {
       summary = data.summary || summary;
-      if (data.finding && data.finding.id) {
+      if (Array.isArray(data.findings)) {
+        findings = data.findings.slice();
+      } else if (data.finding && data.finding.id) {
         findings = findings.map(item => item.id === data.finding.id ? data.finding : item);
       }
       renderSummary();
       renderFilterOptions();
       renderRows();
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: "zh-audit-updated" }, "*");
+      }
     }
 
     async function saveAnnotation() {

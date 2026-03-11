@@ -527,7 +527,7 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("上一页", report)
             self.assertIn("下一页", report)
             self.assertIn("当前筛选条件下没有命中记录", report)
-            self.assertIn("当前报告为只读模式，请使用 zh-audit review 打开可编辑版本。", report)
+            self.assertIn("当前报告为只读模式，请使用 zh-audit serve 打开本地服务版本。", report)
             self.assertIn("标注无需修改", report)
             self.assertLess(report.index('id="projectFilter"'), report.index('id="actionFilter"'))
             self.assertLess(report.index('id="actionFilter"'), report.index('id="categoryFilter"'))

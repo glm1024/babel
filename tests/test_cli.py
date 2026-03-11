@@ -1,7 +1,8 @@
 import io
 import unittest
+from unittest import mock
 
-from zh_audit.cli import ScanProgressReporter, format_scan_progress_line
+from zh_audit.cli import _open_browser, build_parser, ScanProgressReporter, format_scan_progress_line
 
 
 class _TtyBuffer(io.StringIO):
@@ -10,6 +11,17 @@ class _TtyBuffer(io.StringIO):
 
 
 class CliTest(unittest.TestCase):
+    def test_parser_accepts_serve_command(self):
+        parser = build_parser()
+        args = parser.parse_args(["serve", "--out", "results", "--no-browser"])
+        self.assertEqual(args.command, "serve")
+        self.assertTrue(args.no_browser)
+
+    def test_open_browser_returns_true_when_backend_succeeds(self):
+        with mock.patch("zh_audit.cli.webbrowser.open", return_value=True) as mocked:
+            self.assertTrue(_open_browser("http://127.0.0.1:8765/"))
+            mocked.assert_called_once()
+
     def test_format_scan_progress_line_contains_progress_and_tail(self):
         line = format_scan_progress_line(
             processed=6,

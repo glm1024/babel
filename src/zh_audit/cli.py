@@ -1,11 +1,14 @@
 import argparse
 import json
 import sys
+import threading
+import webbrowser
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
 from zh_audit.annotations import load_annotation_store, resolve_annotation_path
+from zh_audit.app_server import serve_app
 from zh_audit.config import load_manifest, load_scan_settings
 from zh_audit.pipeline import run_scan
 from zh_audit.report import render_report
@@ -102,6 +105,13 @@ def build_parser():
     review_parser.add_argument("--host", default="127.0.0.1", help="Host to bind.")
     review_parser.add_argument("--port", type=int, default=8765, help="Port to bind.")
 
+    serve_parser = subparsers.add_parser("serve", help="Serve the local audit application.")
+    serve_parser.add_argument("--out", type=Path, default=Path("results"), help="Directory for service state and outputs.")
+    serve_parser.add_argument("--annotations", type=Path, help="Optional annotations file path.")
+    serve_parser.add_argument("--host", default="127.0.0.1", help="Host to bind.")
+    serve_parser.add_argument("--port", type=int, default=8765, help="Port to bind.")
+    serve_parser.add_argument("--no-browser", action="store_true", help="Do not open the default browser automatically.")
+
     validate_parser = subparsers.add_parser("validate", help="Validate a generated report against a repository.")
     validate_parser.add_argument("--repo", required=True, type=Path, help="Path to the repository root.")
     validate_parser.add_argument("--summary", required=True, type=Path, help="Path to summary.json.")
@@ -158,7 +168,7 @@ def main(argv=None):
                         "mode": "static",
                         "annotation_api_path": "",
                         "annotation_remove_api_path": "",
-                        "readonly_message": "当前报告为只读模式，请使用 zh-audit review 打开可编辑版本。",
+                        "readonly_message": "当前报告为只读模式，请使用 zh-audit serve 打开本地服务版本。",
                         "annotation_path": str(annotations_path),
                     },
                 ),
@@ -194,6 +204,30 @@ def main(argv=None):
             finally:
                 server.server_close()
             return 0
+        if args.command == "serve":
+            server = serve_app(
+                out_dir=args.out.resolve(),
+                host=args.host,
+                port=args.port,
+                annotations_path=args.annotations.resolve() if args.annotations else None,
+            )
+            address = server.server_address
+            url = "http://{}:{}/".format(address[0], address[1])
+            print(json.dumps({
+                "mode": "serve",
+                "url": url,
+                "out": str(args.out.resolve()),
+                "annotations": str(resolve_annotation_path(args.out.resolve(), args.annotations.resolve() if args.annotations else None)),
+            }, ensure_ascii=False, indent=2))
+            if not args.no_browser:
+                _open_browser_later(url)
+            try:
+                server.serve_forever()
+            except KeyboardInterrupt:
+                pass
+            finally:
+                server.server_close()
+            return 0
         if args.command == "validate":
             out_dir = args.out or args.summary.parent
             artifacts = validate_report(
@@ -211,3 +245,18 @@ def main(argv=None):
 
     parser.error("Unsupported command: {}".format(args.command))
     return 2
+
+
+def _open_browser_later(url):
+    timer = threading.Timer(0.2, _open_browser, args=(url,))
+    timer.daemon = True
+    timer.start()
+    return timer
+
+
+def _open_browser(url):
+    try:
+        webbrowser.open(url, new=2)
+        return True
+    except Exception:
+        return False
