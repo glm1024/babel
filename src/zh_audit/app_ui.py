@@ -554,6 +554,7 @@ def render_app_shell(bootstrap_payload, client_config):
       <button class="tab-btn" type="button" data-tab="results">扫描结果</button>
       <button class="tab-btn" type="button" data-tab="annotations">标注管理</button>
       <button class="tab-btn" type="button" data-tab="translation">码值校译</button>
+      <button class="tab-btn" type="button" data-tab="sqlTranslation">SQL校译</button>
       <button class="tab-btn" type="button" data-tab="settings">模型配置</button>
     </div>
 
@@ -673,6 +674,7 @@ def render_app_shell(bootstrap_payload, client_config):
             </label>
             <div class="btn-row">
               <button id="translationStartBtn" class="primary-btn" type="button">开始校译</button>
+              <button id="translationResumeBtn" class="secondary-btn" type="button">继续任务</button>
               <button id="translationStopBtn" class="secondary-btn" type="button">停止任务</button>
             </div>
             <div id="translationStatusBanner" class="status-banner">等待校译</div>
@@ -757,6 +759,134 @@ def render_app_shell(bootstrap_payload, client_config):
       </div>
     </section>
 
+    <section class="page" id="sqlTranslationPage">
+      <div class="translation-layout">
+        <div class="translation-column">
+          <div class="panel card">
+            <div class="card-head">
+              <div>
+                <div class="muted">SQL Translation</div>
+                <h2 class="card-title">SQL校译</h2>
+              </div>
+              <span id="sqlTranslationStatusPill" class="pill keep">空闲</span>
+            </div>
+            <label>
+              <div class="field-label">数据库脚本目录绝对路径</div>
+              <input id="sqlTranslationDirectoryInput" class="field-input" type="text" placeholder="/abs/path/to/resources/db/migration">
+            </label>
+            <div class="translation-grid two">
+              <label>
+                <div class="field-label">目标表名</div>
+                <input id="sqlTranslationTableInput" class="field-input" type="text" placeholder="t_ba_menu_v2">
+              </label>
+              <label>
+                <div class="field-label">主键字段名</div>
+                <input id="sqlTranslationPrimaryKeyInput" class="field-input" type="text" placeholder="id">
+              </label>
+            </div>
+            <div class="translation-grid two">
+              <label>
+                <div class="field-label">中文文案字段名</div>
+                <input id="sqlTranslationSourceFieldInput" class="field-input" type="text" placeholder="name_zh">
+              </label>
+              <label>
+                <div class="field-label">英文文案字段名</div>
+                <input id="sqlTranslationTargetFieldInput" class="field-input" type="text" placeholder="name_en">
+              </label>
+            </div>
+            <div class="btn-row">
+              <button id="sqlTranslationStartBtn" class="primary-btn" type="button">开始校译</button>
+              <button id="sqlTranslationResumeBtn" class="secondary-btn" type="button">继续任务</button>
+              <button id="sqlTranslationStopBtn" class="secondary-btn" type="button">停止任务</button>
+            </div>
+            <div id="sqlTranslationStatusBanner" class="status-banner">等待校译</div>
+            <div class="translation-grid two">
+              <div class="readonly-output">术语词典：<span id="sqlTerminologyPathText"></span></div>
+              <div class="readonly-output">已加载术语：<span id="sqlTerminologyCountText">0</span></div>
+            </div>
+            <div class="translation-grid two">
+              <div class="readonly-output">输出文件：<span id="sqlTranslationOutputPathText">-</span></div>
+              <div class="btn-row">
+                <button id="sqlTranslationCopyPathBtn" class="secondary-btn" type="button">复制路径</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel card">
+            <div class="card-head">
+              <div>
+                <div class="muted">Live Feed</div>
+                <h2 class="card-title">实时流水</h2>
+              </div>
+            </div>
+            <div id="sqlTranslationEvents" class="translation-list"></div>
+          </div>
+        </div>
+
+        <div class="translation-column">
+          <div class="panel card">
+            <div class="card-head">
+              <div>
+                <div class="muted">Progress</div>
+                <h2 class="card-title">任务进度</h2>
+              </div>
+            </div>
+            <div class="translation-stats">
+              <div class="translation-stat"><span class="muted">总条数</span><strong id="sqlTranslationTotalCount">0</strong></div>
+              <div class="translation-stat"><span class="muted">已处理</span><strong id="sqlTranslationProcessedCount">0</strong></div>
+              <div class="translation-stat"><span class="muted">待审批</span><strong id="sqlTranslationPendingCount">0</strong></div>
+              <div class="translation-stat"><span class="muted">已接收</span><strong id="sqlTranslationAcceptedCount">0</strong></div>
+              <div class="translation-stat"><span class="muted">已追加</span><strong id="sqlTranslationAppendedCount">0</strong></div>
+              <div class="translation-stat"><span class="muted">已跳过</span><strong id="sqlTranslationSkippedCount">0</strong></div>
+            </div>
+            <div class="progress-box">
+              <div class="progress-bar"><span id="sqlTranslationProgressBarInner"></span></div>
+              <div class="progress-meta">
+                <div class="progress-meta-item">
+                  <span class="progress-meta-label">当前文件：</span>
+                  <span id="sqlTranslationCurrentFile" class="progress-meta-value">-</span>
+                </div>
+                <div class="progress-meta-item">
+                  <span class="progress-meta-label">当前主键：</span>
+                  <span id="sqlTranslationCurrentPrimaryKey" class="progress-meta-value">-</span>
+                </div>
+                <div class="progress-meta-item">
+                  <span class="progress-meta-label">当前中文：</span>
+                  <span id="sqlTranslationCurrentSource" class="progress-meta-value">-</span>
+                </div>
+                <div class="progress-meta-item">
+                  <span class="progress-meta-label">当前状态：</span>
+                  <span id="sqlTranslationCurrentStatus" class="progress-meta-value">-</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel card">
+            <div class="card-head">
+              <div>
+                <div class="muted">Review Queue</div>
+                <h2 class="card-title">待审批条目</h2>
+              </div>
+            </div>
+            <div id="sqlTranslationPendingEmpty" class="translation-empty">当前没有待审批条目。</div>
+            <div id="sqlTranslationPendingList" class="translation-list hidden"></div>
+          </div>
+
+          <div class="panel card">
+            <div class="card-head">
+              <div>
+                <div class="muted">Recent</div>
+                <h2 class="card-title">最近完成</h2>
+              </div>
+            </div>
+            <div id="sqlTranslationRecentEmpty" class="translation-empty">当前还没有已完成条目。</div>
+            <div id="sqlTranslationRecentList" class="translation-list hidden"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="page" id="settingsPage">
       <div class="panel card">
         <div class="card-head">
@@ -819,7 +949,9 @@ __REPORT_COMPONENT_BUNDLE__
       hasResults: !!BOOTSTRAP.has_results,
       resultsRevision: Number(BOOTSTRAP.results_revision || 0),
       translation: BOOTSTRAP.translation || defaultTranslationPayload(),
+      sqlTranslation: BOOTSTRAP.sql_translation || defaultSqlTranslationPayload(),
       translationPromptDrafts: {},
+      sqlTranslationPromptDrafts: {},
     };
     state.draftConfig = cloneConfig(state.config);
 
@@ -828,6 +960,7 @@ __REPORT_COMPONENT_BUNDLE__
     const resultsPage = document.getElementById("resultsPage");
     const annotationsPage = document.getElementById("annotationsPage");
     const translationPage = document.getElementById("translationPage");
+    const sqlTranslationPage = document.getElementById("sqlTranslationPage");
     const settingsPage = document.getElementById("settingsPage");
     const rootsList = document.getElementById("rootsList");
     const addRootBtn = document.getElementById("addRootBtn");
@@ -852,6 +985,7 @@ __REPORT_COMPONENT_BUNDLE__
     const translationTargetInput = document.getElementById("translationTargetInput");
     const translationAutoAccept = document.getElementById("translationAutoAccept");
     const translationStartBtn = document.getElementById("translationStartBtn");
+    const translationResumeBtn = document.getElementById("translationResumeBtn");
     const translationStopBtn = document.getElementById("translationStopBtn");
     const translationStatusBanner = document.getElementById("translationStatusBanner");
     const terminologyPathText = document.getElementById("terminologyPathText");
@@ -872,6 +1006,36 @@ __REPORT_COMPONENT_BUNDLE__
     const translationPendingList = document.getElementById("translationPendingList");
     const translationRecentEmpty = document.getElementById("translationRecentEmpty");
     const translationRecentList = document.getElementById("translationRecentList");
+    const sqlTranslationStatusPill = document.getElementById("sqlTranslationStatusPill");
+    const sqlTranslationDirectoryInput = document.getElementById("sqlTranslationDirectoryInput");
+    const sqlTranslationTableInput = document.getElementById("sqlTranslationTableInput");
+    const sqlTranslationPrimaryKeyInput = document.getElementById("sqlTranslationPrimaryKeyInput");
+    const sqlTranslationSourceFieldInput = document.getElementById("sqlTranslationSourceFieldInput");
+    const sqlTranslationTargetFieldInput = document.getElementById("sqlTranslationTargetFieldInput");
+    const sqlTranslationStartBtn = document.getElementById("sqlTranslationStartBtn");
+    const sqlTranslationResumeBtn = document.getElementById("sqlTranslationResumeBtn");
+    const sqlTranslationStopBtn = document.getElementById("sqlTranslationStopBtn");
+    const sqlTranslationCopyPathBtn = document.getElementById("sqlTranslationCopyPathBtn");
+    const sqlTranslationStatusBanner = document.getElementById("sqlTranslationStatusBanner");
+    const sqlTerminologyPathText = document.getElementById("sqlTerminologyPathText");
+    const sqlTerminologyCountText = document.getElementById("sqlTerminologyCountText");
+    const sqlTranslationOutputPathText = document.getElementById("sqlTranslationOutputPathText");
+    const sqlTranslationEvents = document.getElementById("sqlTranslationEvents");
+    const sqlTranslationTotalCount = document.getElementById("sqlTranslationTotalCount");
+    const sqlTranslationProcessedCount = document.getElementById("sqlTranslationProcessedCount");
+    const sqlTranslationPendingCount = document.getElementById("sqlTranslationPendingCount");
+    const sqlTranslationAcceptedCount = document.getElementById("sqlTranslationAcceptedCount");
+    const sqlTranslationAppendedCount = document.getElementById("sqlTranslationAppendedCount");
+    const sqlTranslationSkippedCount = document.getElementById("sqlTranslationSkippedCount");
+    const sqlTranslationProgressBarInner = document.getElementById("sqlTranslationProgressBarInner");
+    const sqlTranslationCurrentFile = document.getElementById("sqlTranslationCurrentFile");
+    const sqlTranslationCurrentPrimaryKey = document.getElementById("sqlTranslationCurrentPrimaryKey");
+    const sqlTranslationCurrentSource = document.getElementById("sqlTranslationCurrentSource");
+    const sqlTranslationCurrentStatus = document.getElementById("sqlTranslationCurrentStatus");
+    const sqlTranslationPendingEmpty = document.getElementById("sqlTranslationPendingEmpty");
+    const sqlTranslationPendingList = document.getElementById("sqlTranslationPendingList");
+    const sqlTranslationRecentEmpty = document.getElementById("sqlTranslationRecentEmpty");
+    const sqlTranslationRecentList = document.getElementById("sqlTranslationRecentList");
     const providerValue = document.getElementById("providerValue");
     const baseUrlInput = document.getElementById("baseUrlInput");
     const apiKeyInput = document.getElementById("apiKeyInput");
@@ -880,6 +1044,7 @@ __REPORT_COMPONENT_BUNDLE__
     const saveModelConfigBtn = document.getElementById("saveModelConfigBtn");
     let scanTimer = null;
     let translationTimer = null;
+    let sqlTranslationTimer = null;
     let reportController = null;
 
     function defaultTranslationPayload() {
@@ -897,6 +1062,47 @@ __REPORT_COMPONENT_BUNDLE__
           finished_at: "",
           backup_path: "",
           current: { key: "", source_text: "", status: "" },
+          counts: {
+            total: 0,
+            processed: 0,
+            skipped: 0,
+            pending: 0,
+            accepted: 0,
+            appended: 0,
+            failed: 0,
+            rejected: 0,
+            regenerated: 0,
+            glossary_applied: 0,
+          },
+        },
+        pending_items: [],
+        recent_items: [],
+        events: [],
+        terminology: {
+          path: "",
+          count: 0,
+          error: "",
+        },
+      };
+    }
+
+    function defaultSqlTranslationPayload() {
+      return {
+        config: {
+          directory_path: "",
+          table_name: "",
+          primary_key_field: "id",
+          source_field: "",
+          target_field: "",
+        },
+        status: {
+          status: "idle",
+          message: "等待校译",
+          error: "",
+          started_at: "",
+          finished_at: "",
+          output_path: "",
+          current: { file_path: "", primary_key_value: "", source_text: "", status: "" },
           counts: {
             total: 0,
             processed: 0,
@@ -991,6 +1197,7 @@ __REPORT_COMPONENT_BUNDLE__
       state.hasResults = !!data.has_results;
       state.resultsRevision = Number(data.results_revision || 0);
       state.translation = data.translation || state.translation;
+      state.sqlTranslation = data.sql_translation || state.sqlTranslation;
       renderAll();
     }
 
@@ -1003,6 +1210,7 @@ __REPORT_COMPONENT_BUNDLE__
       resultsPage.classList.toggle("is-active", state.activeTab === "results");
       annotationsPage.classList.toggle("is-active", state.activeTab === "annotations");
       translationPage.classList.toggle("is-active", state.activeTab === "translation");
+      sqlTranslationPage.classList.toggle("is-active", state.activeTab === "sqlTranslation");
       settingsPage.classList.toggle("is-active", state.activeTab === "settings");
     }
 
@@ -1139,15 +1347,17 @@ __REPORT_COMPONENT_BUNDLE__
       translationAutoAccept.checked = !!config.auto_accept;
       translationStatusBanner.textContent = terminology.error
         ? terminology.error
-        : (status.error ? `${status.message || "校译失败"}：${status.error}` : (status.message || "等待校译"));
+        : translationBannerText(status);
       translationStatusBanner.classList.toggle("is-error", Boolean(status.error || terminology.error));
       translationStatusPill.textContent =
         status.status === "running" ? "运行中" :
         status.status === "done" ? "完成" :
+        status.status === "interrupted" ? "中断" :
         status.status === "failed" ? "失败" :
         status.status === "stopped" ? "已停止" : "空闲";
       translationStatusPill.className = `pill ${status.status === "running" ? "fix" : "keep"}`;
       translationStartBtn.disabled = status.status === "running" || Boolean(terminology.error);
+      translationResumeBtn.disabled = !status.resume_available || Boolean(terminology.error);
       translationStopBtn.disabled = status.status !== "running";
       translationSourceInput.disabled = status.status === "running";
       translationTargetInput.disabled = status.status === "running";
@@ -1225,6 +1435,161 @@ __REPORT_COMPONENT_BUNDLE__
       `).join("");
     }
 
+    function translationBannerText(status) {
+      if (status.resume_message) {
+        return status.error ? `${status.resume_message}；原因：${status.error}` : status.resume_message;
+      }
+      return status.error ? `${status.message || "校译失败"}：${status.error}` : (status.message || "等待校译");
+    }
+
+    function sqlTranslationBannerText(status, terminology) {
+      if (terminology.error) {
+        return terminology.error;
+      }
+      if (status.resume_message) {
+        return status.error ? `${status.resume_message}；原因：${status.error}` : status.resume_message;
+      }
+      if (status.status === "running" && status.output_path) {
+        return `已创建输出文件：${status.output_path}，后续每接收 1 条会立即写入`;
+      }
+      if (status.status === "done" && status.output_path) {
+        return `校译完成，SQL 文件已生成：${status.output_path}`;
+      }
+      return status.error ? `${status.message || "校译失败"}：${status.error}` : (status.message || "等待校译");
+    }
+
+    function renderSqlTranslation() {
+      const sqlTranslation = state.sqlTranslation || defaultSqlTranslationPayload();
+      const config = sqlTranslation.config || {};
+      const status = sqlTranslation.status || {};
+      const counts = status.counts || {};
+      const terminology = sqlTranslation.terminology || {};
+      const total = Number(counts.total || 0);
+      const processed = Number(counts.processed || 0);
+      const percent = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+
+      sqlTranslationDirectoryInput.value = config.directory_path || "";
+      sqlTranslationTableInput.value = config.table_name || "";
+      sqlTranslationPrimaryKeyInput.value = config.primary_key_field || "id";
+      sqlTranslationSourceFieldInput.value = config.source_field || "";
+      sqlTranslationTargetFieldInput.value = config.target_field || "";
+      sqlTranslationStatusBanner.textContent = sqlTranslationBannerText(status, terminology);
+      sqlTranslationStatusBanner.classList.toggle("is-error", Boolean(status.error || terminology.error));
+      sqlTranslationStatusPill.textContent =
+        status.status === "running" ? "运行中" :
+        status.status === "done" ? "完成" :
+        status.status === "interrupted" ? "中断" :
+        status.status === "failed" ? "失败" :
+        status.status === "stopped" ? "已停止" : "空闲";
+      sqlTranslationStatusPill.className = `pill ${status.status === "running" ? "fix" : "keep"}`;
+      sqlTranslationStartBtn.disabled = status.status === "running" || Boolean(terminology.error);
+      sqlTranslationResumeBtn.disabled = !status.resume_available || Boolean(terminology.error);
+      sqlTranslationStopBtn.disabled = status.status !== "running";
+      sqlTranslationDirectoryInput.disabled = status.status === "running";
+      sqlTranslationTableInput.disabled = status.status === "running";
+      sqlTranslationPrimaryKeyInput.disabled = status.status === "running";
+      sqlTranslationSourceFieldInput.disabled = status.status === "running";
+      sqlTranslationTargetFieldInput.disabled = status.status === "running";
+      sqlTranslationCopyPathBtn.disabled = !status.output_path;
+      sqlTerminologyPathText.textContent = terminology.path || "-";
+      sqlTerminologyCountText.textContent = String(terminology.count || 0);
+      sqlTranslationOutputPathText.textContent = status.output_path || "-";
+      sqlTranslationTotalCount.textContent = String(total);
+      sqlTranslationProcessedCount.textContent = String(processed);
+      sqlTranslationPendingCount.textContent = String(counts.pending || 0);
+      sqlTranslationAcceptedCount.textContent = String(counts.accepted || 0);
+      sqlTranslationAppendedCount.textContent = String(counts.appended || 0);
+      sqlTranslationSkippedCount.textContent = String(counts.skipped || 0);
+      sqlTranslationProgressBarInner.style.width = `${percent}%`;
+      sqlTranslationCurrentFile.textContent = (status.current || {}).file_path || "-";
+      sqlTranslationCurrentPrimaryKey.textContent = (status.current || {}).primary_key_value || "-";
+      sqlTranslationCurrentSource.textContent = (status.current || {}).source_text || "-";
+      sqlTranslationCurrentStatus.textContent = (status.current || {}).status || "-";
+
+      const events = Array.isArray(sqlTranslation.events) ? sqlTranslation.events : [];
+      if (!events.length) {
+        sqlTranslationEvents.innerHTML = '<div class="translation-empty">当前还没有处理记录。</div>';
+      } else {
+        sqlTranslationEvents.innerHTML = events.map(item => `
+          <div class="translation-log-item">
+            <div class="translation-log-head">
+              <strong>${escapeHtml(item.label || "-")}</strong>
+              <span class="muted">${escapeHtml(item.at || "")}</span>
+            </div>
+            <div class="translation-log-key">${escapeHtml(`${item.source_path || "-"}:${item.line || "-"}`)}</div>
+            <div class="muted">主键：${escapeHtml(item.primary_key_value || "-")}</div>
+            <div class="muted">${escapeHtml(item.source_text || "-")}</div>
+            ${item.target_text ? `<div><code>${escapeHtml(item.target_text)}</code></div>` : ""}
+          </div>
+        `).join("");
+      }
+
+      const pendingItems = Array.isArray(sqlTranslation.pending_items) ? sqlTranslation.pending_items : [];
+      sqlTranslationPendingEmpty.classList.toggle("hidden", pendingItems.length > 0);
+      sqlTranslationPendingList.classList.toggle("hidden", pendingItems.length === 0);
+      sqlTranslationPendingList.innerHTML = pendingItems.map(item => `
+        <div class="translation-log-item">
+          <div class="translation-item-stack">
+            <strong>${escapeHtml(`${item.source_path || "-"}:${item.line || "-"}`)}</strong>
+            <div><span class="muted">主键：</span>${escapeHtml(item.primary_key_value || "-")}</div>
+            <div><span class="muted">中文：</span>${escapeHtml(item.source_text || "-")}</div>
+            <div><span class="muted">当前英文：</span><code>${escapeHtml(item.target_text || "(空)")}</code></div>
+            <div><span class="muted">候选英文：</span><code>${escapeHtml(item.candidate_text || "-")}</code></div>
+            <div><span class="muted">判定理由：</span>${escapeHtml(item.reason || "-")}</div>
+            <div class="translation-tags">
+              ${(item.locked_terms || []).map(term => `<span class="translation-tag">${escapeHtml(`${term.source} => ${term.target}`)}</span>`).join("")}
+            </div>
+          </div>
+          <div class="translation-actions">
+            <button class="primary-btn" type="button" data-action="sql-translation-accept" data-id="${escapeAttr(item.id)}">接收</button>
+            <input class="field-input translation-inline-input" data-sql-prompt-id="${escapeAttr(item.id)}" value="${escapeAttr(state.sqlTranslationPromptDrafts[item.id] || "")}" placeholder="可选：输入额外 prompt 后重生成">
+            <button class="secondary-btn" type="button" data-action="sql-translation-regenerate" data-id="${escapeAttr(item.id)}">重生成</button>
+            <button class="danger-btn" type="button" data-action="sql-translation-reject" data-id="${escapeAttr(item.id)}">忽略</button>
+          </div>
+        </div>
+      `).join("");
+
+      const recentItems = Array.isArray(sqlTranslation.recent_items) ? sqlTranslation.recent_items : [];
+      sqlTranslationRecentEmpty.classList.toggle("hidden", recentItems.length > 0);
+      sqlTranslationRecentList.classList.toggle("hidden", recentItems.length === 0);
+      sqlTranslationRecentList.innerHTML = recentItems.map(item => `
+        <div class="translation-log-item">
+          <div class="translation-log-head">
+            <strong>${escapeHtml(item.status || "-")}</strong>
+            <span class="muted">${escapeHtml(item.updated_at || "")}</span>
+          </div>
+          <div class="translation-item-stack">
+            <strong>${escapeHtml(`${item.source_path || "-"}:${item.line || "-"}`)}</strong>
+            <div><span class="muted">主键：</span>${escapeHtml(item.primary_key_value || "-")}</div>
+            <div><span class="muted">中文：</span>${escapeHtml(item.source_text || "-")}</div>
+            <div><span class="muted">英文：</span><code>${escapeHtml(item.target_text || item.candidate_text || "-")}</code></div>
+            <div><span class="muted">说明：</span>${escapeHtml(item.reason || item.verdict || "-")}</div>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    async function copyText(value) {
+      const text = String(value || "");
+      if (!text) {
+        return false;
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "readonly");
+      textarea.style.position = "absolute";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      return copied;
+    }
+
     function renderAll() {
       renderTabs();
       renderRoots();
@@ -1232,6 +1597,7 @@ __REPORT_COMPONENT_BUNDLE__
       renderResultsPage();
       renderAnnotations();
       renderTranslation();
+      renderSqlTranslation();
       renderSettings();
     }
 
@@ -1303,6 +1669,13 @@ __REPORT_COMPONENT_BUNDLE__
       startTranslationPolling();
     }
 
+    async function resumeTranslation() {
+      const data = await requestJson(CLIENT_CONFIG.translation_resume_api_path, {});
+      state.translation = data;
+      renderTranslation();
+      startTranslationPolling();
+    }
+
     async function stopTranslation() {
       const data = await requestJson(CLIENT_CONFIG.translation_stop_api_path, {});
       state.translation = data;
@@ -1330,6 +1703,66 @@ __REPORT_COMPONENT_BUNDLE__
       delete state.translationPromptDrafts[itemId];
       state.translation = data;
       renderTranslation();
+    }
+
+    function buildSqlTranslationPayload() {
+      return {
+        directory_path: sqlTranslationDirectoryInput.value.trim(),
+        table_name: sqlTranslationTableInput.value.trim(),
+        primary_key_field: sqlTranslationPrimaryKeyInput.value.trim() || "id",
+        source_field: sqlTranslationSourceFieldInput.value.trim(),
+        target_field: sqlTranslationTargetFieldInput.value.trim(),
+      };
+    }
+
+    async function saveSqlTranslationConfig() {
+      const data = await requestJson(CLIENT_CONFIG.config_api_path, {
+        sql_translation_config: buildSqlTranslationPayload(),
+      });
+      applyBootstrap(data, true);
+    }
+
+    async function startSqlTranslation() {
+      const data = await requestJson(CLIENT_CONFIG.sql_translation_start_api_path, buildSqlTranslationPayload());
+      state.sqlTranslation = data;
+      renderSqlTranslation();
+      startSqlTranslationPolling();
+    }
+
+    async function resumeSqlTranslation() {
+      const data = await requestJson(CLIENT_CONFIG.sql_translation_resume_api_path, {});
+      state.sqlTranslation = data;
+      renderSqlTranslation();
+      startSqlTranslationPolling();
+    }
+
+    async function stopSqlTranslation() {
+      const data = await requestJson(CLIENT_CONFIG.sql_translation_stop_api_path, {});
+      state.sqlTranslation = data;
+      renderSqlTranslation();
+    }
+
+    async function acceptSqlTranslation(itemId) {
+      const data = await requestJson(CLIENT_CONFIG.sql_translation_accept_api_path, { item_id: itemId });
+      delete state.sqlTranslationPromptDrafts[itemId];
+      state.sqlTranslation = data;
+      renderSqlTranslation();
+    }
+
+    async function regenerateSqlTranslation(itemId, prompt) {
+      const data = await requestJson(CLIENT_CONFIG.sql_translation_regenerate_api_path, {
+        item_id: itemId,
+        prompt: prompt,
+      });
+      state.sqlTranslation = data;
+      renderSqlTranslation();
+    }
+
+    async function rejectSqlTranslation(itemId) {
+      const data = await requestJson(CLIENT_CONFIG.sql_translation_reject_api_path, { item_id: itemId });
+      delete state.sqlTranslationPromptDrafts[itemId];
+      state.sqlTranslation = data;
+      renderSqlTranslation();
     }
 
     async function removeAnnotation(findingId) {
@@ -1397,19 +1830,47 @@ __REPORT_COMPONENT_BUNDLE__
       }
     }
 
+    function startSqlTranslationPolling() {
+      stopSqlTranslationPolling();
+      sqlTranslationTimer = window.setInterval(async () => {
+        try {
+          const data = await requestJson(CLIENT_CONFIG.sql_translation_status_api_path, null, "GET");
+          state.sqlTranslation = data;
+          renderSqlTranslation();
+          if (((data.status || {}).status || "") !== "running") {
+            stopSqlTranslationPolling();
+          }
+        } catch (error) {
+          stopSqlTranslationPolling();
+          sqlTranslationStatusBanner.textContent = error.message || "获取 SQL 校译状态失败";
+          sqlTranslationStatusBanner.classList.add("is-error");
+        }
+      }, 1000);
+    }
+
+    function stopSqlTranslationPolling() {
+      if (sqlTranslationTimer !== null) {
+        window.clearInterval(sqlTranslationTimer);
+        sqlTranslationTimer = null;
+      }
+    }
+
     tabBar.addEventListener("click", async event => {
       const target = event.target instanceof Element ? event.target.closest(".tab-btn") : null;
       if (!target) return;
       const nextTab = target.dataset.tab || "home";
       state.activeTab = nextTab;
       renderTabs();
-      if (nextTab === "annotations" || nextTab === "translation") {
+      if (nextTab === "annotations" || nextTab === "translation" || nextTab === "sqlTranslation") {
         try {
           await refreshBootstrap(true);
         } catch (error) {
           if (nextTab === "translation") {
             translationStatusBanner.textContent = error.message || "刷新码值校译状态失败";
             translationStatusBanner.classList.add("is-error");
+          } else if (nextTab === "sqlTranslation") {
+            sqlTranslationStatusBanner.textContent = error.message || "刷新 SQL 校译状态失败";
+            sqlTranslationStatusBanner.classList.add("is-error");
           } else {
             homeStatus.textContent = error.message || "刷新标注数据失败";
             homeStatus.classList.add("is-error");
@@ -1471,6 +1932,15 @@ __REPORT_COMPONENT_BUNDLE__
       }
     });
 
+    translationResumeBtn.addEventListener("click", async () => {
+      try {
+        await resumeTranslation();
+      } catch (error) {
+        translationStatusBanner.textContent = error.message || "继续码值校译失败";
+        translationStatusBanner.classList.add("is-error");
+      }
+    });
+
     translationStopBtn.addEventListener("click", async () => {
       try {
         await stopTranslation();
@@ -1504,6 +1974,56 @@ __REPORT_COMPONENT_BUNDLE__
       } catch (error) {
         translationStatusBanner.textContent = error.message || "保存英文文件路径失败";
         translationStatusBanner.classList.add("is-error");
+      }
+    });
+
+    [sqlTranslationDirectoryInput, sqlTranslationTableInput, sqlTranslationPrimaryKeyInput, sqlTranslationSourceFieldInput, sqlTranslationTargetFieldInput]
+      .forEach(input => {
+        input.addEventListener("change", async () => {
+          try {
+            await saveSqlTranslationConfig();
+          } catch (error) {
+            sqlTranslationStatusBanner.textContent = error.message || "保存 SQL 校译配置失败";
+            sqlTranslationStatusBanner.classList.add("is-error");
+          }
+        });
+      });
+
+    sqlTranslationStartBtn.addEventListener("click", async () => {
+      try {
+        await startSqlTranslation();
+      } catch (error) {
+        sqlTranslationStatusBanner.textContent = error.message || "启动 SQL 校译失败";
+        sqlTranslationStatusBanner.classList.add("is-error");
+      }
+    });
+
+    sqlTranslationResumeBtn.addEventListener("click", async () => {
+      try {
+        await resumeSqlTranslation();
+      } catch (error) {
+        sqlTranslationStatusBanner.textContent = error.message || "继续 SQL 校译失败";
+        sqlTranslationStatusBanner.classList.add("is-error");
+      }
+    });
+
+    sqlTranslationStopBtn.addEventListener("click", async () => {
+      try {
+        await stopSqlTranslation();
+      } catch (error) {
+        sqlTranslationStatusBanner.textContent = error.message || "停止 SQL 校译失败";
+        sqlTranslationStatusBanner.classList.add("is-error");
+      }
+    });
+
+    sqlTranslationCopyPathBtn.addEventListener("click", async () => {
+      try {
+        const copied = await copyText(sqlTranslationOutputPathText.textContent || "");
+        sqlTranslationStatusBanner.textContent = copied ? "已复制输出文件路径" : "复制输出文件路径失败";
+        sqlTranslationStatusBanner.classList.toggle("is-error", !copied);
+      } catch (error) {
+        sqlTranslationStatusBanner.textContent = error.message || "复制输出文件路径失败";
+        sqlTranslationStatusBanner.classList.add("is-error");
       }
     });
 
@@ -1560,6 +2080,36 @@ __REPORT_COMPONENT_BUNDLE__
       state.translationPromptDrafts[target.dataset.promptId || ""] = target.value;
     });
 
+    sqlTranslationPendingList.addEventListener("click", async event => {
+      const target = event.target instanceof Element ? event.target.closest("[data-action]") : null;
+      if (!target) return;
+      const itemId = target.dataset.id || "";
+      try {
+        if (target.dataset.action === "sql-translation-accept") {
+          await acceptSqlTranslation(itemId);
+          return;
+        }
+        if (target.dataset.action === "sql-translation-regenerate") {
+          const promptInput = sqlTranslationPendingList.querySelector(`[data-sql-prompt-id="${itemId}"]`);
+          const prompt = promptInput ? promptInput.value : "";
+          await regenerateSqlTranslation(itemId, prompt);
+          return;
+        }
+        if (target.dataset.action === "sql-translation-reject") {
+          await rejectSqlTranslation(itemId);
+        }
+      } catch (error) {
+        sqlTranslationStatusBanner.textContent = error.message || "处理 SQL 审批条目失败";
+        sqlTranslationStatusBanner.classList.add("is-error");
+      }
+    });
+
+    sqlTranslationPendingList.addEventListener("input", event => {
+      const target = event.target instanceof Element ? event.target.closest("[data-sql-prompt-id]") : null;
+      if (!target) return;
+      state.sqlTranslationPromptDrafts[target.dataset.sqlPromptId || ""] = target.value;
+    });
+
     resultsReportHost.addEventListener("zh-audit-report-updated", event => {
       if (!event.detail) return;
       state.summary = event.detail.summary || state.summary;
@@ -1577,6 +2127,9 @@ __REPORT_COMPONENT_BUNDLE__
     }
     if (((state.translation || {}).status || {}).status === "running") {
       startTranslationPolling();
+    }
+    if (((state.sqlTranslation || {}).status || {}).status === "running") {
+      startSqlTranslationPolling();
     }
   </script>
 </body>

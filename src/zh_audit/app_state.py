@@ -33,6 +33,7 @@ def default_app_state():
         },
         "model_config_overrides": {},
         "translation_config": default_translation_config(),
+        "sql_translation_config": default_sql_translation_config(),
     }
 
 
@@ -71,12 +72,14 @@ def normalize_app_state(payload, path=None):
         field_name="model_config_overrides",
     )
     translation_config = normalize_translation_config(payload.get("translation_config", {}), path=path)
+    sql_translation_config = normalize_sql_translation_config(payload.get("sql_translation_config", {}), path=path)
     return {
         "version": APP_STATE_VERSION,
         "scan_roots": roots,
         "scan_policy": scan_policy,
         "model_config_overrides": model_config_overrides,
         "translation_config": translation_config,
+        "sql_translation_config": sql_translation_config,
     }
 
 
@@ -167,6 +170,32 @@ def normalize_translation_config(raw_config, path=None):
         "source_path": _normalize_model_text(raw_config.get("source_path", defaults["source_path"])),
         "target_path": _normalize_model_text(raw_config.get("target_path", defaults["target_path"])),
         "auto_accept": bool(raw_config.get("auto_accept", defaults["auto_accept"])),
+    }
+
+
+def default_sql_translation_config():
+    return {
+        "directory_path": "",
+        "table_name": "",
+        "primary_key_field": "id",
+        "source_field": "",
+        "target_field": "",
+    }
+
+
+def normalize_sql_translation_config(raw_config, path=None):
+    defaults = default_sql_translation_config()
+    if raw_config is None:
+        return dict(defaults)
+    if not isinstance(raw_config, dict):
+        raise ValueError(_format_error(path, "sql_translation_config must be an object."))
+    return {
+        "directory_path": _normalize_model_text(raw_config.get("directory_path", defaults["directory_path"])),
+        "table_name": _normalize_model_text(raw_config.get("table_name", defaults["table_name"])),
+        "primary_key_field": _normalize_model_text(raw_config.get("primary_key_field", defaults["primary_key_field"]))
+        or defaults["primary_key_field"],
+        "source_field": _normalize_model_text(raw_config.get("source_field", defaults["source_field"])),
+        "target_field": _normalize_model_text(raw_config.get("target_field", defaults["target_field"])),
     }
 
 

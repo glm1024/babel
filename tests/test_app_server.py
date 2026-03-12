@@ -152,11 +152,16 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("扫描结果", html)
             self.assertIn("标注管理", html)
             self.assertIn("码值校译", html)
+            self.assertIn("SQL校译", html)
             self.assertIn("模型配置", html)
             self.assertIn("Base URL", html)
             self.assertIn("保存模型配置", html)
             self.assertIn("开始校译", html)
+            self.assertIn("继续任务", html)
             self.assertIn("已加载术语", html)
+            self.assertIn("主键字段名", html)
+            self.assertIn("输出文件", html)
+            self.assertIn("复制路径", html)
             self.assertNotIn("Local Service", html)
             self.assertNotIn("首页先配置扫描目录，再启动扫描。", html)
             self.assertIn('class="root-remove-btn"', html)
@@ -288,6 +293,167 @@ class AppServerSmokeTest(unittest.TestCase):
                 self.assertIn("RESOURCE_POOL=resource pool", target_text)
                 self.assertIn("NETWORK_LINK_ADD=create link: {0}", target_text)
                 self.assertTrue(any(path.name.startswith("messages_en.properties.bak.") for path in root.iterdir()))
+
+    def test_translation_session_restores_and_resumes_after_model_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            out_dir = root / "results"
+            source = root / "messages_zh.properties"
+            target = root / "messages_en.properties"
+            source.write_text("NETWORK_LINK_ADD=创建对等连接：{0}\n", encoding="utf-8")
+            target.write_text("", encoding="utf-8")
+
+            config_path = root / "zh-audit.config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "model_config": {
+                            "base_url": "http://127.0.0.1:8000/v1",
+                            "api_key": "sk-local",
+                            "model": "demo",
+                            "max_tokens": 120,
+                        }
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            state = AppServiceState(out_dir=out_dir, project_config_path=config_path)
+            with patch("zh_audit.app_server.call_openai_compatible_json", side_effect=ValueError("model unavailable")):
+                state.start_translation(
+                    {
+                        "source_path": str(source),
+                        "target_path": str(target),
+                        "auto_accept": False,
+                    }
+                )
+                deadline = time.time() + 10
+                latest = state.translation_payload()
+                while time.time() < deadline:
+                    latest = state.translation_payload()
+                    if latest["status"]["status"] == "interrupted":
+                        break
+                    time.sleep(0.1)
+
+            self.assertEqual(latest["status"]["status"], "interrupted")
+            self.assertTrue(latest["status"]["resume_available"])
+            self.assertTrue((out_dir / "translation_session.json").exists())
+
+            reloaded = AppServiceState(out_dir=out_dir, project_config_path=config_path)
+            restored = reloaded.translation_payload()
+            self.assertEqual(restored["status"]["status"], "interrupted")
+            self.assertTrue(restored["status"]["resume_available"])
+            self.assertIn("任务已中断，可继续执行", reloaded.render_home())
+
+            with patch("zh_audit.app_server.call_openai_compatible_json") as mocked:
+                mocked.return_value = {
+                    "verdict": "needs_update",
+                    "candidate_translation": "create link: {0}",
+                    "reason": "ok",
+                }
+                resumed = reloaded.resume_translation()
+                self.assertEqual(resumed["status"]["status"], "running")
+
+                deadline = time.time() + 10
+                latest = resumed
+                while time.time() < deadline:
+                    latest = reloaded.translation_payload()
+                    if latest["status"]["status"] in {"done", "failed", "stopped", "interrupted"}:
+                        break
+                    time.sleep(0.1)
+
+                self.assertEqual(latest["status"]["status"], "done")
+                pending = latest["pending_items"][0]
+                accepted = reloaded.translation_accept(pending["id"])
+                self.assertEqual(accepted["status"]["counts"]["accepted"], 1)
+                self.assertIn("NETWORK_LINK_ADD=create link: {0}", target.read_text(encoding="utf-8"))
+
+    def test_sql_translation_task_roundtrip_and_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            out_dir = root / "results"
+            sql_dir = root / "sql"
+            sql_dir.mkdir()
+            (sql_dir / "demo.sql").write_text(
+                "INSERT INTO t_demo (id, name_zh, name_en) VALUES ('1', '资源池', 'wrong');\n"
+                "INSERT INTO t_demo (id, name_zh, name_en) VALUES ('2', '创建对等连接：{0}', 'wrong');\n",
+                encoding="utf-8",
+            )
+
+            config_path = root / "zh-audit.config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "model_config": {
+                            "base_url": "http://127.0.0.1:8000/v1",
+                            "api_key": "sk-local",
+                            "model": "demo",
+                            "max_tokens": 120,
+                        }
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            state = AppServiceState(out_dir=out_dir, project_config_path=config_path)
+            with patch("zh_audit.app_server.call_openai_compatible_json", side_effect=ValueError("model unavailable")):
+                state.start_sql_translation(
+                    {
+                        "directory_path": str(sql_dir),
+                        "table_name": "t_demo",
+                        "primary_key_field": "id",
+                        "source_field": "name_zh",
+                        "target_field": "name_en",
+                    }
+                )
+                deadline = time.time() + 10
+                latest = state.sql_translation_payload()
+                while time.time() < deadline:
+                    latest = state.sql_translation_payload()
+                    if latest["status"]["status"] == "interrupted":
+                        break
+                    time.sleep(0.1)
+
+            self.assertEqual(latest["status"]["status"], "interrupted")
+            self.assertTrue(latest["status"]["resume_available"])
+            output_path = Path(latest["status"]["output_path"])
+            self.assertTrue(output_path.exists())
+            self.assertTrue((out_dir / "sql_translation_session.json").exists())
+
+            reloaded = AppServiceState(out_dir=out_dir, project_config_path=config_path)
+            restored = reloaded.sql_translation_payload()
+            self.assertEqual(restored["status"]["status"], "interrupted")
+            self.assertTrue(restored["status"]["resume_available"])
+            self.assertEqual(restored["status"]["output_path"], str(output_path))
+            self.assertIn("任务已中断，可继续执行", reloaded.render_home())
+
+            with patch("zh_audit.app_server.call_openai_compatible_json") as mocked:
+                mocked.return_value = {
+                    "verdict": "needs_update",
+                    "candidate_translation": "create link: {0}",
+                    "reason": "ok",
+                }
+                resumed = reloaded.resume_sql_translation()
+                self.assertEqual(resumed["status"]["status"], "running")
+
+                deadline = time.time() + 10
+                latest = resumed
+                while time.time() < deadline:
+                    latest = reloaded.sql_translation_payload()
+                    if latest["status"]["status"] in {"done", "failed", "stopped", "interrupted"}:
+                        break
+                    time.sleep(0.1)
+
+                self.assertEqual(latest["status"]["status"], "done")
+                by_source = dict((item["source_text"], item) for item in latest["pending_items"])
+                accepted = reloaded.sql_translation_accept(by_source["资源池"]["id"])
+                self.assertEqual(accepted["status"]["counts"]["accepted"], 1)
+                content = output_path.read_text(encoding="utf-8")
+                self.assertIn("-- item:", content)
+                self.assertIn("UPDATE t_demo SET name_en = 'resource pool' WHERE id = '1';", content)
+                self.assertEqual(content.count("-- item:"), 1)
 
 
 if __name__ == "__main__":
