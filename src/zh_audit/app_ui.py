@@ -677,7 +677,7 @@ def render_app_shell(bootstrap_payload, client_config):
             </label>
             <label class="checkbox-row">
               <input id="translationAutoAccept" type="checkbox">
-              <span>自动接收后续建议</span>
+              <span>自动接受后续建议</span>
             </label>
             <div class="btn-row">
               <button id="translationStartBtn" class="primary-btn" type="button">开始校译</button>

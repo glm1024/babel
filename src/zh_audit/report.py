@@ -1,20 +1,39 @@
 import json
 
 
+CATEGORY_DISPLAY_PRIORITY = [
+    "FIX_REQUIRED_MERGED",
+    "COMMENT",
+    "LOG_AUDIT_DEBUG",
+    "SWAGGER_DOCUMENTATION",
+    "TASK_DESCRIPTION",
+    "I18N_FILE",
+    "DATABASE_SCRIPT",
+    "SHELL_SCRIPT",
+    "CONDITION_EXPRESSION_LITERAL",
+    "ANNOTATED_NO_CHANGE",
+    "NAMED_FILE",
+    "GENERIC_DOCUMENTATION",
+    "TEST_SAMPLE_FIXTURE",
+    "UNKNOWN",
+]
+
+
 DISPLAY_MAPS = {
     "category": {
+        "FIX_REQUIRED_MERGED": "中文硬编码",
         "USER_VISIBLE_COPY": "用户可见文案",
         "ERROR_VALIDATION_MESSAGE": "错误与校验提示",
-        "LOG_AUDIT_DEBUG": "日志审计与调试",
+        "LOG_AUDIT_DEBUG": "日志打印",
         "COMMENT": "代码注释",
-        "SWAGGER_DOCUMENTATION": "Swagger 文档",
+        "SWAGGER_DOCUMENTATION": "Swagger注解",
         "GENERIC_DOCUMENTATION": "普通文档",
-        "DATABASE_SCRIPT": "数据库脚本",
-        "SHELL_SCRIPT": "Shell 脚本",
+        "DATABASE_SCRIPT": "SQL脚本",
+        "SHELL_SCRIPT": "Shell脚本",
         "NAMED_FILE": "指定文件",
         "I18N_FILE": "国际化文件",
-        "CONDITION_EXPRESSION_LITERAL": "逻辑判断与字面量处理",
-        "TASK_DESCRIPTION": "任务描述",
+        "CONDITION_EXPRESSION_LITERAL": "匹配条件",
+        "TASK_DESCRIPTION": "ITask注解",
         "ANNOTATED_NO_CHANGE": "标注无需修改",
         "TEST_SAMPLE_FIXTURE": "测试与样例",
         "CONFIG_ITEM": "配置项",
@@ -58,7 +77,7 @@ DISPLAY_MAPS = {
         "No strong rule matched.": "没有命中更强的规则，需要人工确认。",
         "Comment context.": "当前命中位于代码注释上下文。",
         "Test/sample path context.": "当前命中位于测试或样例路径上下文。",
-        "Logging API context.": "当前命中位于日志接口上下文。",
+        "Logging API context.": "当前命中位于日志打印上下文。",
         "Error/exception context.": "当前命中位于异常或错误处理上下文。",
         "Error semantics in string literal.": "当前命中带有明显错误或校验语义。",
         "Configuration item context.": "当前命中位于配置项上下文。",
@@ -66,14 +85,14 @@ DISPLAY_MAPS = {
         "Looks like protocol or persisted value.": "当前命中看起来像协议值或持久化字面量。",
         "String literal with Chinese text.": "当前命中是包含中文的字符串字面量。",
         "Documentation asset context.": "当前命中位于普通文档资产中。",
-        "Database script context.": "当前命中位于数据库脚本中。",
-        "Shell script context.": "当前命中位于 Shell 脚本中。",
-        "Swagger/OpenAPI annotation context.": "当前命中位于 Swagger/OpenAPI 注解上下文。",
+        "Database script context.": "当前命中位于 SQL脚本中。",
+        "Shell script context.": "当前命中位于 Shell脚本中。",
+        "Swagger/OpenAPI annotation context.": "当前命中位于 Swagger注解上下文。",
         "Named file context.": "当前命中位于指定文件中。",
         "I18n messages file context.": "当前命中位于国际化文件中。",
-        "Condition expression literal context.": "当前命中用于逻辑判断或字符串处理。",
-        "Logic processing literal context.": "当前命中用于逻辑判断或字符串处理。",
-        "Task description annotation context.": "当前命中位于任务描述注解中。",
+        "Condition expression literal context.": "当前命中用于匹配条件或字符串处理。",
+        "Logic processing literal context.": "当前命中用于匹配条件或字符串处理。",
+        "Task description annotation context.": "当前命中位于 ITask注解中。",
         "Annotated no change context.": "当前命中已被人工标注为无需修改。",
     },
 }
@@ -84,6 +103,7 @@ PAGE_SIZES = [10, 100, 500]
 def render_report(summary, findings, client_config=None):
     payload = json.dumps({"summary": summary, "findings": findings}, ensure_ascii=False)
     display_maps = json.dumps(DISPLAY_MAPS, ensure_ascii=False)
+    category_display_priority = json.dumps(CATEGORY_DISPLAY_PRIORITY, ensure_ascii=False)
     page_sizes = json.dumps(PAGE_SIZES, ensure_ascii=False)
     resolved_client_config = {
         "mode": "static",
@@ -465,11 +485,17 @@ def render_report(summary, findings, client_config=None):
       background: var(--panel);
     }
     .pill {
-      display: inline-block;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: fit-content;
+      max-width: 100%;
+      align-self: flex-start;
       padding: 2px 8px;
       border-radius: 999px;
       font-size: 12px;
       background: var(--accent-soft);
+      white-space: nowrap;
     }
     .pill.fix { background: rgba(157,47,47,0.12); color: var(--danger); }
     .pill.keep { background: rgba(45,106,79,0.12); color: var(--ok); }
@@ -503,12 +529,23 @@ def render_report(summary, findings, client_config=None):
       white-space: normal;
     }
     .action-stack {
-      display: grid;
-      gap: 8px;
-      align-items: flex-start;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 10px;
+      align-items: center;
+    }
+    .action-stack > .pill {
+      order: 0;
+    }
+    .action-stack > .annotation-row {
+      order: 1;
+    }
+    .action-stack > .annotation-note {
+      order: 2;
+      flex-basis: 100%;
     }
     .annotation-row {
-      display: flex;
+      display: inline-flex;
       align-items: center;
       gap: 8px;
       flex-wrap: wrap;
@@ -893,6 +930,7 @@ def render_report(summary, findings, client_config=None):
     const payload = __PAYLOAD__;
     const DISPLAY_MAP = __DISPLAY_MAP__;
     const PAGE_SIZES = __PAGE_SIZES__;
+    const CATEGORY_DISPLAY_PRIORITY = __CATEGORY_DISPLAY_PRIORITY__;
     const CLIENT_CONFIG = __CLIENT_CONFIG__;
     let summary = payload.summary;
     let findings = payload.findings.slice();
@@ -983,6 +1021,22 @@ def render_report(summary, findings, client_config=None):
       return key;
     }
 
+    function categoryPriority(value) {
+      const key = String(value || "");
+      const index = CATEGORY_DISPLAY_PRIORITY.indexOf(key);
+      return index >= 0 ? index : CATEGORY_DISPLAY_PRIORITY.length + 100;
+    }
+
+    function compareDisplayValue(group, left, right) {
+      if (group === "category") {
+        const priorityGap = categoryPriority(left) - categoryPriority(right);
+        if (priorityGap !== 0) {
+          return priorityGap;
+        }
+      }
+      return labelFor(group, left).localeCompare(labelFor(group, right), "zh-CN");
+    }
+
     function escapeHtml(value) {
       return String(value ?? "")
         .replaceAll("&", "&amp;")
@@ -1014,6 +1068,29 @@ def render_report(summary, findings, client_config=None):
       return item.snippet || item.normalized_text || item.text || "";
     }
 
+    function effectiveCategory(item) {
+      if (item && item.action === "fix") {
+        return "FIX_REQUIRED_MERGED";
+      }
+      return item.category || "";
+    }
+
+    function effectiveCategoryLabel(item) {
+      return labelFor("category", effectiveCategory(item));
+    }
+
+    function effectiveCategoryCounts() {
+      const counts = {};
+      findings.forEach(item => {
+        const key = effectiveCategory(item);
+        if (!key) {
+          return;
+        }
+        counts[key] = (counts[key] || 0) + 1;
+      });
+      return counts;
+    }
+
     function annotationTooltip(item) {
       const parts = [];
       if (item.original_category) {
@@ -1031,7 +1108,7 @@ def render_report(summary, findings, client_config=None):
 
     function setOptions(select, values, label, group, selectedValue) {
       const unique = [...new Set(values.filter(value => value !== undefined && value !== null && value !== ""))]
-        .sort((left, right) => labelFor(group, left).localeCompare(labelFor(group, right), "zh-CN"));
+        .sort((left, right) => compareDisplayValue(group, left, right));
       const resolved = selectedValue && unique.indexOf(selectedValue) === -1 ? "" : (selectedValue || "");
       select.innerHTML = [`<option value="">全部${label}</option>`].concat(
         unique.map(value => `<option value="${escapeAttr(value)}">${escapeHtml(labelFor(group, value))}</option>`)
@@ -1051,7 +1128,7 @@ def render_report(summary, findings, client_config=None):
     function filterValue(item, key) {
       if (key === "project") return item.project;
       if (key === "action") return item.action;
-      if (key === "category") return item.category;
+      if (key === "category") return effectiveCategory(item);
       if (key === "lang") return item.lang;
       return "";
     }
@@ -1060,10 +1137,10 @@ def render_report(summary, findings, client_config=None):
       const keyword = keywordFilter.value.trim().toLowerCase();
       if (excludedKey !== "project" && state.filters.project && item.project !== state.filters.project) return false;
       if (excludedKey !== "action" && state.filters.action && item.action !== state.filters.action) return false;
-      if (excludedKey !== "category" && state.filters.category && item.category !== state.filters.category) return false;
+      if (excludedKey !== "category" && state.filters.category && effectiveCategory(item) !== state.filters.category) return false;
       if (excludedKey !== "lang" && state.filters.lang && item.lang !== state.filters.lang) return false;
       if (keyword) {
-        const target = `${item.path} ${item.text} ${item.snippet || ""} ${labelFor("category", item.category)} ${labelFor("action", item.action)} ${item.annotation_reason || ""}`.toLowerCase();
+        const target = `${item.path} ${item.text} ${item.snippet || ""} ${effectiveCategoryLabel(item)} ${labelFor("action", item.action)} ${item.annotation_reason || ""}`.toLowerCase();
         if (!target.includes(keyword)) return false;
       }
       return true;
@@ -1296,7 +1373,7 @@ def render_report(summary, findings, client_config=None):
             <td class="project-cell">${escapeHtml(item.project)}</td>
             <td class="location-cell">${positionMarkup(item)}</td>
             <td class="text-cell">${escapeHtml(displaySnippet(item) || "-")}</td>
-            <td class="category-cell">${escapeHtml(labelFor("category", item.category))}</td>
+            <td class="category-cell">${escapeHtml(effectiveCategoryLabel(item))}</td>
             <td class="action-cell">${actionMarkup(item)}</td>
           </tr>
         `).join("");
@@ -1322,7 +1399,7 @@ def render_report(summary, findings, client_config=None):
         item.project || "",
         `${item.path || ""}:${item.line ?? ""}`,
         displaySnippet(item),
-        labelFor("category", item.category),
+        effectiveCategoryLabel(item),
         labelFor("action", item.action),
       ]);
       const lines = [headers.map(csvEscape).join(",")].concat(rows.map(row => row.map(csvEscape).join(",")));
@@ -1426,8 +1503,8 @@ def render_report(summary, findings, client_config=None):
       `).join("");
 
       const categoryList = document.getElementById("categoryList");
-      categoryList.innerHTML = Object.entries(summary.by_category || {})
-        .sort((a, b) => b[1] - a[1])
+      categoryList.innerHTML = Object.entries(effectiveCategoryCounts())
+        .sort((a, b) => (b[1] - a[1]) || compareDisplayValue("category", a[0], b[0]))
         .map(([name, count]) => `<li><span>${escapeHtml(labelFor("category", name))}</span><strong>${formatNumber(count)}</strong></li>`)
         .join("");
     }
@@ -1628,6 +1705,7 @@ def render_report(summary, findings, client_config=None):
     return (
         template.replace("__PAYLOAD__", payload)
         .replace("__DISPLAY_MAP__", display_maps)
+        .replace("__CATEGORY_DISPLAY_PRIORITY__", category_display_priority)
         .replace("__PAGE_SIZES__", page_sizes)
         .replace("__CLIENT_CONFIG__", client_config_payload)
     )

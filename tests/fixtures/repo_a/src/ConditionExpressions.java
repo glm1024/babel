@@ -57,4 +57,11 @@ public class ConditionExpressions {
     public void decorate(java.util.List<String> values) {
         values.add("启用");
     }
+
+    public void decorateNearLogic(java.util.List<String> values, String message) {
+        if (message.replace("前缀", "").equals("启用")) {
+            return;
+        }
+        values.add("禁用");
+    }
 }

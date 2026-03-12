@@ -9,6 +9,7 @@ from pathlib import Path
 
 from zh_audit.properties_file import load_properties_document
 from zh_audit.terminology_xlsx import exact_terminology_translation, match_locked_terms
+from zh_audit.utils import contains_han, decode_unicode_escapes
 
 
 TRANSLATION_APPEND_COMMENT = "# Added by zh-audit 码值校译"
@@ -132,7 +133,7 @@ class TranslationSession(object):
                     self.current = {"key": "", "source_text": "", "status": ""}
                     return
                 key = source_entry.key
-                source_text = source_entry.value
+                source_text = _display_text(source_entry.value)
                 self.current = {
                     "key": key,
                     "source_text": source_text,
@@ -198,16 +199,16 @@ class TranslationSession(object):
 
     def _process_entry(self, source_entry, should_auto_accept):
         key = source_entry.key
-        source_text = source_entry.value
+        source_text = _display_text(source_entry.value)
         if not source_text.strip():
             with self.lock:
                 self.processed += 1
                 self.skipped += 1
-                self._push_event("已跳过", key, source_text, "")
+                self._push_event("已跳过：中文为空", key, source_text, "")
             return
 
         target_entry = self.target_document.find(key)
-        target_text = target_entry.value if target_entry is not None else ""
+        target_text = _display_text(target_entry.value) if target_entry is not None else ""
         exact_translation = exact_terminology_translation(source_text, self.glossary)
         locked_terms = match_locked_terms(source_text, self.glossary)
 
@@ -217,7 +218,7 @@ class TranslationSession(object):
                     self.processed += 1
                     self.skipped += 1
                     self.glossary_applied += 1
-                    self._push_event("术语已准确", key, source_text, target_text)
+                    self._push_event("已跳过：术语已符合词典", key, source_text, target_text)
                 return
             item = self._create_item(
                 key=key,
@@ -259,7 +260,7 @@ class TranslationSession(object):
             with self.lock:
                 self.processed += 1
                 self.skipped += 1
-                self._push_event("已跳过", key, source_text, target_text)
+                self._push_event("已跳过：翻译准确，无需更新", key, source_text, target_text)
             return
 
         item = self._create_item(
@@ -278,7 +279,7 @@ class TranslationSession(object):
     def _normalize_model_result(self, item, result, current_target):
         verdict = str(result.get("verdict", "") or "").strip().lower()
         candidate = str(result.get("candidate_translation", "") or "").strip()
-        reason = str(result.get("reason", "") or "").strip()
+        reason = _display_text(result.get("reason", "")).strip()
         if verdict not in ("accurate", "needs_update"):
             verdict = "needs_update"
         locked_terms = list(item.get("locked_terms", []))
@@ -292,7 +293,10 @@ class TranslationSession(object):
             return {
                 "verdict": verdict,
                 "candidate_text": current_target,
-                "reason": reason or "现有英文准确。",
+                "reason": _normalize_reason(
+                    reason,
+                    fallback="现有英文翻译准确。",
+                ),
             }
         if not candidate:
             raise ValueError("Model did not return candidate_translation for key {}".format(item["key"]))
@@ -310,12 +314,15 @@ class TranslationSession(object):
                 target_missing=target_missing,
             )
             retry_candidate = str(retried.get("candidate_translation", "") or "").strip()
-            retry_reason = str(retried.get("reason", "") or "").strip()
+            retry_reason = _display_text(retried.get("reason", "")).strip()
             if retry_candidate and _contains_locked_terms(retry_candidate, locked_terms):
                 return {
                     "verdict": "needs_update",
                     "candidate_text": retry_candidate,
-                    "reason": retry_reason or "按术语词典重试后生成。",
+                    "reason": _normalize_reason(
+                        retry_reason,
+                        fallback="按术语词典重试后生成。",
+                    ),
                 }
             return {
                 "verdict": "needs_update",
@@ -327,7 +334,10 @@ class TranslationSession(object):
         return {
             "verdict": "needs_update",
             "candidate_text": candidate,
-            "reason": reason or "模型建议更新英文翻译。",
+            "reason": _normalize_reason(
+                reason,
+                fallback="目标英文缺失，建议补充候选英文。" if target_missing else "现有英文翻译不够准确，建议更新为候选英文。",
+            ),
         }
 
     def _create_item(self, key, source_text, target_text, candidate_text, locked_terms, reason, verdict, target_missing):
@@ -454,6 +464,8 @@ def build_translation_system_prompt():
         "Return JSON only with keys: verdict, candidate_translation, reason.\n"
         "verdict must be either accurate or needs_update.\n"
         "candidate_translation must contain only the translated RHS text, never include the key.\n"
+        "reason must be written in Simplified Chinese.\n"
+        "Do not output English in reason unless it is a required technical term quoted from the source or target text.\n"
         "Preserve placeholders exactly, including {0}, {}, %s, ${name} and similar forms.\n"
         "If locked_terms are provided, candidate_translation must use the target terms exactly as given.\n"
         "If target_text is already accurate, set verdict=accurate and candidate_translation to the unchanged target_text."
@@ -470,3 +482,14 @@ def _contains_locked_terms(candidate, locked_terms):
 
 def _timestamp():
     return datetime.now().astimezone().replace(microsecond=0).isoformat()
+
+
+def _display_text(value):
+    return decode_unicode_escapes(str(value or ""))
+
+
+def _normalize_reason(reason, fallback):
+    value = _display_text(reason).strip()
+    if contains_han(value):
+        return value
+    return str(fallback or "").strip()

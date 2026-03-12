@@ -10,7 +10,7 @@ from zh_audit.terminology_xlsx import (
     match_locked_terms,
     write_terminology_xlsx,
 )
-from zh_audit.translation_workflow import TranslationSession
+from zh_audit.translation_workflow import TranslationSession, build_translation_system_prompt
 
 
 class TranslationWorkflowTest(unittest.TestCase):
@@ -106,9 +106,14 @@ class TranslationWorkflowTest(unittest.TestCase):
             pending_item = snapshot["pending_items"][0]
             self.assertIn("对等连接", pending_item["source_text"])
             self.assertIn("create link: {0}", pending_item["candidate_text"])
+            self.assertEqual(pending_item["reason"], "按术语词典重试后生成。")
 
             regenerated = session.regenerate(pending_item["id"], "更简洁一点")
             self.assertEqual(regenerated["status"]["counts"]["regenerated"], 1)
+            self.assertEqual(
+                regenerated["pending_items"][0]["reason"],
+                "目标英文缺失，建议补充候选英文。",
+            )
 
             accepted = session.accept(pending_item["id"])
             self.assertEqual(accepted["status"]["counts"]["accepted"], 1)
@@ -117,6 +122,82 @@ class TranslationWorkflowTest(unittest.TestCase):
             self.assertIn("# Added by zh-audit 码值校译", content)
             self.assertIn("NETWORK_LINK_ADD=create link: {0}", content)
             self.assertGreaterEqual(len(calls), 2)
+
+    def test_translation_session_decodes_unicode_escapes_for_glossary_and_display(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "zh.properties"
+            target = Path(temp_dir) / "en.properties"
+            source.write_text("HOST_GROUP=\\u4e3b\\u673a\\u7ec4\n", encoding="utf-8")
+            target.write_text("HOST_GROUP=wrong value\n", encoding="utf-8")
+
+            session = TranslationSession(
+                source_path=source,
+                target_path=target,
+                glossary={"主机组": "host group"},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: (_ for _ in ()).throw(AssertionError("model should not be called")),
+            )
+            session.start()
+            session.run(lambda: False)
+
+            snapshot = session.snapshot()
+            self.assertEqual(snapshot["status"]["counts"]["glossary_applied"], 1)
+            self.assertEqual(snapshot["recent_items"][0]["source_text"], "主机组")
+            self.assertEqual(snapshot["events"][0]["source_text"], "主机组")
+            self.assertEqual(snapshot["events"][0]["label"], "术语直出")
+            self.assertEqual(target.read_text(encoding="utf-8"), "HOST_GROUP=host group\n")
+
+    def test_translation_system_prompt_and_reason_fallback_are_chinese(self):
+        prompt = build_translation_system_prompt()
+        self.assertIn("reason must be written in Simplified Chinese.", prompt)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "zh.properties"
+            target = Path(temp_dir) / "en.properties"
+            source.write_text("API_NOT_FOUND=适配服务接口不存在。\n", encoding="utf-8")
+            target.write_text("API_NOT_FOUND=API not found in adapter server.\n", encoding="utf-8")
+
+            session = TranslationSession(
+                source_path=source,
+                target_path=target,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": "Adapter server interface not found.",
+                    "reason": "The source text is more specific than the current target text.",
+                },
+            )
+            session.start()
+            session.run(lambda: False)
+
+            snapshot = session.snapshot()
+            self.assertEqual(snapshot["pending_items"][0]["reason"], "现有英文翻译不够准确，建议更新为候选英文。")
+
+    def test_translation_session_uses_clear_skip_label_for_accurate_translation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "zh.properties"
+            target = Path(temp_dir) / "en.properties"
+            source.write_text("API_NOT_FOUND=适配服务接口不存在。\n", encoding="utf-8")
+            target.write_text("API_NOT_FOUND=Adapter server interface not found.\n", encoding="utf-8")
+
+            session = TranslationSession(
+                source_path=source,
+                target_path=target,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "accurate",
+                    "candidate_translation": "Adapter server interface not found.",
+                    "reason": "翻译准确。",
+                },
+            )
+            session.start()
+            session.run(lambda: False)
+
+            snapshot = session.snapshot()
+            self.assertEqual(snapshot["status"]["counts"]["skipped"], 1)
+            self.assertEqual(snapshot["events"][0]["label"], "已跳过：翻译准确，无需更新")
 
 
 if __name__ == "__main__":

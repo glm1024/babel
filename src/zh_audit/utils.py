@@ -11,6 +11,7 @@ CONDITION_BRANCH_RE = re.compile(r"\b(?:else\s+if|if|while|switch|case|assert)\b
 LOGIC_STRING_METHOD_RE = re.compile(
     r"\b(?:contains|containsignorecase|equals|equalsignorecase|contentequals|regionmatches|startswith|startswithignorecase|endswith|endswithignorecase|matches|indexof|lastindexof|compareto|comparetoignorecase|includes|match|test|hasprefix|hassuffix|equalfold|replace|replaceall|replacefirst|split|remove|removestart|removeend|substringbefore|substringafter|substringbeforelast|substringafterlast)\s*\("
 )
+PLAIN_MUTATOR_METHOD_RE = re.compile(r"\.\s*(?:add|addall|append|push|insert|put|set)\s*\(")
 CONDITION_OPERATOR_RE = re.compile(r"(?:===|!==|==|!=)")
 RELATIONAL_LITERAL_COMPARE_RE = re.compile(
     r"(?:[A-Za-z0-9_\)\]\.]+\s*(?:>=|<=|>|<)\s*['\"`][^'\"`]+['\"`]|['\"`][^'\"`]+['\"`]\s*(?:>=|<=|>|<)\s*[A-Za-z0-9_\(\[]+)"
@@ -303,8 +304,8 @@ def looks_like_condition_expression_literal(snippet, context="", language="", ex
     snippet_lower = snippet_text.lower()
     context_lower = context_text.lower()
     extra_lower = extra_text.lower()
-    combined_lower = "{} {}".format(snippet_lower, context_lower).strip()
-    extended_lower = "{} {}".format(combined_lower, extra_lower).strip()
+    nearby_lower = "{} {}".format(snippet_lower, context_lower).strip()
+    extended_lower = "{} {}".format(nearby_lower, extra_lower).strip()
 
     if not extended_lower:
         return False
@@ -312,10 +313,12 @@ def looks_like_condition_expression_literal(snippet, context="", language="", ex
         return True
     if "switch" in snippet_lower:
         return True
-    if LOGIC_STRING_METHOD_RE.search(extended_lower):
+    if LOGIC_STRING_METHOD_RE.search(nearby_lower):
         return True
+    if _looks_like_plain_mutator_statement(snippet_text):
+        return False
 
-    has_branch = bool(CONDITION_BRANCH_RE.search(combined_lower) or CONDITION_BRANCH_RE.search(extra_lower))
+    has_branch = bool(CONDITION_BRANCH_RE.search(nearby_lower) or CONDITION_BRANCH_RE.search(extra_lower))
     if not has_branch and not ("?" in extended_lower and ":" in extended_lower):
         return False
 
@@ -332,7 +335,24 @@ def looks_like_assert_api_literal(snippet, context="", extra_context=""):
     snippet_text = decode_unicode_escapes(str(snippet or ""))
     context_text = decode_unicode_escapes(str(context or ""))
     extra_text = decode_unicode_escapes(str(extra_context or ""))
-    combined_lower = "{} {} {}".format(snippet_text.lower(), context_text.lower(), extra_text.lower()).strip()
-    if not combined_lower:
+    nearby_lower = "{} {}".format(snippet_text.lower(), context_text.lower()).strip()
+    if not nearby_lower:
         return False
-    return bool(ASSERT_API_RE.search(combined_lower))
+    if ASSERT_API_RE.search(nearby_lower):
+        return True
+    if _looks_like_plain_mutator_statement(snippet_text):
+        return False
+
+    stripped = snippet_text.strip()
+    looks_like_argument_continuation = stripped.startswith(('"', "'", "`")) or stripped.endswith(",")
+    if not looks_like_argument_continuation or not extra_text:
+        return False
+    return bool(ASSERT_API_RE.search("{} {}".format(nearby_lower, extra_text.lower()).strip()))
+
+
+def _looks_like_plain_mutator_statement(snippet):
+    snippet_text = decode_unicode_escapes(str(snippet or ""))
+    snippet_lower = snippet_text.strip().lower()
+    if not snippet_lower:
+        return False
+    return bool(PLAIN_MUTATOR_METHOD_RE.search(snippet_lower))

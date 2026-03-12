@@ -1,6 +1,6 @@
 import json
 
-from zh_audit.report import DISPLAY_MAPS, PAGE_SIZES
+from zh_audit.report import CATEGORY_DISPLAY_PRIORITY, DISPLAY_MAPS, PAGE_SIZES
 
 
 REPORT_COMPONENT_STYLE = """
@@ -348,11 +348,17 @@ th {
   background: var(--panel, #fffdfa);
 }
 .pill {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  max-width: 100%;
+  align-self: flex-start;
   padding: 2px 8px;
   border-radius: 999px;
   font-size: 12px;
   background: var(--accent-soft, #ead6c3);
+  white-space: nowrap;
 }
 .pill.fix { background: rgba(157,47,47,0.12); color: var(--danger, #9d2f2f); }
 .pill.keep { background: rgba(45,106,79,0.12); color: var(--ok, #2d6a4f); }
@@ -385,18 +391,28 @@ th {
   min-width: 0;
 }
 .action-stack {
-  display: grid;
-  gap: 8px;
-  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  align-items: center;
   width: 100%;
   min-width: 0;
 }
+.action-stack > .pill {
+  order: 0;
+}
+.action-stack > .annotation-row {
+  order: 1;
+}
+.action-stack > .annotation-note {
+  order: 2;
+  flex-basis: 100%;
+}
 .annotation-row {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  width: 100%;
   min-width: 0;
   max-width: 100%;
 }
@@ -846,6 +862,7 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
   const REPORT_MARKUP = __REPORT_MARKUP__;
   const DISPLAY_MAP = __DISPLAY_MAP__;
   const PAGE_SIZES = __PAGE_SIZES__;
+  const CATEGORY_DISPLAY_PRIORITY = __CATEGORY_DISPLAY_PRIORITY__;
   const DEFAULT_CLIENT_CONFIG = __CLIENT_CONFIG__;
 
   function getById(root, id) {
@@ -973,6 +990,22 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
       return key;
     }
 
+    function categoryPriority(value) {
+      const key = String(value || "");
+      const index = CATEGORY_DISPLAY_PRIORITY.indexOf(key);
+      return index >= 0 ? index : CATEGORY_DISPLAY_PRIORITY.length + 100;
+    }
+
+    function compareDisplayValue(group, left, right) {
+      if (group === "category") {
+        const priorityGap = categoryPriority(left) - categoryPriority(right);
+        if (priorityGap !== 0) {
+          return priorityGap;
+        }
+      }
+      return labelFor(group, left).localeCompare(labelFor(group, right), "zh-CN");
+    }
+
     function escapeHtml(value) {
       return String(value == null ? "" : value)
         .replace(/&/g, "&amp;")
@@ -1004,6 +1037,29 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
       return item.snippet || item.normalized_text || item.text || "";
     }
 
+    function effectiveCategory(item) {
+      if (item && item.action === "fix") {
+        return "FIX_REQUIRED_MERGED";
+      }
+      return item.category || "";
+    }
+
+    function effectiveCategoryLabel(item) {
+      return labelFor("category", effectiveCategory(item));
+    }
+
+    function effectiveCategoryCounts() {
+      const counts = {};
+      findings.forEach(function (item) {
+        const key = effectiveCategory(item);
+        if (!key) {
+          return;
+        }
+        counts[key] = (counts[key] || 0) + 1;
+      });
+      return counts;
+    }
+
     function annotationTooltip(item) {
       const parts = [];
       if (item.original_category) {
@@ -1023,7 +1079,7 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
       const unique = Array.from(new Set(values.filter(function (value) {
         return value !== undefined && value !== null && value !== "";
       }))).sort(function (left, right) {
-        return labelFor(group, left).localeCompare(labelFor(group, right), "zh-CN");
+        return compareDisplayValue(group, left, right);
       });
       const resolved = selectedValue && unique.indexOf(selectedValue) === -1 ? "" : (selectedValue || "");
       select.innerHTML = ['<option value="">全部' + label + "</option>"].concat(
@@ -1044,7 +1100,7 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
     function filterValue(item, key) {
       if (key === "project") return item.project;
       if (key === "action") return item.action;
-      if (key === "category") return item.category;
+      if (key === "category") return effectiveCategory(item);
       if (key === "lang") return item.lang;
       return "";
     }
@@ -1053,10 +1109,10 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
       const keyword = keywordFilter.value.trim().toLowerCase();
       if (excludedKey !== "project" && state.filters.project && item.project !== state.filters.project) return false;
       if (excludedKey !== "action" && state.filters.action && item.action !== state.filters.action) return false;
-      if (excludedKey !== "category" && state.filters.category && item.category !== state.filters.category) return false;
+      if (excludedKey !== "category" && state.filters.category && effectiveCategory(item) !== state.filters.category) return false;
       if (excludedKey !== "lang" && state.filters.lang && item.lang !== state.filters.lang) return false;
       if (keyword) {
-        const target = [item.path, item.text, item.snippet || "", labelFor("category", item.category), labelFor("action", item.action), item.annotation_reason || ""]
+        const target = [item.path, item.text, item.snippet || "", effectiveCategoryLabel(item), labelFor("action", item.action), item.annotation_reason || ""]
           .join(" ")
           .toLowerCase();
         if (target.indexOf(keyword) === -1) return false;
@@ -1225,7 +1281,7 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
       } else {
         resultCount.textContent = "当前筛选 " + formatNumber(current.length) + " 条，共 " + formatNumber(findings.length) + " 条；本页显示第 " + formatNumber(page.startIndex + 1) + " - " + formatNumber(page.endIndex) + " 条";
         rows.innerHTML = page.items.map(function (item) {
-          return '<tr><td class="project-cell">' + escapeHtml(item.project) + '</td><td class="location-cell">' + positionMarkup(item) + '</td><td class="text-cell">' + escapeHtml(displaySnippet(item) || "-") + '</td><td class="category-cell">' + escapeHtml(labelFor("category", item.category)) + '</td><td class="action-cell">' + actionMarkup(item) + "</td></tr>";
+          return '<tr><td class="project-cell">' + escapeHtml(item.project) + '</td><td class="location-cell">' + positionMarkup(item) + '</td><td class="text-cell">' + escapeHtml(displaySnippet(item) || "-") + '</td><td class="category-cell">' + escapeHtml(effectiveCategoryLabel(item)) + '</td><td class="action-cell">' + actionMarkup(item) + "</td></tr>";
         }).join("");
       }
 
@@ -1257,7 +1313,7 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
           item.project || "",
           (item.path || "") + ":" + (item.line == null ? "" : item.line),
           displaySnippet(item),
-          labelFor("category", item.category),
+          effectiveCategoryLabel(item),
           labelFor("action", item.action)
         ];
       });
@@ -1355,8 +1411,10 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
         return '<div class="card"><div class="label">' + escapeHtml(label) + '</div><div class="value">' + rendered + "</div></div>";
       }).join("");
 
-      categoryList.innerHTML = Object.entries(summary.by_category || {})
-        .sort(function (left, right) { return right[1] - left[1]; })
+      categoryList.innerHTML = Object.entries(effectiveCategoryCounts())
+        .sort(function (left, right) {
+          return (right[1] - left[1]) || compareDisplayValue("category", left[0], right[0]);
+        })
         .map(function (entry) {
           return "<li><span>" + escapeHtml(labelFor("category", entry[0])) + "</span><strong>" + formatNumber(entry[1]) + "</strong></li>";
         })
@@ -1592,6 +1650,7 @@ def render_report_component_bundle():
     bundle = bundle.replace("__REPORT_STYLE__", json.dumps(REPORT_COMPONENT_STYLE, ensure_ascii=False))
     bundle = bundle.replace("__REPORT_MARKUP__", json.dumps(REPORT_COMPONENT_MARKUP, ensure_ascii=False))
     bundle = bundle.replace("__DISPLAY_MAP__", json.dumps(DISPLAY_MAPS, ensure_ascii=False))
+    bundle = bundle.replace("__CATEGORY_DISPLAY_PRIORITY__", json.dumps(CATEGORY_DISPLAY_PRIORITY, ensure_ascii=False))
     bundle = bundle.replace("__PAGE_SIZES__", json.dumps(PAGE_SIZES, ensure_ascii=False))
     bundle = bundle.replace(
         "__CLIENT_CONFIG__",
