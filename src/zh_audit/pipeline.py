@@ -3,8 +3,6 @@ import subprocess
 from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-
-from zh_audit.annotations import ANNOTATION_STATS_DEFAULT, apply_annotation_store
 from zh_audit.classifier import classify_rule
 from zh_audit.extractor import extract_file
 from zh_audit.models import (
@@ -21,7 +19,7 @@ from zh_audit.utils import contains_han, decode_unicode_escapes, guess_language,
 ENCODINGS = ("utf-8", "utf-8-sig", "gb18030")
 
 
-def run_scan(repos, scan_settings, run_id, progress_callback=None, annotation_store=None):
+def run_scan(repos, scan_settings, run_id, progress_callback=None):
     file_records = []
     raw_findings = []
     repo_files = []
@@ -136,17 +134,9 @@ def run_scan(repos, scan_settings, run_id, progress_callback=None, annotation_st
             )
 
     classified = [classify_rule(finding) for finding in raw_findings]
-    annotation_stats = dict(ANNOTATION_STATS_DEFAULT)
-    if annotation_store:
-        annotation_stats = apply_annotation_store(classified, annotation_store)
-    summary = _build_summary(
-        repos,
-        file_records,
-        classified,
-        run_id=run_id,
-        scan_settings=scan_settings,
-        annotation_stats=annotation_stats,
-    )
+    classified = _stable_sort_findings(classified)
+    _assign_sequences(classified)
+    summary = _build_summary(repos, file_records, classified, run_id=run_id, scan_settings=scan_settings)
     if progress_callback is not None:
         progress_callback(stage="done", processed=processed_files, total=total_files)
     return RunArtifacts(findings=classified, file_records=file_records, summary=summary)
@@ -213,7 +203,48 @@ def _finding_value(finding, name, default=None):
     return getattr(finding, name, default)
 
 
-def refresh_summary(summary, findings, annotation_stats=None):
+def _finding_sort_text(finding):
+    return str(
+        _finding_value(finding, "snippet", "")
+        or _finding_value(finding, "normalized_text", "")
+        or _finding_value(finding, "text", "")
+        or ""
+    ).casefold()
+
+
+def _finding_sort_number(finding, field_name):
+    value = _finding_value(finding, field_name, 0)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _stable_findings_sort_key(finding):
+    return (
+        _finding_sort_text(finding),
+        str(_finding_value(finding, "project", "") or "").casefold(),
+        str(_finding_value(finding, "path", "") or "").casefold(),
+        _finding_sort_number(finding, "line"),
+        _finding_sort_number(finding, "column"),
+        str(_finding_value(finding, "surface_kind", "") or "").casefold(),
+        str(_finding_value(finding, "id", "") or "").casefold(),
+    )
+
+
+def _stable_sort_findings(findings):
+    return sorted(findings, key=_stable_findings_sort_key)
+
+
+def _assign_sequences(findings):
+    for index, finding in enumerate(findings, start=1):
+        if isinstance(finding, dict):
+            finding["sequence"] = index
+        else:
+            finding.sequence = index
+
+
+def refresh_summary(summary, findings):
     by_project = Counter()
     by_lang = Counter()
     by_category = Counter(dict((category, 0) for category in CATEGORY_ORDER))
@@ -259,12 +290,11 @@ def refresh_summary(summary, findings, annotation_stats=None):
         "top_texts": _top(top_texts),
         "top_high_risk": _top(top_high_risk),
         "project_high_risk": dict(project_high_risk),
-        "annotations": dict(annotation_stats or ANNOTATION_STATS_DEFAULT),
     })
     return updated
 
 
-def _build_summary(repos, file_records, findings, run_id, scan_settings, annotation_stats=None):
+def _build_summary(repos, file_records, findings, run_id, scan_settings):
     by_skip_reason = Counter()
     by_project_files = Counter()
 
@@ -297,7 +327,6 @@ def _build_summary(repos, file_records, findings, run_id, scan_settings, annotat
             "files": [_file_record_payload(record) for record in file_records],
         },
         findings,
-        annotation_stats=annotation_stats,
     )
 
 

@@ -6,15 +6,6 @@ from pathlib import Path
 from socketserver import ThreadingMixIn
 from urllib.parse import urlparse
 
-from zh_audit.annotations import (
-    ANNOTATION_STATS_DEFAULT,
-    apply_annotation_store,
-    load_annotation_store,
-    remove_annotation,
-    resolve_annotation_path,
-    upsert_annotation,
-    write_annotation_store,
-)
 from zh_audit.app_state import (
     default_app_state,
     default_sql_translation_config,
@@ -35,6 +26,14 @@ from zh_audit.model_client import call_openai_compatible_json
 from zh_audit.model_client import probe_openai_compatible_model
 from zh_audit.models import RepoSpec
 from zh_audit.pipeline import refresh_summary, run_scan
+from zh_audit.remediation_state import (
+    apply_remediation_state,
+    default_remediation_state,
+    load_remediation_state,
+    remove_resolved,
+    upsert_resolved,
+    write_remediation_state,
+)
 from zh_audit.report import render_report
 from zh_audit.session_store import load_json_file, write_json_atomically
 from zh_audit.sql_translation_workflow import (
@@ -51,14 +50,14 @@ from zh_audit.translation_workflow import (
 
 
 class AppServiceState(object):
-    def __init__(self, out_dir, annotations_path=None, app_state_path=None, project_config_path=None):
+    def __init__(self, out_dir, app_state_path=None, project_config_path=None):
         self.out_dir = Path(out_dir)
         self.findings_path = self.out_dir / "findings.json"
         self.summary_path = self.out_dir / "summary.json"
         self.report_path = self.out_dir / "report.html"
+        self.remediation_state_path = self.out_dir / "remediation_state.json"
         self.translation_session_path = self.out_dir / "translation_session.json"
         self.sql_translation_session_path = self.out_dir / "sql_translation_session.json"
-        self.annotations_path = resolve_annotation_path(self.out_dir, annotations_path)
         self.app_state_path = Path(app_state_path) if app_state_path is not None else (self.out_dir / "app_state.json")
         self.project_config_path = Path(project_config_path) if project_config_path is not None else None
         self.lock = threading.RLock()
@@ -68,10 +67,9 @@ class AppServiceState(object):
         self.results_revision = 0
         self.summary = {}
         self.findings = []
+        self.remediation_state = default_remediation_state()
         self.translation_session = None
         self.sql_translation_session = None
-        self.annotation_store = load_annotation_store(self.annotations_path)
-        self.annotation_stats = dict(ANNOTATION_STATS_DEFAULT)
         self.project_model_config = (
             load_project_model_config(self.project_config_path) if self.project_config_path is not None else {}
         )
@@ -84,6 +82,8 @@ class AppServiceState(object):
         self.terminology = {}
         self.terminology_error = ""
         self._reload_terminology()
+        self._restore_remediation_state()
+        self._restore_results()
         self._restore_translation_session()
         self._restore_sql_translation_session()
 
@@ -95,8 +95,8 @@ class AppServiceState(object):
                 "config_api_path": "/api/config",
                 "scan_start_api_path": "/api/scan/start",
                 "scan_status_api_path": "/api/scan/status",
-                "annotation_api_path": "/api/annotations",
-                "annotation_remove_api_path": "/api/annotations/remove",
+                "finding_resolve_api_path": "/api/findings/resolve",
+                "finding_reopen_api_path": "/api/findings/reopen",
                 "translation_start_api_path": "/api/translation/start",
                 "translation_stop_api_path": "/api/translation/stop",
                 "translation_resume_api_path": "/api/translation/resume",
@@ -130,6 +130,30 @@ class AppServiceState(object):
     def scan_status_payload(self):
         with self.lock:
             return dict(self.scan_status)
+
+    def resolve_finding(self, finding_id):
+        with self.lock:
+            finding = self._find_finding_by_id_locked(finding_id)
+            if finding is None:
+                raise KeyError("Unknown finding id: {}".format(finding_id))
+            if str(finding.get("action", "")) != "fix":
+                raise ValueError("Only fix findings can be marked as resolved.")
+            upsert_resolved(self.remediation_state, finding, self._timestamp())
+            finding["action"] = "resolved"
+            self._refresh_and_persist_results_locked()
+            return self._results_payload_locked()
+
+    def reopen_finding(self, finding_id):
+        with self.lock:
+            finding = self._find_finding_by_id_locked(finding_id)
+            if finding is None:
+                raise KeyError("Unknown finding id: {}".format(finding_id))
+            if str(finding.get("action", "")) != "resolved":
+                raise ValueError("Only resolved findings can be reopened.")
+            remove_resolved(self.remediation_state, finding)
+            finding["action"] = "fix"
+            self._refresh_and_persist_results_locked()
+            return self._results_payload_locked()
 
     def save_config(self, payload):
         with self.lock:
@@ -335,28 +359,6 @@ class AppServiceState(object):
         with self.lock:
             return self.sql_translation_payload_locked()
 
-    def annotate(self, finding_id, reason):
-        with self.lock:
-            finding = self._find_by_id(finding_id)
-            if finding is None:
-                raise KeyError("Unknown finding id: {}".format(finding_id))
-            if finding.get("action") != "fix" and not finding.get("annotated"):
-                raise ValueError("Only fix findings can be annotated as no-change.")
-            upsert_annotation(self.annotation_store, finding, reason)
-            self._reapply_annotations_and_persist()
-            return self.bootstrap_payload()
-
-    def remove_annotation(self, finding_id):
-        with self.lock:
-            finding = self._find_by_id(finding_id)
-            if finding is None:
-                raise KeyError("Unknown finding id: {}".format(finding_id))
-            if not finding.get("annotated"):
-                raise ValueError("Finding is not annotated.")
-            remove_annotation(self.annotation_store, finding)
-            self._reapply_annotations_and_persist()
-            return self.bootstrap_payload()
-
     def _run_scan_job(self, repos, scan_settings):
         try:
             artifacts = run_scan(
@@ -364,14 +366,13 @@ class AppServiceState(object):
                 scan_settings=scan_settings,
                 run_id=datetime.now().strftime("%Y%m%d-%H%M%S"),
                 progress_callback=self._scan_progress,
-                annotation_store=self.annotation_store,
             )
             findings = [item.to_dict() for item in artifacts.findings]
             with self.lock:
+                self._reset_resolved_actions_locked(findings)
+                apply_remediation_state(findings, self.remediation_state)
                 self.findings = findings
-                self.summary = dict(artifacts.summary)
-                self.annotation_stats = dict(self.summary.get("annotations", ANNOTATION_STATS_DEFAULT))
-                self.results_revision += 1
+                self.summary = refresh_summary(dict(artifacts.summary), self.findings)
                 self.scan_status = {
                     "status": "done",
                     "message": "扫描完成",
@@ -383,7 +384,7 @@ class AppServiceState(object):
                     "finished_at": self._timestamp(),
                     "error": "",
                 }
-                self._persist_results()
+                self._refresh_and_persist_results_locked()
         except Exception as exc:
             with self.lock:
                 self.scan_status = {
@@ -487,39 +488,25 @@ class AppServiceState(object):
             json.dumps(self.summary, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-        write_annotation_store(self.annotations_path, self.annotation_store)
         self.report_path.write_text(
             render_report(
                 self.summary,
                 self.findings,
                 client_config={
                     "mode": "static",
-                    "annotation_api_path": "",
-                    "annotation_remove_api_path": "",
-                    "readonly_message": "当前报告为只读模式，请使用 zh-audit serve 打开本地服务版本。",
-                    "annotation_path": str(self.annotations_path),
                 },
             ),
             encoding="utf-8",
         )
+
+    def _persist_remediation_state(self):
+        write_remediation_state(self.remediation_state_path, self.remediation_state)
 
     def _persist_translation_session(self, payload):
         write_json_atomically(self.translation_session_path, payload)
 
     def _persist_sql_translation_session(self, payload):
         write_json_atomically(self.sql_translation_session_path, payload)
-
-    def _reapply_annotations_and_persist(self):
-        self.annotation_stats = apply_annotation_store(self.findings, self.annotation_store)
-        self.summary = refresh_summary(self.summary, self.findings, annotation_stats=self.annotation_stats)
-        self.results_revision += 1
-        self._persist_results()
-
-    def _find_by_id(self, finding_id):
-        for item in self.findings:
-            if item.get("id") == finding_id:
-                return item
-        return None
 
     def _build_repos(self, roots):
         if not roots:
@@ -599,6 +586,55 @@ class AppServiceState(object):
             self._persist_translation_session(self.translation_session.save_state())
         except Exception:
             self.translation_session = None
+
+    def _restore_remediation_state(self):
+        try:
+            self.remediation_state = load_remediation_state(self.remediation_state_path)
+        except Exception:
+            self.remediation_state = default_remediation_state()
+
+    def _restore_results(self):
+        try:
+            findings_payload = load_json_file(self.findings_path)
+            summary_payload = load_json_file(self.summary_path)
+        except Exception:
+            return
+        if not isinstance(findings_payload, list):
+            return
+        restored_findings = [dict(item) for item in findings_payload if isinstance(item, dict)]
+        if not restored_findings:
+            return
+        self._reset_resolved_actions_locked(restored_findings)
+        apply_remediation_state(restored_findings, self.remediation_state)
+        self.findings = restored_findings
+        base_summary = dict(summary_payload) if isinstance(summary_payload, dict) else {}
+        self.summary = refresh_summary(base_summary, self.findings)
+        self.results_revision = 1
+
+    def _refresh_and_persist_results_locked(self):
+        self.summary = refresh_summary(dict(self.summary), self.findings)
+        self.results_revision += 1
+        self._persist_remediation_state()
+        self._persist_results()
+
+    def _find_finding_by_id_locked(self, finding_id):
+        for finding in self.findings:
+            if str(finding.get("id", "")) == str(finding_id):
+                return finding
+        return None
+
+    def _reset_resolved_actions_locked(self, findings):
+        for finding in findings:
+            if str(finding.get("action", "")) == "resolved":
+                finding["action"] = "fix"
+
+    def _results_payload_locked(self):
+        return {
+            "summary": dict(self.summary),
+            "findings": [dict(item) for item in self.findings],
+            "has_results": bool(self.findings),
+            "results_revision": self.results_revision,
+        }
 
     def _restore_sql_translation_session(self):
         payload = load_json_file(self.sql_translation_session_path)
@@ -858,14 +894,11 @@ class AppRequestHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/scan/start":
                 self._send_json(200, self.server.app_state.start_scan(payload))
                 return
-            if parsed.path == "/api/annotations":
-                self._send_json(
-                    200,
-                    self.server.app_state.annotate(payload.get("finding_id", ""), payload.get("reason", "")),
-                )
+            if parsed.path == "/api/findings/resolve":
+                self._send_json(200, self.server.app_state.resolve_finding(payload.get("finding_id", "")))
                 return
-            if parsed.path == "/api/annotations/remove":
-                self._send_json(200, self.server.app_state.remove_annotation(payload.get("finding_id", "")))
+            if parsed.path == "/api/findings/reopen":
+                self._send_json(200, self.server.app_state.reopen_finding(payload.get("finding_id", "")))
                 return
             if parsed.path == "/api/translation/start":
                 self._send_json(200, self.server.app_state.start_translation(payload))
@@ -948,12 +981,11 @@ class AppRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(content)
 
 
-def serve_app(out_dir, host="127.0.0.1", port=8765, annotations_path=None, app_state_path=None, project_config_path=None):
+def serve_app(out_dir, host="127.0.0.1", port=8765, app_state_path=None, project_config_path=None):
     output_dir = Path(out_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     state = AppServiceState(
         out_dir=output_dir,
-        annotations_path=annotations_path,
         app_state_path=app_state_path,
         project_config_path=project_config_path,
     )

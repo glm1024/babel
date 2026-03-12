@@ -359,15 +359,6 @@ def render_app_shell(bootstrap_payload, client_config):
       border-color: rgba(157,47,47,0.16);
       background: rgba(157,47,47,0.08);
     }
-    .annotated-filters {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 12px;
-    }
-    .annotated-table-wrap {
-      overflow: auto;
-      border-top: 1px solid var(--line);
-    }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -383,10 +374,6 @@ def render_app_shell(bootstrap_payload, client_config):
       top: 0;
       background: rgba(255,253,250,0.95);
       z-index: 1;
-    }
-    .annotation-reason {
-      color: var(--muted);
-      line-height: 1.6;
     }
     .field-grid {
       display: grid;
@@ -534,9 +521,6 @@ def render_app_shell(bootstrap_payload, client_config):
       display: none !important;
     }
     @media (max-width: 1100px) {
-      .annotated-filters {
-        grid-template-columns: 1fr;
-      }
       .shell {
         padding-left: 20px;
         padding-right: 20px;
@@ -562,7 +546,6 @@ def render_app_shell(bootstrap_payload, client_config):
     <div class="tab-bar" id="tabBar">
       <button class="tab-btn is-active" type="button" data-tab="home">首页</button>
       <button class="tab-btn" type="button" data-tab="results">扫描结果</button>
-      <button class="tab-btn" type="button" data-tab="annotations">标注管理</button>
       <button class="tab-btn" type="button" data-tab="translation">码值校译</button>
       <button class="tab-btn" type="button" data-tab="sqlTranslation">SQL校译</button>
       <button class="tab-btn" type="button" data-tab="settings">模型配置</button>
@@ -625,37 +608,6 @@ def render_app_shell(bootstrap_payload, client_config):
           当前还没有扫描结果，请先到首页配置扫描目录并点击“开始扫描”。
         </div>
         <div id="resultsReportHost" class="results-report-host hidden"></div>
-      </div>
-    </section>
-
-    <section class="page" id="annotationsPage">
-      <div class="panel card">
-        <div class="card-head">
-          <div>
-            <div class="muted">Annotations</div>
-            <h2 class="card-title">标注管理</h2>
-          </div>
-        </div>
-        <div class="annotated-filters">
-          <input id="annotationKeyword" class="filter-input" placeholder="按文本、路径或理由搜索">
-          <select id="annotationProject" class="filter-select"></select>
-          <select id="annotationCategory" class="filter-select"></select>
-        </div>
-        <div class="annotated-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>项目</th>
-                <th>位置</th>
-                <th>文本</th>
-                <th>原分类</th>
-                <th>标注理由</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody id="annotationRows"></tbody>
-          </table>
-        </div>
       </div>
     </section>
 
@@ -969,7 +921,6 @@ __REPORT_COMPONENT_BUNDLE__
     const tabBar = document.getElementById("tabBar");
     const homePage = document.getElementById("homePage");
     const resultsPage = document.getElementById("resultsPage");
-    const annotationsPage = document.getElementById("annotationsPage");
     const translationPage = document.getElementById("translationPage");
     const sqlTranslationPage = document.getElementById("sqlTranslationPage");
     const settingsPage = document.getElementById("settingsPage");
@@ -987,10 +938,6 @@ __REPORT_COMPONENT_BUNDLE__
     const viewResultsBtn = document.getElementById("viewResultsBtn");
     const resultsPageEmpty = document.getElementById("resultsPageEmpty");
     const resultsReportHost = document.getElementById("resultsReportHost");
-    const annotationKeyword = document.getElementById("annotationKeyword");
-    const annotationProject = document.getElementById("annotationProject");
-    const annotationCategory = document.getElementById("annotationCategory");
-    const annotationRows = document.getElementById("annotationRows");
     const translationStatusPill = document.getElementById("translationStatusPill");
     const translationSourceInput = document.getElementById("translationSourceInput");
     const translationTargetInput = document.getElementById("translationTargetInput");
@@ -1220,7 +1167,6 @@ __REPORT_COMPONENT_BUNDLE__
       });
       homePage.classList.toggle("is-active", state.activeTab === "home");
       resultsPage.classList.toggle("is-active", state.activeTab === "results");
-      annotationsPage.classList.toggle("is-active", state.activeTab === "annotations");
       translationPage.classList.toggle("is-active", state.activeTab === "translation");
       sqlTranslationPage.classList.toggle("is-active", state.activeTab === "sqlTranslation");
       settingsPage.classList.toggle("is-active", state.activeTab === "settings");
@@ -1265,10 +1211,8 @@ __REPORT_COMPONENT_BUNDLE__
       resultsReportHost.classList.remove("hidden");
       const controllerConfig = {
         mode: "serve",
-        annotation_api_path: CLIENT_CONFIG.annotation_api_path,
-        annotation_remove_api_path: CLIENT_CONFIG.annotation_remove_api_path,
-        readonly_message: "",
-        annotation_path: state.config.out_dir || "",
+        finding_resolve_api_path: CLIENT_CONFIG.finding_resolve_api_path,
+        finding_reopen_api_path: CLIENT_CONFIG.finding_reopen_api_path,
       };
       const payload = {
         summary: state.summary || {},
@@ -1285,54 +1229,6 @@ __REPORT_COMPONENT_BUNDLE__
           embedded: true,
         });
       }
-    }
-
-    function annotatedFindings() {
-      const keyword = annotationKeyword.value.trim().toLowerCase();
-      const selectedProject = annotationProject.value;
-      const selectedCategory = annotationCategory.value;
-      return state.findings.filter(item => {
-        if (!item.annotated) return false;
-        if (selectedProject && item.project !== selectedProject) return false;
-        if (selectedCategory && item.original_category !== selectedCategory) return false;
-        if (keyword) {
-          const target = `${item.project} ${item.path} ${item.text} ${item.annotation_reason || ""} ${labelFor("category", item.original_category)}`.toLowerCase();
-          if (!target.includes(keyword)) return false;
-        }
-        return true;
-      });
-    }
-
-    function setOptions(select, values, emptyLabel, formatter) {
-      const unique = [...new Set(values.filter(Boolean))];
-      unique.sort((left, right) => formatter(left).localeCompare(formatter(right), "zh-CN"));
-      const current = select.value;
-      select.innerHTML = [`<option value="">${emptyLabel}</option>`].concat(
-        unique.map(value => `<option value="${escapeAttr(value)}">${escapeHtml(formatter(value))}</option>`)
-      ).join("");
-      if (unique.indexOf(current) !== -1) {
-        select.value = current;
-      }
-    }
-
-    function renderAnnotations() {
-      setOptions(annotationProject, state.findings.filter(item => item.annotated).map(item => item.project), "全部项目", value => value);
-      setOptions(annotationCategory, state.findings.filter(item => item.annotated).map(item => item.original_category), "全部原分类", value => labelFor("category", value));
-      const items = annotatedFindings();
-      if (!items.length) {
-        annotationRows.innerHTML = '<tr><td colspan="6" class="muted">当前没有已标注项</td></tr>';
-        return;
-      }
-      annotationRows.innerHTML = items.map(item => `
-        <tr>
-          <td>${escapeHtml(item.project || "-")}</td>
-          <td>${escapeHtml(`${item.path || ""}:${item.line || ""}`)}</td>
-          <td>${escapeHtml(displaySnippet(item) || "-")}</td>
-          <td>${escapeHtml(labelFor("category", item.original_category) || "-")}</td>
-          <td class="annotation-reason">${escapeHtml(item.annotation_reason || "无需修改")}</td>
-          <td><button class="danger-btn" type="button" data-action="remove-annotation" data-id="${escapeAttr(item.id)}">撤销标注</button></td>
-        </tr>
-      `).join("");
     }
 
     function renderSettings() {
@@ -1607,7 +1503,6 @@ __REPORT_COMPONENT_BUNDLE__
       renderRoots();
       renderStatus();
       renderResultsPage();
-      renderAnnotations();
       renderTranslation();
       renderSqlTranslation();
       renderSettings();
@@ -1785,11 +1680,6 @@ __REPORT_COMPONENT_BUNDLE__
       renderSqlTranslation();
     }
 
-    async function removeAnnotation(findingId) {
-      const data = await requestJson(CLIENT_CONFIG.annotation_remove_api_path, { finding_id: findingId });
-      applyBootstrap(data, true);
-    }
-
     function syncRootsFromInputs() {
       const inputs = rootsList.querySelectorAll(".root-input");
       state.draftConfig.scan_roots = Array.from(inputs).map(input => input.value);
@@ -1881,7 +1771,7 @@ __REPORT_COMPONENT_BUNDLE__
       const nextTab = target.dataset.tab || "home";
       state.activeTab = nextTab;
       renderTabs();
-      if (nextTab === "annotations" || nextTab === "translation" || nextTab === "sqlTranslation") {
+      if (nextTab === "translation" || nextTab === "sqlTranslation") {
         try {
           await refreshBootstrap(true);
         } catch (error) {
@@ -1891,9 +1781,6 @@ __REPORT_COMPONENT_BUNDLE__
           } else if (nextTab === "sqlTranslation") {
             sqlTranslationStatusBanner.textContent = error.message || "刷新 SQL 校译状态失败";
             sqlTranslationStatusBanner.classList.add("is-error");
-          } else {
-            homeStatus.textContent = error.message || "刷新标注数据失败";
-            homeStatus.classList.add("is-error");
           }
         }
       }
@@ -2060,20 +1947,6 @@ __REPORT_COMPONENT_BUNDLE__
       }
     });
 
-    annotationKeyword.addEventListener("input", renderAnnotations);
-    annotationProject.addEventListener("change", renderAnnotations);
-    annotationCategory.addEventListener("change", renderAnnotations);
-    annotationRows.addEventListener("click", async event => {
-      const target = event.target instanceof Element ? event.target.closest("[data-action='remove-annotation']") : null;
-      if (!target) return;
-      try {
-        await removeAnnotation(target.dataset.id || "");
-      } catch (error) {
-        homeStatus.textContent = error.message || "撤销标注失败";
-        homeStatus.classList.add("is-error");
-      }
-    });
-
     translationPendingList.addEventListener("click", async event => {
       const target = event.target instanceof Element ? event.target.closest("[data-action]") : null;
       if (!target) return;
@@ -2141,7 +2014,6 @@ __REPORT_COMPONENT_BUNDLE__
       state.hasResults = state.findings.length > 0;
       state.resultsRevision += 1;
       renderResultsPage();
-      renderAnnotations();
       renderStatus();
     });
 

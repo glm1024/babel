@@ -10,6 +10,17 @@ from zh_audit.app_server import AppServiceState
 
 
 class AppServerSmokeTest(unittest.TestCase):
+    def _wait_for_scan_done(self, state, timeout=10):
+        deadline = time.time() + timeout
+        latest_status = state.scan_status_payload()
+        while time.time() < deadline:
+            latest_status = state.scan_status_payload()
+            if latest_status["status"] in {"done", "failed"}:
+                break
+            time.sleep(0.1)
+        self.assertEqual(latest_status["status"], "done")
+        return latest_status
+
     def test_app_state_persists_config_without_loading_old_results(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             out_dir = Path(temp_dir)
@@ -120,7 +131,7 @@ class AppServerSmokeTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 AppServiceState(out_dir=out_dir, project_config_path=config_path)
 
-    def test_service_scan_state_and_annotation_roundtrip(self) -> None:
+    def test_service_scan_state_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             repo = root / "repo"
@@ -152,7 +163,6 @@ class AppServerSmokeTest(unittest.TestCase):
             html = state.render_home()
             self.assertIn("扫描目录", html)
             self.assertIn("扫描结果", html)
-            self.assertIn("标注管理", html)
             self.assertIn("码值校译", html)
             self.assertIn("SQL校译", html)
             self.assertIn("模型配置", html)
@@ -176,13 +186,21 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn('id="resultsReportHost"', html)
             self.assertIn("window.ZhAuditReport", html)
             self.assertNotIn("<iframe", html)
+            self.assertNotIn("标注无需修改", html)
+            self.assertNotIn("/api/annotations", html)
             self.assertIn("overflow-wrap: anywhere;", html)
             self.assertIn("min-width: 0;", html)
             self.assertIn("margin: 0 auto;", html)
             self.assertIn(".settings-workspace {", html)
             self.assertIn("height: calc(100vh - 124px);", html)
             self.assertIn('data-layout=\\"embedded\\"] .table-wrap {', html)
-            self.assertIn(".findings-table col.col-action { width: 280px; }", html)
+            self.assertIn(".findings-table col.col-sequence { width: 84px; }", html)
+            self.assertIn(".findings-table col.col-action { width: 140px; }", html)
+            self.assertIn(".findings-table col.col-operation { width: 160px; }", html)
+            self.assertIn('data-sort-key=\\"location\\"', html)
+            self.assertIn('data-sort-key=\\"text\\"', html)
+            self.assertIn("标记已整改", html)
+            self.assertIn("重新打开", html)
             self.assertIn("transform: translateY(-1px);", html)
             self.assertIn("scale(0.98)", html)
             self.assertIn("保存模型配置时会先做一次连通性测试。", html)
@@ -202,33 +220,139 @@ class AppServerSmokeTest(unittest.TestCase):
                 }
             )
             self.assertEqual(status["status"], "running")
-
-            deadline = time.time() + 10
-            latest_status = status
-            while time.time() < deadline:
-                latest_status = state.scan_status_payload()
-                if latest_status["status"] in {"done", "failed"}:
-                    break
-                time.sleep(0.1)
-            self.assertEqual(latest_status["status"], "done")
+            self._wait_for_scan_done(state)
 
             bootstrap = state.bootstrap_payload()
             self.assertTrue(bootstrap["has_results"])
+            self.assertEqual(
+                [item["sequence"] for item in bootstrap["findings"]],
+                list(range(1, len(bootstrap["findings"]) + 1)),
+            )
             self.assertTrue(any(item["text"] == "操作异常！" for item in bootstrap["findings"]))
             self.assertTrue((out_dir / "findings.json").exists())
             self.assertTrue((out_dir / "summary.json").exists())
             self.assertTrue((out_dir / "report.html").exists())
             self.assertTrue((out_dir / "app_state.json").exists())
 
-            target = next(item for item in bootstrap["findings"] if item["action"] == "fix")
-            updated = state.annotate(target["id"], "本地保留")
-            annotated = next(item for item in updated["findings"] if item["id"] == target["id"])
-            self.assertTrue(annotated["annotated"])
-            self.assertEqual(annotated["category"], "ANNOTATED_NO_CHANGE")
+    def test_resolve_and_reopen_persist_across_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            repo = root / "repo"
+            repo.mkdir()
+            subprocess.run(
+                ["git", "init"],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            java_file = repo / "src" / "App.java"
+            java_file.parent.mkdir(parents=True)
+            java_file.write_text(
+                'class App { String fail(){ return "操作异常！"; } }\n',
+                encoding="utf-8",
+            )
+            subprocess.run(
+                ["git", "add", "."],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
 
-            reverted = state.remove_annotation(target["id"])
-            original = next(item for item in reverted["findings"] if item["id"] == target["id"])
-            self.assertFalse(original["annotated"])
+            out_dir = root / "results"
+            state = AppServiceState(out_dir=out_dir)
+            state.start_scan(
+                {
+                    "scan_roots": [str(repo)],
+                    "scan_policy": {
+                        "max_file_size_bytes": 5 * 1024 * 1024,
+                        "context_lines": 1,
+                        "exclude_globs": ["**/static/ajax/libs/**"],
+                    },
+                }
+            )
+            self._wait_for_scan_done(state)
+
+            target = next(item for item in state.findings if item["text"] == "操作异常！")
+            resolved_payload = state.resolve_finding(target["id"])
+            resolved_target = next(item for item in resolved_payload["findings"] if item["id"] == target["id"])
+            self.assertEqual(resolved_target["action"], "resolved")
+            self.assertTrue((out_dir / "remediation_state.json").exists())
+
+            remediation_state = json.loads((out_dir / "remediation_state.json").read_text(encoding="utf-8"))
+            self.assertEqual(remediation_state["version"], 1)
+            self.assertEqual(len(remediation_state["items"]), 1)
+            self.assertTrue(any(item["status"] == "resolved" for item in remediation_state["items"].values()))
+
+            reloaded = AppServiceState(out_dir=out_dir)
+            restored = next(item for item in reloaded.findings if item["text"] == "操作异常！")
+            self.assertEqual(restored["action"], "resolved")
+            self.assertEqual(reloaded.summary["by_action"]["resolved"], 1)
+
+            reopened_payload = reloaded.reopen_finding(restored["id"])
+            reopened_target = next(item for item in reopened_payload["findings"] if item["id"] == restored["id"])
+            self.assertEqual(reopened_target["action"], "fix")
+
+            remediation_state = json.loads((out_dir / "remediation_state.json").read_text(encoding="utf-8"))
+            self.assertEqual(remediation_state["items"], {})
+
+            reopened = AppServiceState(out_dir=out_dir)
+            reopened_restored = next(item for item in reopened.findings if item["text"] == "操作异常！")
+            self.assertEqual(reopened_restored["action"], "fix")
+
+    def test_resolved_state_reapplies_after_rescan(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            repo = root / "repo"
+            repo.mkdir()
+            subprocess.run(
+                ["git", "init"],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            java_file = repo / "src" / "App.java"
+            java_file.parent.mkdir(parents=True)
+            java_file.write_text(
+                'class App { String fail(){ return "操作异常！"; } }\n',
+                encoding="utf-8",
+            )
+            subprocess.run(
+                ["git", "add", "."],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            out_dir = root / "results"
+            state = AppServiceState(out_dir=out_dir)
+            scan_payload = {
+                "scan_roots": [str(repo)],
+                "scan_policy": {
+                    "max_file_size_bytes": 5 * 1024 * 1024,
+                    "context_lines": 1,
+                    "exclude_globs": ["**/static/ajax/libs/**"],
+                },
+            }
+            state.start_scan(scan_payload)
+            self._wait_for_scan_done(state)
+
+            target = next(item for item in state.findings if item["text"] == "操作异常！")
+            state.resolve_finding(target["id"])
+
+            java_file.write_text(
+                "// moved\nclass App { String fail(){ return \"操作异常！\"; } }\n",
+                encoding="utf-8",
+            )
+
+            state.start_scan(scan_payload)
+            self._wait_for_scan_done(state)
+
+            rescanned = next(item for item in state.findings if item["text"] == "操作异常！")
+            self.assertEqual(rescanned["action"], "resolved")
 
     def test_invalid_scan_directory_raises_value_error(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

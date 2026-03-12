@@ -5,7 +5,6 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from zh_audit.annotations import resolve_annotation_path
 from zh_audit.app_server import serve_app
 from zh_audit.config import DEFAULT_APP_CONFIG_NAME, load_scan_settings
 from zh_audit.validation import validate_report
@@ -88,7 +87,6 @@ def build_parser():
     subparsers = parser.add_subparsers(dest="command")
 
     serve_parser = subparsers.add_parser("serve", help="Serve the local audit application.")
-    serve_parser.add_argument("--annotations", type=Path, help="Optional annotations file path.")
     serve_parser.add_argument("--host", default="127.0.0.1", help="Host to bind.")
     serve_parser.add_argument("--port", type=int, default=8765, help="Port to bind.")
     serve_parser.add_argument("--no-browser", action="store_true", help="Do not open the default browser automatically.")
@@ -117,7 +115,6 @@ def main(argv=None):
                 out_dir=out_dir,
                 host=args.host,
                 port=args.port,
-                annotations_path=args.annotations.resolve() if args.annotations else None,
                 project_config_path=project_config_path,
             )
             address = server.server_address
@@ -125,7 +122,6 @@ def main(argv=None):
             print(json.dumps({
                 "mode": "serve",
                 "url": url,
-                "annotations": str(resolve_annotation_path(out_dir, args.annotations.resolve() if args.annotations else None)),
             }, ensure_ascii=False, indent=2))
             if not args.no_browser:
                 _open_browser_later(url)

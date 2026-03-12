@@ -214,6 +214,7 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
 
     return ClassifiedFinding(
         id=raw.id,
+        sequence=0,
         project=raw.project,
         path=raw.path,
         lang=raw.lang,

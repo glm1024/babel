@@ -30,11 +30,11 @@ DISPLAY_MAPS = {
         "GENERIC_DOCUMENTATION": "普通文档",
         "DATABASE_SCRIPT": "SQL脚本",
         "SHELL_SCRIPT": "Shell脚本",
-        "NAMED_FILE": "指定文件",
+        "NAMED_FILE": "排除文件",
         "I18N_FILE": "国际化文件",
         "CONDITION_EXPRESSION_LITERAL": "匹配条件",
         "TASK_DESCRIPTION": "ITask注解",
-        "ANNOTATED_NO_CHANGE": "标注无需修改",
+        "ANNOTATED_NO_CHANGE": "历史人工保留",
         "TEST_SAMPLE_FIXTURE": "测试与样例",
         "CONFIG_ITEM": "配置项",
         "PROTOCOL_OR_PERSISTED_LITERAL": "协议/持久化字面量",
@@ -42,6 +42,7 @@ DISPLAY_MAPS = {
     },
     "action": {
         "fix": "需要整改",
+        "resolved": "完成整改",
         "keep": "保持不动",
     },
     "language": {
@@ -71,7 +72,7 @@ DISPLAY_MAPS = {
         "too_large": "文件过大",
         "decode_error": "文本解码失败",
         "excluded_by_policy": "命中排除策略",
-        "named_file": "指定文件名",
+        "named_file": "排除文件名",
     },
     "reason": {
         "No strong rule matched.": "没有命中更强的规则，需要人工确认。",
@@ -88,12 +89,12 @@ DISPLAY_MAPS = {
         "Database script context.": "当前命中位于 SQL脚本中。",
         "Shell script context.": "当前命中位于 Shell脚本中。",
         "Swagger/OpenAPI annotation context.": "当前命中位于 Swagger注解上下文。",
-        "Named file context.": "当前命中位于指定文件中。",
+        "Named file context.": "当前命中位于排除文件中。",
         "I18n messages file context.": "当前命中位于国际化文件中。",
         "Condition expression literal context.": "当前命中用于匹配条件或字符串处理。",
         "Logic processing literal context.": "当前命中用于匹配条件或字符串处理。",
         "Task description annotation context.": "当前命中位于 ITask注解中。",
-        "Annotated no change context.": "当前命中已被人工标注为无需修改。",
+        "Annotated no change context.": "当前命中来自历史人工保留记录。",
     },
 }
 
@@ -105,13 +106,7 @@ def render_report(summary, findings, client_config=None):
     display_maps = json.dumps(DISPLAY_MAPS, ensure_ascii=False)
     category_display_priority = json.dumps(CATEGORY_DISPLAY_PRIORITY, ensure_ascii=False)
     page_sizes = json.dumps(PAGE_SIZES, ensure_ascii=False)
-    resolved_client_config = {
-        "mode": "static",
-        "annotation_api_path": "",
-        "annotation_remove_api_path": "",
-        "readonly_message": "",
-        "annotation_path": "",
-    }
+    resolved_client_config = {"mode": "static"}
     if client_config:
         resolved_client_config.update(client_config)
     client_config_payload = json.dumps(resolved_client_config, ensure_ascii=False)
@@ -335,6 +330,11 @@ def render_report(summary, findings, client_config=None):
       background: #fff;
       font: inherit;
     }
+    select option,
+    select optgroup {
+      padding: 4px 10px;
+      line-height: 1.5;
+    }
     button {
       padding: 10px 14px;
       border-radius: 12px;
@@ -402,36 +402,46 @@ def render_report(summary, findings, client_config=None):
     }
     .findings-table {
       width: 100%;
-      min-width: 1320px;
+      min-width: 1540px;
       border-collapse: collapse;
       table-layout: fixed;
       font-size: 14px;
     }
+    .findings-table col.col-sequence { width: 84px; }
     .findings-table col.col-project { width: 90px; }
     .findings-table col.col-location { width: 270px; }
     .findings-table col.col-text { width: 360px; }
     .findings-table col.col-category { width: 150px; }
-    .findings-table col.col-action { width: 220px; }
+    .findings-table col.col-action { width: 140px; }
+    .findings-table col.col-operation { width: 160px; }
+    .sequence-cell {
+      white-space: nowrap;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
     .position-cell {
-      display: flex;
-      align-items: flex-start;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       gap: 10px;
       width: 100%;
       min-width: 0;
     }
     .path-text {
-      flex: 1 1 auto;
+      flex: 0 1 auto;
+      max-width: calc(100% - 42px);
       font-family: "SFMono-Regular", "Menlo", monospace;
       font-size: 13px;
       overflow-wrap: anywhere;
       word-break: normal;
       line-height: 1.5;
       min-width: 0;
+      text-align: center;
     }
     .copy-btn {
       width: 32px;
       height: 32px;
-      margin-left: auto;
+      margin-left: 0;
       padding: 0;
       border-radius: 10px;
       border: 1px solid var(--line);
@@ -467,10 +477,10 @@ def render_report(summary, findings, client_config=None):
       background: rgba(157, 47, 47, 0.94);
     }
     th, td {
-      text-align: left;
+      text-align: center;
       padding: 10px 8px;
       border-bottom: 1px solid #eadfd3;
-      vertical-align: top;
+      vertical-align: middle;
     }
     th {
       color: var(--muted);
@@ -483,6 +493,33 @@ def render_report(summary, findings, client_config=None):
       top: 0;
       z-index: 1;
       background: var(--panel);
+    }
+    .sort-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      width: 100%;
+      padding: 0;
+      border: none;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      letter-spacing: inherit;
+    }
+    .sort-btn:hover:not(:disabled) {
+      transform: none;
+      opacity: 1;
+      color: var(--ink);
+    }
+    .sort-btn.is-active {
+      color: var(--ink);
+    }
+    .sort-indicator {
+      min-width: 1.2em;
+      color: var(--accent);
+      font-size: 11px;
+      text-align: center;
     }
     .pill {
       display: inline-flex;
@@ -498,127 +535,48 @@ def render_report(summary, findings, client_config=None):
       white-space: nowrap;
     }
     .pill.fix { background: rgba(157,47,47,0.12); color: var(--danger); }
+    .pill.resolved { background: rgba(45,106,79,0.18); color: var(--ok); }
     .pill.keep { background: rgba(45,106,79,0.12); color: var(--ok); }
     .project-cell,
     .category-cell {
       white-space: nowrap;
       word-break: keep-all;
     }
+    .sequence-cell,
+    .project-cell,
+    .location-cell,
+    .category-cell,
+    .action-cell,
+    .operation-cell {
+      vertical-align: middle;
+    }
     .text-cell {
       line-height: 1.65;
       overflow-wrap: anywhere;
+      text-align: center;
     }
     .text-cell {
       font-family: "SFMono-Regular", "Menlo", monospace;
       font-size: 12px;
     }
-    .readonly-notice {
-      margin: 0 0 12px;
-      padding: 10px 12px;
-      border-radius: 12px;
-      border: 1px solid #eadfd3;
-      background: rgba(244, 239, 232, 0.72);
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.6;
-    }
-    .readonly-notice[hidden] {
-      display: none;
-    }
     .action-cell {
       white-space: normal;
+    }
+    .operation-cell {
+      white-space: nowrap;
     }
     .action-stack {
       display: flex;
       flex-wrap: wrap;
       gap: 8px 10px;
       align-items: center;
+      justify-content: center;
     }
     .action-stack > .pill {
       order: 0;
     }
-    .action-stack > .annotation-row {
-      order: 1;
-    }
-    .action-stack > .annotation-note {
-      order: 2;
-      flex-basis: 100%;
-    }
-    .annotation-row {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    .annotation-btn {
-      padding: 6px 10px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.92);
-      color: var(--ink);
-      font-size: 12px;
-    }
-    .annotation-btn.is-danger {
-      border-color: rgba(157,47,47,0.24);
-      color: var(--danger);
-      background: rgba(157,47,47,0.08);
-    }
-    .annotation-note {
-      display: inline-flex;
-      align-items: center;
-      max-width: 100%;
+    .operation-placeholder {
       color: var(--muted);
-      font-size: 12px;
-      line-height: 1.5;
-      overflow-wrap: anywhere;
-    }
-    .annotation-note strong {
-      font-weight: 600;
-      color: var(--ink);
-      margin-right: 6px;
-    }
-    .annotation-dialog {
-      width: min(560px, calc(100vw - 32px));
-      border: none;
-      border-radius: 20px;
-      padding: 0;
-      background: var(--panel);
-      box-shadow: 0 28px 80px rgba(31, 35, 40, 0.24);
-    }
-    .annotation-dialog::backdrop {
-      background: rgba(31, 35, 40, 0.38);
-      backdrop-filter: blur(4px);
-    }
-    .annotation-dialog-panel {
-      padding: 24px;
-      display: grid;
-      gap: 14px;
-    }
-    .annotation-dialog-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 10px;
-    }
-    .annotation-dialog-path,
-    .annotation-dialog-text {
-      font-family: "SFMono-Regular", "Menlo", monospace;
-      font-size: 12px;
-      line-height: 1.6;
-      overflow-wrap: anywhere;
-      padding: 10px 12px;
-      border-radius: 12px;
-      background: rgba(244, 239, 232, 0.62);
-      border: 1px solid #eadfd3;
-    }
-    .annotation-dialog textarea {
-      width: 100%;
-      min-height: 96px;
-      resize: vertical;
-      padding: 10px 12px;
-      border-radius: 12px;
-      border: 1px solid var(--line);
-      background: #fff;
-      font: inherit;
     }
     .skip-dialog {
       width: min(980px, calc(100vw - 48px));
@@ -829,10 +787,9 @@ def render_report(summary, findings, client_config=None):
         <select id="actionFilter"></select>
         <select id="categoryFilter"></select>
         <select id="langFilter"></select>
-        <input id="keywordFilter" placeholder="按文本、路径、分类或标注理由搜索">
+        <input id="keywordFilter" placeholder="按文本、路径或分类搜索">
         <button id="exportBtn" class="export-btn">导出全部结果到 Excel</button>
       </div>
-      <div id="readonlyNotice" class="readonly-notice" hidden></div>
       <div class="table-toolbar">
         <div class="footer" id="resultCount"></div>
         <div class="pagination">
@@ -851,19 +808,33 @@ def render_report(summary, findings, client_config=None):
       <div class="table-wrap">
         <table class="findings-table">
           <colgroup>
+          <col class="col-sequence">
           <col class="col-project">
           <col class="col-location">
           <col class="col-text">
           <col class="col-category">
           <col class="col-action">
+          <col class="col-operation">
           </colgroup>
           <thead>
             <tr>
+              <th>行号</th>
               <th>项目</th>
-              <th>位置</th>
-              <th>文本</th>
+              <th>
+                <button class="sort-btn" type="button" data-sort-key="location" aria-pressed="false">
+                  <span>位置</span>
+                  <span class="sort-indicator" aria-hidden="true">↕</span>
+                </button>
+              </th>
+              <th>
+                <button class="sort-btn" type="button" data-sort-key="text" aria-pressed="true">
+                  <span>文本</span>
+                  <span class="sort-indicator" aria-hidden="true">↑</span>
+                </button>
+              </th>
               <th>分类</th>
               <th>动作</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody id="rows"></tbody>
@@ -901,30 +872,6 @@ def render_report(summary, findings, client_config=None):
       </div>
     </div>
   </dialog>
-  <dialog id="annotationDialog" class="annotation-dialog">
-    <div class="annotation-dialog-panel">
-      <div>
-        <div class="summary-kicker">Annotation</div>
-        <h3>标注无需修改</h3>
-      </div>
-      <div>
-        <div class="label">位置</div>
-        <div id="annotationDialogPath" class="annotation-dialog-path"></div>
-      </div>
-      <div>
-        <div class="label">文本</div>
-        <div id="annotationDialogText" class="annotation-dialog-text"></div>
-      </div>
-      <label>
-        <div class="label">理由（可选）</div>
-        <textarea id="annotationReasonInput" placeholder="可填写不需要修改的原因"></textarea>
-      </label>
-      <div class="annotation-dialog-actions">
-        <button id="annotationCancelBtn" class="secondary-btn" type="button">取消</button>
-        <button id="annotationSaveBtn" class="export-btn" type="button">保存标注</button>
-      </div>
-    </div>
-  </dialog>
   <div class="copy-toast" id="copyToast" hidden></div>
   <script>
     const payload = __PAYLOAD__;
@@ -933,13 +880,16 @@ def render_report(summary, findings, client_config=None):
     const CATEGORY_DISPLAY_PRIORITY = __CATEGORY_DISPLAY_PRIORITY__;
     const CLIENT_CONFIG = __CLIENT_CONFIG__;
     let summary = payload.summary;
-    let findings = payload.findings.slice();
+    let findings = normalizeFindings(payload.findings);
     const numberFormatter = new Intl.NumberFormat("zh-CN");
     const state = {
       currentPage: 1,
       pageSize: 10,
       skipReasonFilter: "",
-      pendingAnnotationId: "",
+      sort: {
+        key: "text",
+        direction: "asc",
+      },
       filters: {
         project: "",
         action: "fix",
@@ -960,6 +910,7 @@ def render_report(summary, findings, client_config=None):
     const keywordFilter = document.getElementById("keywordFilter");
     const rows = document.getElementById("rows");
     const tableWrap = document.querySelector(".table-wrap");
+    const sortButtons = Array.from(document.querySelectorAll(".sort-btn[data-sort-key]"));
     const resultCount = document.getElementById("resultCount");
     const pageSizeSelect = document.getElementById("pageSizeSelect");
     const pageInput = document.getElementById("pageInput");
@@ -967,13 +918,6 @@ def render_report(summary, findings, client_config=None):
     const prevPageBtn = document.getElementById("prevPageBtn");
     const nextPageBtn = document.getElementById("nextPageBtn");
     const goPageBtn = document.getElementById("goPageBtn");
-    const readonlyNotice = document.getElementById("readonlyNotice");
-    const annotationDialog = document.getElementById("annotationDialog");
-    const annotationDialogPath = document.getElementById("annotationDialogPath");
-    const annotationDialogText = document.getElementById("annotationDialogText");
-    const annotationReasonInput = document.getElementById("annotationReasonInput");
-    const annotationCancelBtn = document.getElementById("annotationCancelBtn");
-    const annotationSaveBtn = document.getElementById("annotationSaveBtn");
     const copyToast = document.getElementById("copyToast");
     let copyToastTimer;
 
@@ -1068,8 +1012,19 @@ def render_report(summary, findings, client_config=None):
       return item.snippet || item.normalized_text || item.text || "";
     }
 
+    function normalizeSequence(item, index) {
+      const sequence = Number.parseInt(item && item.sequence, 10);
+      return Number.isFinite(sequence) && sequence > 0 ? sequence : index + 1;
+    }
+
+    function normalizeFindings(items) {
+      return Array.isArray(items)
+        ? items.map((item, index) => Object.assign({}, item || {}, { sequence: normalizeSequence(item, index) }))
+        : [];
+    }
+
     function effectiveCategory(item) {
-      if (item && item.action === "fix") {
+      if (item && (item.action === "fix" || item.action === "resolved")) {
         return "FIX_REQUIRED_MERGED";
       }
       return item.category || "";
@@ -1089,21 +1044,6 @@ def render_report(summary, findings, client_config=None):
         counts[key] = (counts[key] || 0) + 1;
       });
       return counts;
-    }
-
-    function annotationTooltip(item) {
-      const parts = [];
-      if (item.original_category) {
-        parts.push(`原分类：${labelFor("category", item.original_category)}`);
-      }
-      if (item.annotation_reason) {
-        parts.push(`理由：${item.annotation_reason}`);
-      }
-      return parts.join("\\n");
-    }
-
-    function isInteractiveMode() {
-      return CLIENT_CONFIG.mode === "serve";
     }
 
     function setOptions(select, values, label, group, selectedValue) {
@@ -1127,7 +1067,6 @@ def render_report(summary, findings, client_config=None):
 
     function filterValue(item, key) {
       if (key === "project") return item.project;
-      if (key === "action") return item.action;
       if (key === "category") return effectiveCategory(item);
       if (key === "lang") return item.lang;
       return "";
@@ -1136,18 +1075,103 @@ def render_report(summary, findings, client_config=None):
     function matchesFilters(item, excludedKey = "") {
       const keyword = keywordFilter.value.trim().toLowerCase();
       if (excludedKey !== "project" && state.filters.project && item.project !== state.filters.project) return false;
-      if (excludedKey !== "action" && state.filters.action && item.action !== state.filters.action) return false;
+      if (excludedKey !== "action" && state.filters.action) {
+        if (state.filters.action === "fix" && item.action !== "fix" && item.action !== "resolved") return false;
+        if (state.filters.action === "keep" && item.action !== "keep") return false;
+      }
       if (excludedKey !== "category" && state.filters.category && effectiveCategory(item) !== state.filters.category) return false;
       if (excludedKey !== "lang" && state.filters.lang && item.lang !== state.filters.lang) return false;
       if (keyword) {
-        const target = `${item.path} ${item.text} ${item.snippet || ""} ${effectiveCategoryLabel(item)} ${labelFor("action", item.action)} ${item.annotation_reason || ""}`.toLowerCase();
+        const target = `${item.path} ${item.text} ${item.snippet || ""} ${effectiveCategoryLabel(item)} ${labelFor("action", item.action)}`.toLowerCase();
         if (!target.includes(keyword)) return false;
       }
       return true;
     }
 
     function filteredFindings() {
-      return findings.filter(item => matchesFilters(item));
+      return findings
+        .filter(item => matchesFilters(item))
+        .slice()
+        .sort(compareFindings);
+    }
+
+    function sequenceValue(item) {
+      return Number.parseInt(item && item.sequence, 10) || 0;
+    }
+
+    function compareSequence(left, right) {
+      const sequenceGap = sequenceValue(left) - sequenceValue(right);
+      if (sequenceGap !== 0) {
+        return sequenceGap;
+      }
+      return String((left && left.id) || "").localeCompare(String((right && right.id) || ""), "zh-CN");
+    }
+
+    function compareLocation(left, right) {
+      const pathCompare = displayPath(left).localeCompare(displayPath(right), "zh-CN");
+      if (pathCompare !== 0) {
+        return pathCompare;
+      }
+      const lineCompare = toFiniteNumber(left && left.line, 0) - toFiniteNumber(right && right.line, 0);
+      if (lineCompare !== 0) {
+        return lineCompare;
+      }
+      const columnCompare = toFiniteNumber(left && left.column, 0) - toFiniteNumber(right && right.column, 0);
+      if (columnCompare !== 0) {
+        return columnCompare;
+      }
+      const projectCompare = String((left && left.project) || "").localeCompare(
+        String((right && right.project) || ""),
+        "zh-CN"
+      );
+      if (projectCompare !== 0) {
+        return projectCompare;
+      }
+      return compareSequence(left, right);
+    }
+
+    function compareText(left, right) {
+      const textCompare = displaySnippet(left).localeCompare(displaySnippet(right), "zh-CN");
+      if (textCompare !== 0) {
+        return textCompare;
+      }
+      return compareLocation(left, right);
+    }
+
+    function compareFindings(left, right) {
+      const comparator = state.sort.key === "location" ? compareLocation : compareText;
+      const result = comparator(left, right);
+      if (result !== 0) {
+        return state.sort.direction === "desc" ? -result : result;
+      }
+      return compareSequence(left, right);
+    }
+
+    function renderSortButtons() {
+      sortButtons.forEach(button => {
+        const isActive = button.dataset.sortKey === state.sort.key;
+        const indicator = button.querySelector(".sort-indicator");
+        button.classList.toggle("is-active", isActive);
+        button.setAttribute("aria-pressed", isActive ? "true" : "false");
+        if (indicator) {
+          indicator.textContent = isActive ? (state.sort.direction === "asc" ? "↑" : "↓") : "↕";
+        }
+      });
+    }
+
+    function toggleSort(sortKey) {
+      if (!sortKey) {
+        return;
+      }
+      if (state.sort.key === sortKey) {
+        state.sort.direction = state.sort.direction === "asc" ? "desc" : "asc";
+      } else {
+        state.sort.key = sortKey;
+        state.sort.direction = "asc";
+      }
+      state.currentPage = 1;
+      renderRows();
+      scrollResultsToTop();
     }
 
     function availableValues(filterKey) {
@@ -1160,7 +1184,6 @@ def render_report(summary, findings, client_config=None):
     function renderFilterOptions() {
       const configs = [
         { key: "project", node: projectFilter, label: "项目", group: "project" },
-        { key: "action", node: actionFilter, label: "动作", group: "action" },
         { key: "category", node: categoryFilter, label: "分类", group: "category" },
         { key: "lang", node: langFilter, label: "语言", group: "language" },
       ];
@@ -1183,6 +1206,17 @@ def render_report(summary, findings, client_config=None):
         });
         attempts += 1;
       } while (changed && attempts < 6);
+      renderActionFilterOptions();
+    }
+
+    function renderActionFilterOptions() {
+      const options = [
+        { value: "fix", label: "需要整改" },
+        { value: "keep", label: "无需整改" },
+      ];
+      const resolved = options.some(option => option.value === state.filters.action) ? state.filters.action : "fix";
+      actionFilter.innerHTML = options.map(option => `<option value="${option.value}" ${option.value === resolved ? "selected" : ""}>${option.label}</option>`).join("");
+      state.filters.action = resolved;
     }
 
     function paginateFindings(items) {
@@ -1310,71 +1344,37 @@ def render_report(summary, findings, client_config=None):
     }
 
     function actionMarkup(item) {
-      const noteTitle = annotationTooltip(item);
-      const note = item.annotated
-        ? `<div class="annotation-note"${noteTitle ? ` title="${escapeAttr(noteTitle)}"` : ""}><strong>已标注</strong>${escapeHtml(item.annotation_reason || "无需修改")}</div>`
-        : "";
-
-      if (isInteractiveMode()) {
-        if (item.annotated) {
-          return `
-            <div class="action-stack">
-              <span class="pill ${item.action}">${escapeHtml(labelFor("action", item.action))}</span>
-              ${note}
-              <div class="annotation-row">
-                <button class="annotation-btn is-danger" type="button" data-action="remove-annotation" data-id="${escapeAttr(item.id)}">撤销标注</button>
-              </div>
-            </div>
-          `;
-        }
-        if (item.action === "fix") {
-          return `
-            <div class="action-stack">
-              <span class="pill ${item.action}">${escapeHtml(labelFor("action", item.action))}</span>
-              <div class="annotation-row">
-                <button class="annotation-btn" type="button" data-action="annotate" data-id="${escapeAttr(item.id)}">标注无需修改</button>
-              </div>
-            </div>
-          `;
-        }
-      }
-
-      if (item.action === "fix") {
-        return `
-          <div class="action-stack">
-              <span class="pill ${item.action}">${escapeHtml(labelFor("action", item.action))}</span>
-              <div class="annotation-row">
-              <button class="annotation-btn" type="button" disabled title="${escapeAttr(CLIENT_CONFIG.readonly_message || "请使用 zh-audit serve 打开本地服务版本。")}">标注无需修改</button>
-            </div>
-          </div>
-        `;
-      }
-
       return `
         <div class="action-stack">
           <span class="pill ${item.action}">${escapeHtml(labelFor("action", item.action))}</span>
-          ${note}
         </div>
       `;
+    }
+
+    function operationMarkup() {
+      return '<span class="operation-placeholder">-</span>';
     }
 
     function renderRows() {
       const current = filteredFindings();
       const page = paginateFindings(current);
+      renderSortButtons();
 
       if (current.length === 0) {
         resultCount.textContent = `当前筛选 0 条，共 ${formatNumber(findings.length)} 条`;
-        rows.innerHTML = `<tr><td colspan="5" class="empty-row">当前筛选条件下没有命中记录</td></tr>`;
+        rows.innerHTML = `<tr><td colspan="7" class="empty-row">当前筛选条件下没有命中记录</td></tr>`;
       } else {
         resultCount.textContent =
           `当前筛选 ${formatNumber(current.length)} 条，共 ${formatNumber(findings.length)} 条；本页显示第 ${formatNumber(page.startIndex + 1)} - ${formatNumber(page.endIndex)} 条`;
-        rows.innerHTML = page.items.map(item => `
+        rows.innerHTML = page.items.map((item, index) => `
           <tr>
+            <td class="sequence-cell">${formatNumber(page.startIndex + index + 1)}</td>
             <td class="project-cell">${escapeHtml(item.project)}</td>
             <td class="location-cell">${positionMarkup(item)}</td>
             <td class="text-cell">${escapeHtml(displaySnippet(item) || "-")}</td>
             <td class="category-cell">${escapeHtml(effectiveCategoryLabel(item))}</td>
             <td class="action-cell">${actionMarkup(item)}</td>
+            <td class="operation-cell">${operationMarkup(item)}</td>
           </tr>
         `).join("");
       }
@@ -1394,8 +1394,9 @@ def render_report(summary, findings, client_config=None):
 
     function exportCsv() {
       const current = filteredFindings();
-      const headers = ["项目", "位置", "文本", "分类", "动作"];
-      const rows = current.map(item => [
+      const headers = ["行号", "项目", "位置", "文本", "分类", "动作"];
+      const rows = current.map((item, index) => [
+        index + 1,
         item.project || "",
         `${item.path || ""}:${item.line ?? ""}`,
         displaySnippet(item),
@@ -1509,110 +1510,25 @@ def render_report(summary, findings, client_config=None):
         .join("");
     }
 
-    function findFinding(id) {
-      return findings.find(item => item.id === id) || null;
-    }
-
-    function openAnnotationDialog(findingId) {
-      const item = findFinding(findingId);
-      if (!item || !isReviewMode()) {
-        return;
-      }
-      state.pendingAnnotationId = findingId;
-      annotationDialogPath.textContent = `${item.path || ""}:${item.line || ""}`;
-      annotationDialogText.textContent = displaySnippet(item) || "-";
-      annotationReasonInput.value = item.annotation_reason || "";
-      if (typeof annotationDialog.showModal === "function") {
-        annotationDialog.showModal();
-      } else {
-        annotationDialog.setAttribute("open", "open");
-      }
-    }
-
-    function closeAnnotationDialog() {
-      state.pendingAnnotationId = "";
-      annotationReasonInput.value = "";
-      if (typeof annotationDialog.close === "function") {
-        annotationDialog.close();
-      } else {
-        annotationDialog.removeAttribute("open");
-      }
-    }
-
-    async function requestAnnotation(path, payload) {
-      const response = await fetch(path, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || "请求失败");
-      }
-      return data;
-    }
-
-    function applyServerUpdate(data) {
-      summary = data.summary || summary;
-      if (Array.isArray(data.findings)) {
-        findings = data.findings.slice();
-      } else if (data.finding && data.finding.id) {
-        findings = findings.map(item => item.id === data.finding.id ? data.finding : item);
-      }
-      renderSummary();
-      renderFilterOptions();
-      renderRows();
-      if (window.parent && window.parent !== window) {
-        window.parent.postMessage({ type: "zh-audit-updated" }, "*");
-      }
-    }
-
-    async function saveAnnotation() {
-      if (!state.pendingAnnotationId) {
-        return;
-      }
-      annotationSaveBtn.disabled = true;
-      try {
-        const data = await requestAnnotation(CLIENT_CONFIG.annotation_api_path, {
-          finding_id: state.pendingAnnotationId,
-          reason: annotationReasonInput.value.trim(),
-        });
-        applyServerUpdate(data);
-        closeAnnotationDialog();
-      } catch (error) {
-        showCopyToast(error.message || "保存标注失败", true);
-      } finally {
-        annotationSaveBtn.disabled = false;
-      }
-    }
-
-    async function removeAnnotation(findingId) {
-      try {
-        const data = await requestAnnotation(CLIENT_CONFIG.annotation_remove_api_path, {
-          finding_id: findingId,
-        });
-        applyServerUpdate(data);
-      } catch (error) {
-        showCopyToast(error.message || "撤销标注失败", true);
-      }
-    }
     setPageSizeOptions();
-    if (CLIENT_CONFIG.readonly_message) {
-      readonlyNotice.hidden = false;
-      readonlyNotice.textContent = CLIENT_CONFIG.readonly_message;
-    }
 
     [
       ["project", projectFilter],
-      ["action", actionFilter],
       ["category", categoryFilter],
       ["lang", langFilter],
     ].forEach(([key, node]) => {
       node.addEventListener("change", () => {
         state.filters[key] = node.value;
         resetAndRender();
+      });
+    });
+    actionFilter.addEventListener("change", () => {
+      state.filters.action = actionFilter.value;
+      resetAndRender();
+    });
+    sortButtons.forEach(button => {
+      button.addEventListener("click", () => {
+        toggleSort(button.dataset.sortKey || "");
       });
     });
     keywordFilter.addEventListener("input", resetAndRender);
@@ -1641,8 +1557,6 @@ def render_report(summary, findings, client_config=None):
     document.getElementById("exportBtn").addEventListener("click", exportCsv);
     openSkipDialogBtn.addEventListener("click", openSkipDialog);
     closeSkipDialogBtn.addEventListener("click", closeSkipDialog);
-    annotationCancelBtn.addEventListener("click", closeAnnotationDialog);
-    annotationSaveBtn.addEventListener("click", saveAnnotation);
     skipReasonChips.addEventListener("click", event => {
       const target = event.target instanceof Element ? event.target : null;
       const chip = target ? target.closest(".skip-chip") : null;
@@ -1670,28 +1584,6 @@ def render_report(summary, findings, client_config=None):
       if (button) {
         copyFileName(button.dataset.filename || "", button);
         return;
-      }
-      const actionButton = target ? target.closest(".annotation-btn") : null;
-      if (!actionButton || actionButton.disabled) {
-        return;
-      }
-      const action = actionButton.dataset.action || "";
-      const findingId = actionButton.dataset.id || "";
-      if (action == "annotate") {
-        openAnnotationDialog(findingId);
-      } else if (action == "remove-annotation") {
-        removeAnnotation(findingId);
-      }
-    });
-    annotationDialog.addEventListener("click", event => {
-      const rect = annotationDialog.getBoundingClientRect();
-      const withinDialog =
-        rect.top <= event.clientY &&
-        event.clientY <= rect.bottom &&
-        rect.left <= event.clientX &&
-        event.clientX <= rect.right;
-      if (!withinDialog) {
-        closeAnnotationDialog();
       }
     });
 

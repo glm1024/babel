@@ -562,9 +562,9 @@ def _expected_category(
     language = guess_language(Path(path))
 
     if finding.get("annotated") or finding.get("category") == CATEGORY_ANNOTATED_NO_CHANGE:
-        return CATEGORY_ANNOTATED_NO_CHANGE, False, "当前命中已被人工标注为无需修改。"
+        return CATEGORY_ANNOTATED_NO_CHANGE, False, "当前命中来自历史人工保留记录。"
     if is_named_keep_file(path):
-        return CATEGORY_NAMED_FILE, False, "指定文件中的中文统一归为指定文件。"
+        return CATEGORY_NAMED_FILE, False, "排除文件中的中文统一归为排除文件。"
     if is_i18n_messages_file(path):
         return CATEGORY_I18N_FILE, False, "国际化文件中的中文统一归为国际化文件。"
     if ext == ".sql":

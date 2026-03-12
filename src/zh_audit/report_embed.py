@@ -198,6 +198,11 @@ select, input {
   border: 1px solid var(--line, #d8cbbd);
   background: #fff;
 }
+select option,
+select optgroup {
+  padding: 4px 10px;
+  line-height: 1.5;
+}
 button {
   padding: 10px 14px;
   border-radius: 12px;
@@ -265,36 +270,46 @@ button:disabled {
 }
 .findings-table {
   width: 100%;
-  min-width: 1320px;
+  min-width: 1540px;
   border-collapse: collapse;
   table-layout: fixed;
   font-size: 14px;
 }
+.findings-table col.col-sequence { width: 84px; }
 .findings-table col.col-project { width: 90px; }
 .findings-table col.col-location { width: 270px; }
 .findings-table col.col-text { width: 360px; }
 .findings-table col.col-category { width: 150px; }
-.findings-table col.col-action { width: 280px; }
+.findings-table col.col-action { width: 140px; }
+.findings-table col.col-operation { width: 160px; }
+.sequence-cell {
+  white-space: nowrap;
+  color: var(--muted, #6a6f76);
+  font-variant-numeric: tabular-nums;
+}
 .position-cell {
-  display: flex;
-  align-items: flex-start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   gap: 10px;
   width: 100%;
   min-width: 0;
 }
 .path-text {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
+  max-width: calc(100% - 42px);
   font-family: "SFMono-Regular", "Menlo", monospace;
   font-size: 13px;
   overflow-wrap: anywhere;
   word-break: normal;
   line-height: 1.5;
   min-width: 0;
+  text-align: center;
 }
 .copy-btn {
   width: 32px;
   height: 32px;
-  margin-left: auto;
+  margin-left: 0;
   padding: 0;
   border-radius: 10px;
   border: 1px solid var(--line, #d8cbbd);
@@ -330,10 +345,10 @@ button:disabled {
   background: rgba(157, 47, 47, 0.94);
 }
 th, td {
-  text-align: left;
+  text-align: center;
   padding: 10px 8px;
   border-bottom: 1px solid #eadfd3;
-  vertical-align: top;
+  vertical-align: middle;
 }
 th {
   color: var(--muted, #6a6f76);
@@ -346,6 +361,33 @@ th {
   top: 0;
   z-index: 1;
   background: var(--panel, #fffdfa);
+}
+.sort-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+}
+.sort-btn:hover:not(:disabled) {
+  transform: none;
+  opacity: 1;
+  color: var(--ink, #1f2328);
+}
+.sort-btn.is-active {
+  color: var(--ink, #1f2328);
+}
+.sort-indicator {
+  min-width: 1.2em;
+  color: var(--accent, #9f3d2a);
+  font-size: 11px;
+  text-align: center;
 }
 .pill {
   display: inline-flex;
@@ -361,135 +403,75 @@ th {
   white-space: nowrap;
 }
 .pill.fix { background: rgba(157,47,47,0.12); color: var(--danger, #9d2f2f); }
+.pill.resolved { background: rgba(45,106,79,0.18); color: var(--ok, #2d6a4f); }
 .pill.keep { background: rgba(45,106,79,0.12); color: var(--ok, #2d6a4f); }
 .project-cell,
 .category-cell {
   white-space: nowrap;
   word-break: keep-all;
 }
+.sequence-cell,
+.project-cell,
+.location-cell,
+.category-cell,
+.action-cell,
+.operation-cell {
+  vertical-align: middle;
+}
 .text-cell {
   line-height: 1.65;
   overflow-wrap: anywhere;
   font-family: "SFMono-Regular", "Menlo", monospace;
   font-size: 12px;
-}
-.readonly-notice {
-  margin: 0 0 12px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid #eadfd3;
-  background: rgba(244, 239, 232, 0.72);
-  color: var(--muted, #6a6f76);
-  font-size: 13px;
-  line-height: 1.6;
-}
-.readonly-notice[hidden] {
-  display: none;
+  text-align: center;
 }
 .action-cell {
   white-space: normal;
   min-width: 0;
+}
+.operation-cell {
+  white-space: nowrap;
 }
 .action-stack {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 10px;
   align-items: center;
+  justify-content: center;
   width: 100%;
   min-width: 0;
 }
 .action-stack > .pill {
   order: 0;
 }
-.action-stack > .annotation-row {
-  order: 1;
+.operation-placeholder {
+  color: var(--muted, #6a6f76);
 }
-.action-stack > .annotation-note {
-  order: 2;
-  flex-basis: 100%;
-}
-.annotation-row {
+.row-action-btn {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  min-width: 0;
-  max-width: 100%;
-}
-.annotation-btn {
-  padding: 6px 10px;
+  justify-content: center;
+  min-width: 94px;
+  padding: 6px 12px;
   border-radius: 999px;
   border: 1px solid var(--line, #d8cbbd);
   background: rgba(255, 255, 255, 0.92);
   color: var(--ink, #1f2328);
   font-size: 12px;
-  max-width: 100%;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  text-align: center;
+  line-height: 1.2;
 }
-.annotation-btn.is-danger {
-  border-color: rgba(157,47,47,0.24);
+.row-action-btn.resolve {
+  border-color: rgba(157, 47, 47, 0.22);
+  background: rgba(157, 47, 47, 0.06);
   color: var(--danger, #9d2f2f);
-  background: rgba(157,47,47,0.08);
 }
-.annotation-note {
-  display: block;
-  max-width: 100%;
-  color: var(--muted, #6a6f76);
-  font-size: 12px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
+.row-action-btn.reopen {
+  border-color: rgba(45, 106, 79, 0.22);
+  background: rgba(45, 106, 79, 0.08);
+  color: var(--ok, #2d6a4f);
 }
-.annotation-note strong {
-  display: inline-block;
-}
-.annotation-note strong {
-  font-weight: 600;
-  color: var(--ink, #1f2328);
-  margin-right: 6px;
-}
-.annotation-dialog {
-  width: min(560px, calc(100vw - 32px));
-  border: none;
-  border-radius: 20px;
-  padding: 0;
-  background: var(--panel, #fffdfa);
-  box-shadow: 0 28px 80px rgba(31, 35, 40, 0.24);
-}
-.annotation-dialog::backdrop {
-  background: rgba(31, 35, 40, 0.38);
-  backdrop-filter: blur(4px);
-}
-.annotation-dialog-panel {
-  padding: 24px;
-  display: grid;
-  gap: 14px;
-}
-.annotation-dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-}
-.annotation-dialog-path,
-.annotation-dialog-text {
-  font-family: "SFMono-Regular", "Menlo", monospace;
-  font-size: 12px;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(244, 239, 232, 0.62);
-  border: 1px solid #eadfd3;
-}
-.annotation-dialog textarea {
-  width: 100%;
-  min-height: 96px;
-  resize: vertical;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--line, #d8cbbd);
-  background: #fff;
+.row-action-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
 }
 .skip-dialog {
   width: min(980px, calc(100vw - 48px));
@@ -752,10 +734,9 @@ REPORT_COMPONENT_MARKUP = """
         <select id="actionFilter"></select>
         <select id="categoryFilter"></select>
         <select id="langFilter"></select>
-        <input id="keywordFilter" placeholder="按文本、路径、分类或标注理由搜索">
+        <input id="keywordFilter" placeholder="按文本、路径或分类搜索">
         <button id="exportBtn" class="export-btn">导出全部结果到 Excel</button>
       </div>
-      <div id="readonlyNotice" class="readonly-notice" hidden></div>
       <div class="table-toolbar">
         <div class="footer" id="resultCount"></div>
         <div class="pagination">
@@ -774,19 +755,33 @@ REPORT_COMPONENT_MARKUP = """
       <div class="table-wrap">
         <table class="findings-table">
           <colgroup>
+            <col class="col-sequence">
             <col class="col-project">
             <col class="col-location">
             <col class="col-text">
             <col class="col-category">
             <col class="col-action">
+            <col class="col-operation">
           </colgroup>
           <thead>
             <tr>
+              <th>行号</th>
               <th>项目</th>
-              <th>位置</th>
-              <th>文本</th>
+              <th>
+                <button class="sort-btn" type="button" data-sort-key="location" aria-pressed="false">
+                  <span>位置</span>
+                  <span class="sort-indicator" aria-hidden="true">↕</span>
+                </button>
+              </th>
+              <th>
+                <button class="sort-btn" type="button" data-sort-key="text" aria-pressed="true">
+                  <span>文本</span>
+                  <span class="sort-indicator" aria-hidden="true">↑</span>
+                </button>
+              </th>
               <th>分类</th>
               <th>动作</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody id="rows"></tbody>
@@ -821,30 +816,6 @@ REPORT_COMPONENT_MARKUP = """
         </thead>
         <tbody id="skipRows"></tbody>
       </table>
-    </div>
-  </div>
-</dialog>
-<dialog id="annotationDialog" class="annotation-dialog">
-  <div class="annotation-dialog-panel">
-    <div>
-      <div class="summary-kicker">Annotation</div>
-      <h3>标注无需修改</h3>
-    </div>
-    <div>
-      <div class="label">位置</div>
-      <div id="annotationDialogPath" class="annotation-dialog-path"></div>
-    </div>
-    <div>
-      <div class="label">文本</div>
-      <div id="annotationDialogText" class="annotation-dialog-text"></div>
-    </div>
-    <label>
-      <div class="label">理由（可选）</div>
-      <textarea id="annotationReasonInput" placeholder="可填写不需要修改的原因"></textarea>
-    </label>
-    <div class="annotation-dialog-actions">
-      <button id="annotationCancelBtn" class="secondary-btn" type="button">取消</button>
-      <button id="annotationSaveBtn" class="export-btn" type="button">保存标注</button>
     </div>
   </div>
 </dialog>
@@ -898,7 +869,10 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
       currentPage: 1,
       pageSize: 10,
       skipReasonFilter: "",
-      pendingAnnotationId: "",
+      sort: {
+        key: "text",
+        direction: "asc",
+      },
       filters: {
         project: "",
         action: "fix",
@@ -920,6 +894,7 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
     const keywordFilter = getById(root, "keywordFilter");
     const rows = getById(root, "rows");
     const tableWrap = root.querySelector(".table-wrap");
+    const sortButtons = Array.prototype.slice.call(root.querySelectorAll(".sort-btn[data-sort-key]"));
     const resultCount = getById(root, "resultCount");
     const pageSizeSelect = getById(root, "pageSizeSelect");
     const pageInput = getById(root, "pageInput");
@@ -927,13 +902,6 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
     const prevPageBtn = getById(root, "prevPageBtn");
     const nextPageBtn = getById(root, "nextPageBtn");
     const goPageBtn = getById(root, "goPageBtn");
-    const readonlyNotice = getById(root, "readonlyNotice");
-    const annotationDialog = getById(root, "annotationDialog");
-    const annotationDialogPath = getById(root, "annotationDialogPath");
-    const annotationDialogText = getById(root, "annotationDialogText");
-    const annotationReasonInput = getById(root, "annotationReasonInput");
-    const annotationCancelBtn = getById(root, "annotationCancelBtn");
-    const annotationSaveBtn = getById(root, "annotationSaveBtn");
     const copyToast = getById(root, "copyToast");
     const summaryRunId = getById(root, "summaryRunId");
     const summaryProjects = getById(root, "summaryProjects");
@@ -1037,8 +1005,21 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
       return item.snippet || item.normalized_text || item.text || "";
     }
 
+    function normalizeSequence(item, index) {
+      const sequence = Number.parseInt(item && item.sequence, 10);
+      return Number.isFinite(sequence) && sequence > 0 ? sequence : index + 1;
+    }
+
+    function normalizeFindings(items) {
+      return Array.isArray(items)
+        ? items.map(function (item, index) {
+            return Object.assign({}, item || {}, { sequence: normalizeSequence(item, index) });
+          })
+        : [];
+    }
+
     function effectiveCategory(item) {
-      if (item && item.action === "fix") {
+      if (item && (item.action === "fix" || item.action === "resolved")) {
         return "FIX_REQUIRED_MERGED";
       }
       return item.category || "";
@@ -1058,21 +1039,6 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
         counts[key] = (counts[key] || 0) + 1;
       });
       return counts;
-    }
-
-    function annotationTooltip(item) {
-      const parts = [];
-      if (item.original_category) {
-        parts.push("原分类：" + labelFor("category", item.original_category));
-      }
-      if (item.annotation_reason) {
-        parts.push("理由：" + item.annotation_reason);
-      }
-      return parts.join("\\n");
-    }
-
-    function isInteractiveMode() {
-      return currentClientConfig.mode === "serve";
     }
 
     function setOptions(select, values, label, group, selectedValue) {
@@ -1108,11 +1074,14 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
     function matchesFilters(item, excludedKey) {
       const keyword = keywordFilter.value.trim().toLowerCase();
       if (excludedKey !== "project" && state.filters.project && item.project !== state.filters.project) return false;
-      if (excludedKey !== "action" && state.filters.action && item.action !== state.filters.action) return false;
+      if (excludedKey !== "action" && state.filters.action) {
+        if (state.filters.action === "fix" && item.action !== "fix" && item.action !== "resolved") return false;
+        if (state.filters.action === "keep" && item.action !== "keep") return false;
+      }
       if (excludedKey !== "category" && state.filters.category && effectiveCategory(item) !== state.filters.category) return false;
       if (excludedKey !== "lang" && state.filters.lang && item.lang !== state.filters.lang) return false;
       if (keyword) {
-        const target = [item.path, item.text, item.snippet || "", effectiveCategoryLabel(item), labelFor("action", item.action), item.annotation_reason || ""]
+        const target = [item.path, item.text, item.snippet || "", effectiveCategoryLabel(item), labelFor("action", item.action)]
           .join(" ")
           .toLowerCase();
         if (target.indexOf(keyword) === -1) return false;
@@ -1121,9 +1090,91 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
     }
 
     function filteredFindings() {
-      return findings.filter(function (item) {
-        return matchesFilters(item, "");
+      return findings
+        .filter(function (item) {
+          return matchesFilters(item, "");
+        })
+        .slice()
+        .sort(compareFindings);
+    }
+
+    function sequenceValue(item) {
+      return Number.parseInt(item && item.sequence, 10) || 0;
+    }
+
+    function compareSequence(left, right) {
+      const sequenceGap = sequenceValue(left) - sequenceValue(right);
+      if (sequenceGap !== 0) {
+        return sequenceGap;
+      }
+      return String((left && left.id) || "").localeCompare(String((right && right.id) || ""), "zh-CN");
+    }
+
+    function compareLocation(left, right) {
+      const pathCompare = displayPath(left).localeCompare(displayPath(right), "zh-CN");
+      if (pathCompare !== 0) {
+        return pathCompare;
+      }
+      const lineCompare = toFiniteNumber(left && left.line, 0) - toFiniteNumber(right && right.line, 0);
+      if (lineCompare !== 0) {
+        return lineCompare;
+      }
+      const columnCompare = toFiniteNumber(left && left.column, 0) - toFiniteNumber(right && right.column, 0);
+      if (columnCompare !== 0) {
+        return columnCompare;
+      }
+      const projectCompare = String((left && left.project) || "").localeCompare(
+        String((right && right.project) || ""),
+        "zh-CN"
+      );
+      if (projectCompare !== 0) {
+        return projectCompare;
+      }
+      return compareSequence(left, right);
+    }
+
+    function compareText(left, right) {
+      const textCompare = displaySnippet(left).localeCompare(displaySnippet(right), "zh-CN");
+      if (textCompare !== 0) {
+        return textCompare;
+      }
+      return compareLocation(left, right);
+    }
+
+    function compareFindings(left, right) {
+      const comparator = state.sort.key === "location" ? compareLocation : compareText;
+      const result = comparator(left, right);
+      if (result !== 0) {
+        return state.sort.direction === "desc" ? -result : result;
+      }
+      return compareSequence(left, right);
+    }
+
+    function renderSortButtons() {
+      sortButtons.forEach(function (button) {
+        const isActive = button.dataset.sortKey === state.sort.key;
+        const indicator = button.querySelector(".sort-indicator");
+        button.classList.toggle("is-active", isActive);
+        button.setAttribute("aria-pressed", isActive ? "true" : "false");
+        if (indicator) {
+          indicator.textContent = isActive ? (state.sort.direction === "asc" ? "↑" : "↓") : "↕";
+        }
       });
+    }
+
+    function toggleSort(sortKey) {
+      if (!sortKey) {
+        return;
+      }
+      if (state.sort.key === sortKey) {
+        state.sort.direction = state.sort.direction === "asc" ? "desc" : "asc";
+      } else {
+        state.sort.key = sortKey;
+        state.sort.direction = "asc";
+      }
+      state.currentPage = 1;
+      renderRows();
+      scrollResultsToTop();
     }
 
     function availableValues(filterKey) {
@@ -1136,7 +1187,6 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
     function renderFilterOptions() {
       const configs = [
         { key: "project", node: projectFilter, label: "项目", group: "project" },
-        { key: "action", node: actionFilter, label: "动作", group: "action" },
         { key: "category", node: categoryFilter, label: "分类", group: "category" },
         { key: "lang", node: langFilter, label: "语言", group: "language" }
       ];
@@ -1153,6 +1203,23 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
         });
         attempts += 1;
       } while (changed && attempts < 6);
+      renderActionFilterOptions();
+    }
+
+    function renderActionFilterOptions() {
+      const options = [
+        { value: "fix", label: "需要整改" },
+        { value: "keep", label: "无需整改" }
+      ];
+      const resolved = options.some(function (option) {
+        return option.value === state.filters.action;
+      })
+        ? state.filters.action
+        : "fix";
+      actionFilter.innerHTML = options.map(function (option) {
+        return '<option value="' + option.value + '"' + (option.value === resolved ? " selected" : "") + ">" + option.label + "</option>";
+      }).join("");
+      state.filters.action = resolved;
     }
 
     function paginateFindings(items) {
@@ -1250,38 +1317,34 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
     }
 
     function actionMarkup(item) {
-      const noteTitle = annotationTooltip(item);
-      const note = item.annotated
-        ? '<div class="annotation-note"' + (noteTitle ? ' title="' + escapeAttr(noteTitle) + '"' : "") + '><strong>已标注</strong>' + escapeHtml(item.annotation_reason || "无需修改") + "</div>"
-        : "";
+      return '<div class="action-stack"><span class="pill ' + item.action + '">' + escapeHtml(labelFor("action", item.action)) + "</span></div>";
+    }
 
-      if (isInteractiveMode()) {
-        if (item.annotated) {
-          return '<div class="action-stack"><span class="pill ' + item.action + '">' + escapeHtml(labelFor("action", item.action)) + '</span>' + note + '<div class="annotation-row"><button class="annotation-btn is-danger" type="button" data-action="remove-annotation" data-id="' + escapeAttr(item.id) + '">撤销标注</button></div></div>';
-        }
-        if (item.action === "fix") {
-          return '<div class="action-stack"><span class="pill ' + item.action + '">' + escapeHtml(labelFor("action", item.action)) + '</span><div class="annotation-row"><button class="annotation-btn" type="button" data-action="annotate" data-id="' + escapeAttr(item.id) + '">标注无需修改</button></div></div>';
-        }
+    function operationMarkup(item) {
+      if (!isInteractiveMode()) {
+        return '<span class="operation-placeholder">-</span>';
       }
-
-      if (item.action === "fix") {
-        return '<div class="action-stack"><span class="pill ' + item.action + '">' + escapeHtml(labelFor("action", item.action)) + '</span><div class="annotation-row"><button class="annotation-btn" type="button" disabled title="' + escapeAttr(currentClientConfig.readonly_message || "请使用 zh-audit serve 打开本地服务版本。") + '">标注无需修改</button></div></div>';
+      if (item.action === "fix" && currentClientConfig.finding_resolve_api_path) {
+        return '<button class="row-action-btn resolve" type="button" data-action="resolve-finding" data-id="' + escapeAttr(item.id) + '">标记已整改</button>';
       }
-
-      return '<div class="action-stack"><span class="pill ' + item.action + '">' + escapeHtml(labelFor("action", item.action)) + "</span>" + note + "</div>";
+      if (item.action === "resolved" && currentClientConfig.finding_reopen_api_path) {
+        return '<button class="row-action-btn reopen" type="button" data-action="reopen-finding" data-id="' + escapeAttr(item.id) + '">重新打开</button>';
+      }
+      return '<span class="operation-placeholder">-</span>';
     }
 
     function renderRows() {
       const current = filteredFindings();
       const page = paginateFindings(current);
+      renderSortButtons();
 
       if (current.length === 0) {
         resultCount.textContent = "当前筛选 0 条，共 " + formatNumber(findings.length) + " 条";
-        rows.innerHTML = '<tr><td colspan="5" class="empty-row">当前筛选条件下没有命中记录</td></tr>';
+        rows.innerHTML = '<tr><td colspan="7" class="empty-row">当前筛选条件下没有命中记录</td></tr>';
       } else {
         resultCount.textContent = "当前筛选 " + formatNumber(current.length) + " 条，共 " + formatNumber(findings.length) + " 条；本页显示第 " + formatNumber(page.startIndex + 1) + " - " + formatNumber(page.endIndex) + " 条";
-        rows.innerHTML = page.items.map(function (item) {
-          return '<tr><td class="project-cell">' + escapeHtml(item.project) + '</td><td class="location-cell">' + positionMarkup(item) + '</td><td class="text-cell">' + escapeHtml(displaySnippet(item) || "-") + '</td><td class="category-cell">' + escapeHtml(effectiveCategoryLabel(item)) + '</td><td class="action-cell">' + actionMarkup(item) + "</td></tr>";
+        rows.innerHTML = page.items.map(function (item, index) {
+          return '<tr><td class="sequence-cell">' + formatNumber(page.startIndex + index + 1) + '</td><td class="project-cell">' + escapeHtml(item.project) + '</td><td class="location-cell">' + positionMarkup(item) + '</td><td class="text-cell">' + escapeHtml(displaySnippet(item) || "-") + '</td><td class="category-cell">' + escapeHtml(effectiveCategoryLabel(item)) + '</td><td class="action-cell">' + actionMarkup(item) + '</td><td class="operation-cell">' + operationMarkup(item) + "</td></tr>";
         }).join("");
       }
 
@@ -1307,9 +1370,10 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
 
     function exportCsv() {
       const current = filteredFindings();
-      const headers = ["项目", "位置", "文本", "分类", "动作"];
-      const csvRows = current.map(function (item) {
+      const headers = ["行号", "项目", "位置", "文本", "分类", "动作"];
+      const csvRows = current.map(function (item, index) {
         return [
+          index + 1,
           item.project || "",
           (item.path || "") + ":" + (item.line == null ? "" : item.line),
           displaySnippet(item),
@@ -1378,6 +1442,57 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
       }
     }
 
+    function isInteractiveMode() {
+      return currentClientConfig.mode === "serve";
+    }
+
+    async function requestServerUpdate(path, payload) {
+      const response = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload || {})
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "请求失败");
+      }
+      return data;
+    }
+
+    function applyServerUpdate(data) {
+      summary = data.summary || summary;
+      if (Array.isArray(data.findings)) {
+        findings = normalizeFindings(data.findings);
+      }
+      renderSummary();
+      renderFilterOptions();
+      renderRows();
+      host.dispatchEvent(new CustomEvent("zh-audit-report-updated", {
+        detail: {
+          summary: summary,
+          findings: findings.slice(),
+          has_results: !!data.has_results,
+          results_revision: data.results_revision
+        },
+        bubbles: true,
+        composed: true
+      }));
+    }
+
+    async function resolveFinding(findingId) {
+      const data = await requestServerUpdate(currentClientConfig.finding_resolve_api_path, {
+        finding_id: findingId
+      });
+      applyServerUpdate(data);
+    }
+
+    async function reopenFinding(findingId) {
+      const data = await requestServerUpdate(currentClientConfig.finding_reopen_api_path, {
+        finding_id: findingId
+      });
+      applyServerUpdate(data);
+    }
+
     function renderSummary() {
       const skippedFiles = (summary.files || []).filter(function (item) { return item.skip_reason; });
       const cardsData = [
@@ -1421,103 +1536,6 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
         .join("");
     }
 
-    function findFinding(id) {
-      for (let index = 0; index < findings.length; index += 1) {
-        if (findings[index].id === id) {
-          return findings[index];
-        }
-      }
-      return null;
-    }
-
-    function openAnnotationDialog(findingId) {
-      const item = findFinding(findingId);
-      if (!item || !isInteractiveMode()) {
-        return;
-      }
-      state.pendingAnnotationId = findingId;
-      annotationDialogPath.textContent = (item.path || "") + ":" + (item.line || "");
-      annotationDialogText.textContent = displaySnippet(item) || "-";
-      annotationReasonInput.value = item.annotation_reason || "";
-      if (typeof annotationDialog.showModal === "function") {
-        annotationDialog.showModal();
-      } else {
-        annotationDialog.setAttribute("open", "open");
-      }
-    }
-
-    function closeAnnotationDialog() {
-      state.pendingAnnotationId = "";
-      annotationReasonInput.value = "";
-      if (typeof annotationDialog.close === "function") {
-        annotationDialog.close();
-      } else {
-        annotationDialog.removeAttribute("open");
-      }
-    }
-
-    async function requestAnnotation(path, payload) {
-      const response = await fetch(path, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || "请求失败");
-      }
-      return data;
-    }
-
-    function applyServerUpdate(data) {
-      summary = data.summary || summary;
-      if (Array.isArray(data.findings)) {
-        findings = data.findings.slice();
-      } else if (data.finding && data.finding.id) {
-        findings = findings.map(function (item) {
-          return item.id === data.finding.id ? data.finding : item;
-        });
-      }
-      renderSummary();
-      renderFilterOptions();
-      renderRows();
-      host.dispatchEvent(new CustomEvent("zh-audit-report-updated", {
-        detail: { summary: summary, findings: findings.slice() },
-        bubbles: true,
-        composed: true
-      }));
-    }
-
-    async function saveAnnotation() {
-      if (!state.pendingAnnotationId) {
-        return;
-      }
-      annotationSaveBtn.disabled = true;
-      try {
-        const data = await requestAnnotation(currentClientConfig.annotation_api_path, {
-          finding_id: state.pendingAnnotationId,
-          reason: annotationReasonInput.value.trim()
-        });
-        applyServerUpdate(data);
-        closeAnnotationDialog();
-      } catch (error) {
-        showCopyToast(error.message || "保存标注失败", true);
-      } finally {
-        annotationSaveBtn.disabled = false;
-      }
-    }
-
-    async function removeAnnotation(findingId) {
-      try {
-        const data = await requestAnnotation(currentClientConfig.annotation_remove_api_path, {
-          finding_id: findingId
-        });
-        applyServerUpdate(data);
-      } catch (error) {
-        showCopyToast(error.message || "撤销标注失败", true);
-      }
-    }
-
     function bindListeners() {
       if (listenersBound) {
         return;
@@ -1525,7 +1543,6 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
       listenersBound = true;
       [
         ["project", projectFilter],
-        ["action", actionFilter],
         ["category", categoryFilter],
         ["lang", langFilter]
       ].forEach(function (entry) {
@@ -1534,6 +1551,15 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
         node.addEventListener("change", function () {
           state.filters[key] = node.value;
           resetAndRender();
+        });
+      });
+      actionFilter.addEventListener("change", function () {
+        state.filters.action = actionFilter.value;
+        resetAndRender();
+      });
+      sortButtons.forEach(function (button) {
+        button.addEventListener("click", function () {
+          toggleSort(button.dataset.sortKey || "");
         });
       });
       keywordFilter.addEventListener("input", resetAndRender);
@@ -1562,8 +1588,6 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
       getById(root, "exportBtn").addEventListener("click", exportCsv);
       openSkipDialogBtn.addEventListener("click", openSkipDialog);
       closeSkipDialogBtn.addEventListener("click", closeSkipDialog);
-      annotationCancelBtn.addEventListener("click", closeAnnotationDialog);
-      annotationSaveBtn.addEventListener("click", saveAnnotation);
       skipReasonChips.addEventListener("click", function (event) {
         const target = event.target instanceof Element ? event.target : null;
         const chip = target ? target.closest(".skip-chip") : null;
@@ -1585,34 +1609,31 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
           closeSkipDialog();
         }
       });
-      rows.addEventListener("click", function (event) {
+      rows.addEventListener("click", async function (event) {
         const target = event.target instanceof Element ? event.target : null;
         const button = target ? target.closest(".copy-btn") : null;
         if (button) {
           copyFileName(button.dataset.filename || "", button);
           return;
         }
-        const actionButton = target ? target.closest(".annotation-btn") : null;
-        if (!actionButton || actionButton.disabled) {
+        const actionButton = target ? target.closest(".row-action-btn[data-action]") : null;
+        if (!actionButton) {
           return;
         }
-        const action = actionButton.dataset.action || "";
         const findingId = actionButton.dataset.id || "";
-        if (action === "annotate") {
-          openAnnotationDialog(findingId);
-        } else if (action === "remove-annotation") {
-          removeAnnotation(findingId);
-        }
-      });
-      annotationDialog.addEventListener("click", function (event) {
-        const rect = annotationDialog.getBoundingClientRect();
-        const withinDialog =
-          rect.top <= event.clientY &&
-          event.clientY <= rect.bottom &&
-          rect.left <= event.clientX &&
-          event.clientX <= rect.right;
-        if (!withinDialog) {
-          closeAnnotationDialog();
+        actionButton.disabled = true;
+        try {
+          if (actionButton.dataset.action === "resolve-finding") {
+            await resolveFinding(findingId);
+            return;
+          }
+          if (actionButton.dataset.action === "reopen-finding") {
+            await reopenFinding(findingId);
+          }
+        } catch (error) {
+          showCopyToast(error.message || "更新整改状态失败", true);
+        } finally {
+          actionButton.disabled = false;
         }
       });
     }
@@ -1621,11 +1642,9 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
       currentClientConfig = Object.assign({}, DEFAULT_CLIENT_CONFIG, clientConfig || {});
       currentOptions = Object.assign({}, currentOptions, options || {});
       summary = payload.summary || {};
-      findings = Array.isArray(payload.findings) ? payload.findings.slice() : [];
+      findings = normalizeFindings(payload.findings);
       reportMain.dataset.layout = currentOptions.embedded ? "embedded" : "standalone";
       setPageSizeOptions();
-      readonlyNotice.hidden = !currentClientConfig.readonly_message;
-      readonlyNotice.textContent = currentClientConfig.readonly_message || "";
       renderSummary();
       renderFilterOptions();
       renderRows();
@@ -1657,10 +1676,8 @@ def render_report_component_bundle():
         json.dumps(
             {
                 "mode": "serve",
-                "annotation_api_path": "",
-                "annotation_remove_api_path": "",
-                "readonly_message": "",
-                "annotation_path": "",
+                "finding_resolve_api_path": "",
+                "finding_reopen_api_path": "",
             },
             ensure_ascii=False,
         ),

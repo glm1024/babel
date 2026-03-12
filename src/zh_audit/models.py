@@ -190,6 +190,7 @@ class RawFinding(Serializable):
 class ClassifiedFinding(Serializable):
     __slots__ = (
         "id",
+        "sequence",
         "project",
         "path",
         "lang",
@@ -209,18 +210,13 @@ class ClassifiedFinding(Serializable):
         "reason",
         "file_role",
         "candidate_roles",
-        "annotated",
-        "annotation_reason",
-        "annotation_updated_at",
-        "original_category",
-        "original_action",
-        "annotation_key",
         "metadata",
     )
 
     def __init__(
         self,
         id,
+        sequence,
         project,
         path,
         lang,
@@ -240,15 +236,10 @@ class ClassifiedFinding(Serializable):
         reason,
         file_role,
         candidate_roles,
-        annotated=False,
-        annotation_reason="",
-        annotation_updated_at="",
-        original_category="",
-        original_action="",
-        annotation_key="",
         metadata=None,
     ):
         self.id = id
+        self.sequence = int(sequence or 0)
         self.project = project
         self.path = path
         self.lang = lang
@@ -268,12 +259,6 @@ class ClassifiedFinding(Serializable):
         self.reason = reason
         self.file_role = file_role
         self.candidate_roles = list(candidate_roles)
-        self.annotated = annotated
-        self.annotation_reason = annotation_reason
-        self.annotation_updated_at = annotation_updated_at
-        self.original_category = original_category
-        self.original_action = original_action
-        self.annotation_key = annotation_key
         self.metadata = dict(metadata or {})
 
 

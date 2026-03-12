@@ -69,6 +69,22 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("TEST_SAMPLE_FIXTURE", categories)
             self.assertIn("CONFIG_ITEM", categories)
             self.assertIn("PROTOCOL_OR_PERSISTED_LITERAL", categories)
+            self.assertEqual([item["sequence"] for item in findings], list(range(1, len(findings) + 1)))
+            self.assertEqual(
+                findings,
+                sorted(
+                    findings,
+                    key=lambda item: (
+                        (item.get("snippet") or item.get("normalized_text") or item.get("text") or "").casefold(),
+                        (item.get("project") or "").casefold(),
+                        (item.get("path") or "").casefold(),
+                        int(item.get("line") or 0),
+                        int(item.get("column") or 0),
+                        (item.get("surface_kind") or "").casefold(),
+                        (item.get("id") or "").casefold(),
+                    ),
+                ),
+            )
             self.assertEqual(summary["occurrence_count"], len(findings))
             self.assertIn("excluded_files", summary)
             self.assertIn("scan_policy", summary)
@@ -509,7 +525,7 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("普通文档", report)
             self.assertIn("SQL脚本", report)
             self.assertIn("Shell脚本", report)
-            self.assertIn("指定文件", report)
+            self.assertIn("排除文件", report)
             self.assertIn("国际化文件", report)
             self.assertIn("ITask注解", report)
             self.assertIn("扫描摘要", report)
@@ -520,8 +536,10 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("上一页", report)
             self.assertIn("下一页", report)
             self.assertIn("当前筛选条件下没有命中记录", report)
-            self.assertIn("当前报告为只读模式，请使用 zh-audit serve 打开本地服务版本。", report)
-            self.assertIn("标注无需修改", report)
+            self.assertNotIn("当前报告为只读模式，请使用 zh-audit serve 打开本地服务版本。", report)
+            self.assertNotIn("标注无需修改", report)
+            self.assertIn("完成整改", report)
+            self.assertIn("<th>操作</th>", report)
             self.assertLess(report.index('id="projectFilter"'), report.index('id="actionFilter"'))
             self.assertLess(report.index('id="actionFilter"'), report.index('id="categoryFilter"'))
             self.assertLess(report.index('id="categoryFilter"'), report.index('id="langFilter"'))
@@ -551,6 +569,8 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("const PAGE_SIZES = [10, 100, 500];", report)
             self.assertIn("pageSize: 10", report)
             self.assertIn('action: "fix"', report)
+            self.assertIn("需要整改", report)
+            self.assertIn("无需整改", report)
             self.assertIn('}>${value} 条</option>`;', report)
             self.assertIn("function availableValues(filterKey) {", report)
             self.assertIn('function effectiveCategory(item) {', report)
@@ -558,10 +578,10 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn('function effectiveCategoryCounts() {', report)
             self.assertIn("function renderFilterOptions() {", report)
             self.assertIn('{ key: "project", node: projectFilter, label: "项目", group: "project" }', report)
-            self.assertIn('{ key: "action", node: actionFilter, label: "动作", group: "action" }', report)
             self.assertIn('{ key: "category", node: categoryFilter, label: "分类", group: "category" }', report)
             self.assertIn('{ key: "lang", node: langFilter, label: "语言", group: "language" }', report)
-            self.assertIn('if (excludedKey !== "action" && state.filters.action && item.action !== state.filters.action) return false;', report)
+            self.assertIn('if (state.filters.action === "fix" && item.action !== "fix" && item.action !== "resolved") return false;', report)
+            self.assertIn('if (state.filters.action === "keep" && item.action !== "keep") return false;', report)
             self.assertIn('if (excludedKey !== "category" && state.filters.category && effectiveCategory(item) !== state.filters.category) return false;', report)
             self.assertIn('state.filters[key] = node.value;', report)
             self.assertIn("renderFilterOptions();", report)
@@ -572,11 +592,19 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("function scrollResultsToTop() {", report)
             self.assertIn("tableWrap.scrollTop = 0;", report)
             self.assertIn("window.scrollTo(0, 0);", report)
-            self.assertIn('const headers = ["项目", "位置", "文本", "分类", "动作"];', report)
+            self.assertIn('const headers = ["行号", "项目", "位置", "文本", "分类", "动作"];', report)
+            self.assertIn('${formatNumber(page.startIndex + index + 1)}', report)
+            self.assertIn('key: "text",', report)
+            self.assertIn('direction: "asc",', report)
+            self.assertIn('data-sort-key="location"', report)
+            self.assertIn('data-sort-key="text"', report)
+            self.assertIn("function compareLocation(left, right) {", report)
+            self.assertIn("function compareText(left, right) {", report)
+            self.assertIn("function toggleSort(sortKey) {", report)
             self.assertIn('new Blob(["\\ufeff", lines.join("\\n")], { type: "text/csv;charset=utf-8" })', report)
             self.assertIn("function displaySnippet(item) {", report)
             self.assertIn('return item.snippet || item.normalized_text || item.text || "";', report)
-            self.assertIn('${item.path} ${item.text} ${item.snippet || ""} ${effectiveCategoryLabel(item)} ${labelFor("action", item.action)} ${item.annotation_reason || ""}', report)
+            self.assertIn('${item.path} ${item.text} ${item.snippet || ""} ${effectiveCategoryLabel(item)} ${labelFor("action", item.action)}', report)
             self.assertNotIn("function findingText(item) {", report)
             self.assertNotIn('<td class="hit-text-cell">${escapeHtml(findingText(item) || "-")}</td>', report)
             self.assertNotIn(".hit-text-cell {", report)
@@ -589,12 +617,17 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("overflow: hidden;", report)
             self.assertIn("height: calc(100vh - 68px);", report)
             self.assertIn(".findings-table thead th {", report)
+            self.assertIn(".sort-btn {", report)
+            self.assertIn(".findings-table col.col-operation { width: 160px; }", report)
+            self.assertIn(".pill.resolved {", report)
+            self.assertIn("operation-placeholder", report)
             self.assertIn("position: sticky;", report)
-            self.assertIn('rows.innerHTML = `<tr><td colspan="5" class="empty-row">当前筛选条件下没有命中记录</td></tr>`;', report)
+            self.assertIn('rows.innerHTML = `<tr><td colspan="7" class="empty-row">当前筛选条件下没有命中记录</td></tr>`;', report)
             self.assertIn('const CLIENT_CONFIG = {"mode": "static"', report)
             self.assertNotIn("__CLIENT_CONFIG__", report)
-            self.assertIn('readonlyNotice.textContent = CLIENT_CONFIG.readonly_message;', report)
-            self.assertIn('button class="annotation-btn" type="button" disabled', report)
+            self.assertNotIn("readonlyNotice", report)
+            self.assertNotIn("annotation-btn", report)
+            self.assertNotIn("标记已整改", report)
             self.assertNotIn('setOptions(projectFilter, findings.map(item => item.project), "项目", "project");', report)
             self.assertNotIn('setOptions(categoryFilter, findings.map(item => item.category), "分类", "category");', report)
 
