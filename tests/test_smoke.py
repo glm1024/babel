@@ -322,7 +322,7 @@ class ScanSmokeTest(unittest.TestCase):
                     and item["hit_text"] == "时钟回拨"
                     and item["path"] == "src/ConditionExpressions.java"
                     and item["category"] == "CONDITION_EXPRESSION_LITERAL"
-                    and item["action"] == "keep"
+                    and item["action"] == "fix"
                     for item in findings
                 )
             )
@@ -332,7 +332,7 @@ class ScanSmokeTest(unittest.TestCase):
                     and item["hit_text"] == "不能为"
                     and item["path"] == "src/ConditionExpressions.java"
                     and item["category"] == "CONDITION_EXPRESSION_LITERAL"
-                    and item["action"] == "keep"
+                    and item["action"] == "fix"
                     for item in findings
                 )
             )
@@ -342,7 +342,7 @@ class ScanSmokeTest(unittest.TestCase):
                     and item["hit_text"] == "停止服务"
                     and item["path"] == "src/ConditionExpressions.java"
                     and item["category"] == "CONDITION_EXPRESSION_LITERAL"
-                    and item["action"] == "keep"
+                    and item["action"] == "fix"
                     for item in findings
                 )
             )
@@ -352,7 +352,7 @@ class ScanSmokeTest(unittest.TestCase):
                     and item["hit_text"] == "断言命中"
                     and item["path"] == "src/ConditionExpressions.java"
                     and item["category"] == "CONDITION_EXPRESSION_LITERAL"
-                    and item["action"] == "keep"
+                    and item["action"] == "fix"
                     for item in findings
                 )
             )
@@ -362,7 +362,7 @@ class ScanSmokeTest(unittest.TestCase):
                     and item["hit_text"] == "错误前缀"
                     and item["path"] == "src/ConditionExpressions.java"
                     and item["category"] == "CONDITION_EXPRESSION_LITERAL"
-                    and item["action"] == "keep"
+                    and item["action"] == "fix"
                     for item in findings
                 )
             )
@@ -372,7 +372,7 @@ class ScanSmokeTest(unittest.TestCase):
                     and item["hit_text"] == "租户"
                     and item["path"] == "src/ConditionExpressions.java"
                     and item["category"] == "CONDITION_EXPRESSION_LITERAL"
-                    and item["action"] == "keep"
+                    and item["action"] == "fix"
                     for item in findings
                 )
             )
@@ -382,7 +382,7 @@ class ScanSmokeTest(unittest.TestCase):
                     and item["hit_text"] == "提示"
                     and item["path"] == "src/ConditionExpressions.java"
                     and item["category"] == "CONDITION_EXPRESSION_LITERAL"
-                    and item["action"] == "keep"
+                    and item["action"] == "fix"
                     for item in findings
                 )
             )
@@ -392,7 +392,7 @@ class ScanSmokeTest(unittest.TestCase):
                     and item["hit_text"] == "忽略"
                     and item["path"] == "src/ConditionExpressions.java"
                     and item["category"] == "CONDITION_EXPRESSION_LITERAL"
-                    and item["action"] == "keep"
+                    and item["action"] == "fix"
                     for item in findings
                 )
             )
@@ -402,7 +402,7 @@ class ScanSmokeTest(unittest.TestCase):
                     and item["hit_text"] == "前缀"
                     and item["path"] == "src/ConditionExpressions.java"
                     and item["category"] == "CONDITION_EXPRESSION_LITERAL"
-                    and item["action"] == "keep"
+                    and item["action"] == "fix"
                     for item in findings
                 )
             )
@@ -412,7 +412,7 @@ class ScanSmokeTest(unittest.TestCase):
                     and item["hit_text"] == "名称不能为空"
                     and item["path"] == "src/ConditionExpressions.java"
                     and item["category"] == "CONDITION_EXPRESSION_LITERAL"
-                    and item["action"] == "keep"
+                    and item["action"] == "fix"
                     for item in findings
                 )
             )
@@ -422,7 +422,7 @@ class ScanSmokeTest(unittest.TestCase):
                     and item["hit_text"] == "状态非法"
                     and item["path"] == "src/ConditionExpressions.java"
                     and item["category"] == "CONDITION_EXPRESSION_LITERAL"
-                    and item["action"] == "keep"
+                    and item["action"] == "fix"
                     for item in findings
                 )
             )
@@ -432,7 +432,7 @@ class ScanSmokeTest(unittest.TestCase):
                     and item["hit_text"] == "前缀"
                     and item["path"] == "src/ConditionExpressions.java"
                     and item["category"] == "CONDITION_EXPRESSION_LITERAL"
-                    and item["action"] == "keep"
+                    and item["action"] == "fix"
                     for item in findings
                 )
             )
@@ -442,7 +442,7 @@ class ScanSmokeTest(unittest.TestCase):
                     and item["hit_text"] == "启用"
                     and item["path"] == "src/ConditionExpressions.java"
                     and item["category"] == "CONDITION_EXPRESSION_LITERAL"
-                    and item["action"] == "keep"
+                    and item["action"] == "fix"
                     for item in findings
                 )
             )
@@ -451,7 +451,7 @@ class ScanSmokeTest(unittest.TestCase):
                     item["text"] == "启动虚拟机："
                     and item["path"] == "src/ConditionExpressions.java"
                     and item["category"] == "CONDITION_EXPRESSION_LITERAL"
-                    and item["action"] == "keep"
+                    and item["action"] == "fix"
                     for item in findings
                 )
             )
@@ -460,7 +460,7 @@ class ScanSmokeTest(unittest.TestCase):
                     item["text"] == "开启云主机："
                     and item["path"] == "src/ConditionExpressions.java"
                     and item["category"] == "CONDITION_EXPRESSION_LITERAL"
-                    and item["action"] == "keep"
+                    and item["action"] == "fix"
                     for item in findings
                 )
             )
@@ -469,7 +469,7 @@ class ScanSmokeTest(unittest.TestCase):
                     item["text"] == "\\u4e00"
                     and item["path"] == "src/ConditionExpressions.java"
                     and item["category"] == "CONDITION_EXPRESSION_LITERAL"
-                    and item["action"] == "keep"
+                    and item["action"] == "fix"
                     for item in findings
                 )
             )
@@ -478,7 +478,7 @@ class ScanSmokeTest(unittest.TestCase):
                     item["text"] == "\\u9fa5"
                     and item["path"] == "src/ConditionExpressions.java"
                     and item["category"] == "CONDITION_EXPRESSION_LITERAL"
-                    and item["action"] == "keep"
+                    and item["action"] == "fix"
                     for item in findings
                 )
             )
@@ -511,7 +511,6 @@ class ScanSmokeTest(unittest.TestCase):
             self.assertIn("Shell脚本", report)
             self.assertIn("指定文件", report)
             self.assertIn("国际化文件", report)
-            self.assertIn("匹配条件", report)
             self.assertIn("ITask注解", report)
             self.assertIn("扫描摘要", report)
             self.assertIn("明细筛选", report)

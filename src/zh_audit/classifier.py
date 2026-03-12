@@ -151,7 +151,7 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
         extra_context=condition_extra_context,
     ):
         category = CATEGORY_CONDITION_EXPRESSION_LITERAL
-        action = "keep"
+        action = "fix"
         confidence = 0.94
         reason = "Logic processing literal context."
     elif _looks_like_error_context(evidence_context_lower):
@@ -167,7 +167,7 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
         extra_context=condition_extra_context,
     ):
         category = CATEGORY_CONDITION_EXPRESSION_LITERAL
-        action = "keep"
+        action = "fix"
         confidence = 0.92
         reason = "Logic processing literal context."
     elif raw.file_role == "template" or raw.lang in FRONTEND_LANGS:
