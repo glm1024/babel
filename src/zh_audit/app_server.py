@@ -30,6 +30,7 @@ from zh_audit.app_state import (
 from zh_audit.app_ui import render_app_shell
 from zh_audit.config import load_project_model_config
 from zh_audit.model_client import call_openai_compatible_json
+from zh_audit.model_client import probe_openai_compatible_model
 from zh_audit.models import RepoSpec
 from zh_audit.pipeline import refresh_summary, run_scan
 from zh_audit.report import render_report
@@ -107,7 +108,11 @@ class AppServiceState(object):
 
     def save_config(self, payload):
         with self.lock:
-            self._update_config(payload)
+            next_app_state = self._build_updated_app_state(payload)
+            if payload and "model_config" in payload:
+                self._validate_model_config(next_app_state)
+            self.app_state = next_app_state
+            self.translation_auto_accept = bool(self.app_state["translation_config"].get("auto_accept", False))
             self._persist_app_state()
             return self.bootstrap_payload()
 
@@ -251,8 +256,8 @@ class AppServiceState(object):
                     "message": "扫描完成",
                     "total": int(self.scan_status.get("total", 0)),
                     "processed": int(self.scan_status.get("processed", 0)),
-                    "current_repo": "",
-                    "current_path": "",
+                    "current_repo": self.scan_status.get("current_repo", ""),
+                    "current_path": "扫描完成",
                     "started_at": self.scan_status.get("started_at", ""),
                     "finished_at": self._timestamp(),
                     "error": "",
@@ -295,7 +300,13 @@ class AppServiceState(object):
             if stage == "start":
                 current["total"] = int(payload.get("total", 0))
                 current["processed"] = 0
+                current["current_repo"] = ""
+                current["current_path"] = ""
                 current["message"] = "准备扫描"
+            elif stage == "repo":
+                current["current_repo"] = str(payload.get("repo", ""))
+                current["current_path"] = "准备扫描项目"
+                current["message"] = "切换项目"
             elif stage == "file":
                 current["processed"] = int(payload.get("processed", current.get("processed", 0)))
                 current["total"] = int(payload.get("total", current.get("total", 0)))
@@ -305,26 +316,33 @@ class AppServiceState(object):
             elif stage == "done":
                 current["processed"] = int(payload.get("processed", current.get("processed", 0)))
                 current["total"] = int(payload.get("total", current.get("total", 0)))
-                current["current_repo"] = ""
                 current["current_path"] = "扫描完成"
                 current["message"] = "整理结果"
             self.scan_status = current
 
-    def _update_config(self, payload):
+    def _build_updated_app_state(self, payload):
         payload = payload or {}
         roots = payload.get("scan_roots", self.app_state.get("scan_roots", []))
         scan_policy = payload.get("scan_policy", self.app_state.get("scan_policy", {}))
         translation_config = payload.get("translation_config", self.app_state.get("translation_config", {}))
         model_config_overrides = dict(self.app_state.get("model_config_overrides", {}))
         if "model_config" in payload:
-            model_config_overrides = diff_model_config_overrides(payload.get("model_config"), self._base_model_config())
-        self.app_state = {
+            try:
+                model_config_overrides = diff_model_config_overrides(payload.get("model_config"), self._base_model_config())
+            except ValueError as exc:
+                if "model_config.base_url" in str(exc):
+                    raise ValueError("模型配置中的 Base URL 格式不正确，必须是完整的 http(s) 地址。")
+                raise
+        return {
             "version": self.app_state.get("version", default_app_state()["version"]),
             "scan_roots": normalize_scan_roots(roots),
             "scan_policy": normalize_scan_policy(scan_policy),
             "model_config_overrides": model_config_overrides,
             "translation_config": normalize_translation_config(translation_config),
         }
+
+    def _update_config(self, payload):
+        self.app_state = self._build_updated_app_state(payload)
         self.translation_auto_accept = bool(self.app_state["translation_config"].get("auto_accept", False))
 
     def _persist_app_state(self):
@@ -393,8 +411,13 @@ class AppServiceState(object):
     def _base_model_config(self):
         return merge_model_config(self.project_model_config)
 
-    def _effective_model_config(self):
-        return merge_model_config(self.project_model_config, self.app_state.get("model_config_overrides", {}))
+    def _effective_model_config(self, app_state=None):
+        effective_state = self.app_state if app_state is None else app_state
+        return merge_model_config(self.project_model_config, effective_state.get("model_config_overrides", {}))
+
+    def _validate_model_config(self, app_state=None):
+        model_config = self._effective_model_config(app_state)
+        probe_openai_compatible_model(model_config)
 
     def _idle_scan_status(self):
         return {

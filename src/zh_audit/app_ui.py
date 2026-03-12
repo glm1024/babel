@@ -80,8 +80,8 @@ def render_app_shell(bootstrap_payload, client_config):
     }
     .tab-bar {
       display: inline-flex;
-      justify-self: start;
-      align-self: start;
+      justify-self: center;
+      align-self: center;
       position: sticky;
       top: 16px;
       z-index: 30;
@@ -125,6 +125,12 @@ def render_app_shell(bootstrap_payload, client_config):
       display: grid;
     }
     .home-workspace {
+      width: min(920px, 100%);
+      margin: 0 auto;
+      display: grid;
+      gap: 20px;
+    }
+    .settings-workspace {
       width: min(920px, 100%);
       margin: 0 auto;
       display: grid;
@@ -208,6 +214,10 @@ def render_app_shell(bootstrap_payload, client_config):
       background: var(--accent);
       color: #fff;
       border-color: var(--accent);
+    }
+    .primary-btn.is-loading {
+      opacity: 0.92;
+      box-shadow: 0 12px 24px rgba(159,61,42,0.22);
     }
     .danger-btn {
       color: var(--danger);
@@ -577,7 +587,7 @@ def render_app_shell(bootstrap_payload, client_config):
         <div class="panel card">
           <div class="card-head">
             <div>
-              <div class="muted">Workspace</div>
+              <div class="muted">Progress</div>
               <h2 class="card-title">状态与进度</h2>
             </div>
             <span id="scanStatusPill" class="pill keep">空闲</span>
@@ -660,12 +670,10 @@ def render_app_shell(bootstrap_payload, client_config):
               <span id="translationStatusPill" class="pill keep">空闲</span>
             </div>
             <label>
-              <div class="field-label">中文错误码配置文件绝对路径</div>
-              <input id="translationSourceInput" class="field-input" type="text" placeholder="/abs/path/incloud_message_zh_CN.properties">
+              <input id="translationSourceInput" class="field-input" type="text" placeholder="请填写中文国际化文件绝对路径...">
             </label>
             <label>
-              <div class="field-label">英文错误码配置文件绝对路径</div>
-              <input id="translationTargetInput" class="field-input" type="text" placeholder="/abs/path/incloud_message_en_US.properties">
+              <input id="translationTargetInput" class="field-input" type="text" placeholder="请填写英文国际化文件绝对路径...">
             </label>
             <label class="checkbox-row">
               <input id="translationAutoAccept" type="checkbox">
@@ -758,38 +766,41 @@ def render_app_shell(bootstrap_payload, client_config):
     </section>
 
     <section class="page" id="settingsPage">
-      <div class="panel card">
-        <div class="card-head">
-          <div>
-            <div class="muted">Model Config</div>
-            <h2 class="card-title">模型配置</h2>
+      <div class="settings-workspace">
+        <div class="panel card">
+          <div class="card-head">
+            <div>
+              <div class="muted">Model Config</div>
+              <h2 class="card-title">模型配置</h2>
+            </div>
           </div>
-        </div>
-        <div class="field-grid">
-          <div>
-            <div class="field-label">供应商</div>
-            <div id="providerValue" class="readonly-output"></div>
+          <div class="field-grid">
+            <div>
+              <div class="field-label">供应商</div>
+              <div id="providerValue" class="readonly-output"></div>
+            </div>
+            <label>
+              <div class="field-label">Base URL</div>
+              <input id="baseUrlInput" class="field-input" type="url" placeholder="http://127.0.0.1:8000/v1">
+            </label>
+            <div class="muted">支持填写主机根、`/v1` 或完整 `/v1/chat/completions`，保存时会统一归一化为 `/v1`。</div>
+            <label>
+              <div class="field-label">API Key</div>
+              <input id="apiKeyInput" class="field-input" type="password" placeholder="sk-...">
+            </label>
+            <label>
+              <div class="field-label">模型名称</div>
+              <input id="modelNameInput" class="field-input" type="text" placeholder="deepseek-v3">
+            </label>
+            <label>
+              <div class="field-label">Max Tokens</div>
+              <input id="maxTokensInput" class="field-input" type="number" min="1" placeholder="100">
+            </label>
           </div>
-          <label>
-            <div class="field-label">Base URL</div>
-            <input id="baseUrlInput" class="field-input" type="url" placeholder="http://127.0.0.1:8000/v1">
-          </label>
-          <div class="muted">支持填写主机根、`/v1` 或完整 `/v1/chat/completions`，保存时会统一归一化为 `/v1`。</div>
-          <label>
-            <div class="field-label">API Key</div>
-            <input id="apiKeyInput" class="field-input" type="password" placeholder="sk-...">
-          </label>
-          <label>
-            <div class="field-label">模型名称</div>
-            <input id="modelNameInput" class="field-input" type="text" placeholder="deepseek-v3">
-          </label>
-          <label>
-            <div class="field-label">Max Tokens</div>
-            <input id="maxTokensInput" class="field-input" type="number" min="1" placeholder="100">
-          </label>
-        </div>
-        <div class="btn-row">
-          <button id="saveModelConfigBtn" class="primary-btn" type="button">保存模型配置</button>
+          <div class="btn-row">
+            <button id="saveModelConfigBtn" class="primary-btn" type="button">保存模型配置</button>
+          </div>
+          <div id="settingsStatusBanner" class="status-banner">保存模型配置时会先做一次连通性测试。</div>
         </div>
       </div>
     </section>
@@ -878,6 +889,7 @@ __REPORT_COMPONENT_BUNDLE__
     const modelNameInput = document.getElementById("modelNameInput");
     const maxTokensInput = document.getElementById("maxTokensInput");
     const saveModelConfigBtn = document.getElementById("saveModelConfigBtn");
+    const settingsStatusBanner = document.getElementById("settingsStatusBanner");
     let scanTimer = null;
     let translationTimer = null;
     let reportController = null;
@@ -1010,7 +1022,7 @@ __REPORT_COMPONENT_BUNDLE__
       const roots = state.draftConfig.scan_roots.length ? state.draftConfig.scan_roots : [""];
       rootsList.innerHTML = roots.map((root, index) => `
         <div class="root-row">
-          <input class="root-input" data-index="${index}" value="${escapeAttr(root)}" placeholder="/absolute/path/to/repo">
+          <input class="root-input" data-index="${index}" value="${escapeAttr(root)}" placeholder="请填写待扫描项目目录绝对路径...">
           <button class="root-remove-btn" type="button" data-action="remove-root" data-index="${index}" aria-label="删除目录" title="删除目录">×</button>
         </div>
       `).join("");
@@ -1275,10 +1287,18 @@ __REPORT_COMPONENT_BUNDLE__
     async function saveModelConfig() {
       syncModelConfigFromInputs();
       const payload = buildModelConfigPayload();
+      settingsStatusBanner.textContent = "正在测试模型连通性并保存配置...";
+      settingsStatusBanner.classList.remove("is-error");
+      saveModelConfigBtn.disabled = true;
+      saveModelConfigBtn.classList.add("is-loading");
+      saveModelConfigBtn.textContent = "测试并保存中...";
       const data = await requestJson(CLIENT_CONFIG.config_api_path, payload);
       applyBootstrap(data);
-      homeStatus.textContent = "模型配置已保存";
-      homeStatus.classList.remove("is-error");
+      settingsStatusBanner.textContent = "模型配置已保存，连通性测试通过。";
+      settingsStatusBanner.classList.remove("is-error");
+      saveModelConfigBtn.textContent = "保存模型配置";
+      saveModelConfigBtn.classList.remove("is-loading");
+      saveModelConfigBtn.disabled = false;
     }
 
     function buildTranslationPayload() {
@@ -1457,8 +1477,12 @@ __REPORT_COMPONENT_BUNDLE__
       try {
         await saveModelConfig();
       } catch (error) {
-        homeStatus.textContent = error.message || "保存模型配置失败";
-        homeStatus.classList.add("is-error");
+        settingsStatusBanner.textContent = error.message || "保存模型配置失败";
+        settingsStatusBanner.classList.add("is-error");
+      } finally {
+        saveModelConfigBtn.textContent = "保存模型配置";
+        saveModelConfigBtn.classList.remove("is-loading");
+        saveModelConfigBtn.disabled = false;
       }
     });
 

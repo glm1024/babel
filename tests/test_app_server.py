@@ -14,23 +14,24 @@ class AppServerSmokeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             out_dir = Path(temp_dir)
             state = AppServiceState(out_dir=out_dir)
-            payload = state.save_config(
-                {
-                    "scan_roots": ["/tmp/repo-a", "/tmp/repo-b"],
-                    "scan_policy": {
-                        "max_file_size_bytes": 1234,
-                        "context_lines": 3,
-                        "exclude_globs": ["**/vendor/**"],
-                    },
-                    "model_config": {
-                        "provider": "custom",
-                        "base_url": "http://127.0.0.1:8000/v1/chat/completions",
-                        "api_key": "sk-local",
-                        "model": "deepseek-v3",
-                        "max_tokens": 256,
-                    },
-                }
-            )
+            with patch("zh_audit.app_server.probe_openai_compatible_model", return_value={"message": "OK"}):
+                payload = state.save_config(
+                    {
+                        "scan_roots": ["/tmp/repo-a", "/tmp/repo-b"],
+                        "scan_policy": {
+                            "max_file_size_bytes": 1234,
+                            "context_lines": 3,
+                            "exclude_globs": ["**/vendor/**"],
+                        },
+                        "model_config": {
+                            "provider": "custom",
+                            "base_url": "http://127.0.0.1:8000/v1/chat/completions",
+                            "api_key": "sk-local",
+                            "model": "deepseek-v3",
+                            "max_tokens": 256,
+                        },
+                    }
+                )
 
             self.assertFalse(payload["has_results"])
             self.assertEqual(payload["config"]["scan_roots"], ["/tmp/repo-a", "/tmp/repo-b"])
@@ -77,16 +78,17 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertEqual(bootstrap["config"]["model_config"]["base_url"], "http://100.7.69.249:7777/v1")
             self.assertEqual(bootstrap["config"]["model_config"]["api_key"], "sk-shared")
 
-            updated = state.save_config(
-                {
-                    "model_config": {
-                        "base_url": "http://127.0.0.1:9000",
-                        "api_key": "",
-                        "model": "deepseek-v3.1",
-                        "max_tokens": 180,
+            with patch("zh_audit.app_server.probe_openai_compatible_model", return_value={"message": "OK"}):
+                updated = state.save_config(
+                    {
+                        "model_config": {
+                            "base_url": "http://127.0.0.1:9000",
+                            "api_key": "",
+                            "model": "deepseek-v3.1",
+                            "max_tokens": 180,
+                        }
                     }
-                }
-            )
+                )
             self.assertEqual(updated["config"]["model_config"]["base_url"], "http://127.0.0.1:9000/v1")
             self.assertEqual(updated["config"]["model_config"]["api_key"], "")
             self.assertEqual(updated["config"]["model_config"]["model"], "deepseek-v3.1")
@@ -155,6 +157,8 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("模型配置", html)
             self.assertIn("Base URL", html)
             self.assertIn("保存模型配置", html)
+            self.assertIn("id=\"settingsStatusBanner\"", html)
+            self.assertIn("测试并保存中...", html)
             self.assertIn("开始校译", html)
             self.assertIn("已加载术语", html)
             self.assertNotIn("Local Service", html)
@@ -170,11 +174,13 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("overflow-wrap: anywhere;", html)
             self.assertIn("min-width: 0;", html)
             self.assertIn("margin: 0 auto;", html)
+            self.assertIn(".settings-workspace {", html)
             self.assertIn("height: calc(100vh - 124px);", html)
             self.assertIn('data-layout=\\"embedded\\"] .table-wrap {', html)
             self.assertIn(".findings-table col.col-action { width: 280px; }", html)
             self.assertIn("transform: translateY(-1px);", html)
             self.assertIn("scale(0.98)", html)
+            self.assertIn("保存模型配置时会先做一次连通性测试。", html)
             self.assertIn("当前还没有扫描结果，请先到首页配置扫描目录并点击“开始扫描”。", html)
             self.assertNotIn("扫描设置", html)
             self.assertNotIn("最大文件大小（字节）", html)
@@ -225,6 +231,26 @@ class AppServerSmokeTest(unittest.TestCase):
             state = AppServiceState(out_dir=out_dir)
             with self.assertRaises(ValueError):
                 state.start_scan({"scan_roots": ["/path/not/exist"]})
+
+    def test_scan_progress_keeps_latest_repo_context_for_multi_repo_scan(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out_dir = Path(temp_dir) / "results"
+            state = AppServiceState(out_dir=out_dir)
+
+            state._scan_progress("start", total=10)
+            state._scan_progress("repo", repo="repo-a", repo_total=4, total=10)
+            state._scan_progress("file", repo="repo-a", processed=4, total=10, relative_path="src/A.java")
+            state._scan_progress("repo", repo="repo-b", repo_total=6, total=10)
+            state._scan_progress("file", repo="repo-b", processed=5, total=10, relative_path="src/B.java")
+
+            running = state.scan_status_payload()
+            self.assertEqual(running["current_repo"], "repo-b")
+            self.assertEqual(running["current_path"], "src/B.java")
+
+            state._scan_progress("done", processed=10, total=10)
+            finished = state.scan_status_payload()
+            self.assertEqual(finished["current_repo"], "repo-b")
+            self.assertEqual(finished["current_path"], "扫描完成")
 
     def test_translation_task_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
