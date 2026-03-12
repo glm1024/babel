@@ -507,7 +507,12 @@ class SqlTranslationSession(object):
                     model_config=self.model_config,
                 )
                 model_calls_used += 1
-                reviewed = normalize_review_result(review_result)
+                reviewed = normalize_review_result(
+                    review_result,
+                    source_text=item.get("source_text", ""),
+                    target_text=item.get("target_text", ""),
+                    candidate_text=candidate_text,
+                )
                 if reviewed["decision"] != "pass":
                     retry_issue = reviewed["issues"][0]
                     last_result = {
@@ -1082,7 +1087,7 @@ def build_sql_translation_review_user_prompt(
         "source_field": source_field,
         "source_text": source_text,
         "target_field": target_field,
-        "target_text": target_text,
+        "current_target_text": target_text,
         "candidate_text": candidate_text,
         "target_missing": bool(target_missing),
         "locked_terms": [
@@ -1099,6 +1104,10 @@ def build_sql_translation_review_system_prompt():
         "Return JSON only with keys: decision, issues.\n"
         "decision must be either pass or fail.\n"
         "issues must be an array of short Simplified Chinese strings.\n"
+        "current_target_text is only the existing English value and may be wrong or outdated.\n"
+        "Do not fail merely because candidate_text differs from current_target_text.\n"
+        "Judge candidate_text only against source_text, placeholders, and locked_terms.\n"
+        "Only report spelling or wording problems that actually appear in candidate_text.\n"
         "Fail when the candidate is not natural English, still contains untranslated Chinese, omits source meaning, or breaks placeholders.\n"
         "Pass only when the candidate is a complete and accurate English translation of the source text."
     )

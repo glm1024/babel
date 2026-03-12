@@ -70,6 +70,14 @@ def render_app_shell(bootstrap_payload, client_config):
       transform: none;
       box-shadow: none;
     }
+    @keyframes zh-audit-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    @keyframes zh-audit-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.58; }
+    }
     .shell {
       min-height: 100vh;
       padding: 28px 32px 40px;
@@ -332,6 +340,17 @@ def render_app_shell(bootstrap_payload, client_config):
       color: var(--ok);
       border-color: rgba(45,106,79,0.16);
     }
+    .pill.is-loading::before {
+      content: "";
+      width: 10px;
+      height: 10px;
+      margin-right: 6px;
+      border-radius: 999px;
+      border: 2px solid currentColor;
+      border-right-color: transparent;
+      animation: zh-audit-spin 0.8s linear infinite;
+      flex: 0 0 auto;
+    }
     .progress-box {
       display: grid;
       gap: 10px;
@@ -376,6 +395,23 @@ def render_app_shell(bootstrap_payload, client_config):
       overflow-wrap: anywhere;
       word-break: break-word;
     }
+    .progress-meta-value.is-loading {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--accent);
+    }
+    .progress-meta-value.is-loading::before {
+      content: "";
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      border: 2px solid rgba(159,61,42,0.36);
+      border-top-color: var(--accent);
+      animation: zh-audit-spin 0.8s linear infinite;
+      flex: 0 0 auto;
+      margin-top: 1px;
+    }
     .empty-state {
       padding: 34px 28px;
       border: 1px dashed var(--line);
@@ -398,6 +434,12 @@ def render_app_shell(bootstrap_payload, client_config):
       color: var(--danger);
       border-color: rgba(157,47,47,0.16);
       background: rgba(157,47,47,0.08);
+    }
+    .status-banner.is-loading {
+      color: var(--accent);
+      border-color: rgba(159,61,42,0.16);
+      background: rgba(159,61,42,0.08);
+      animation: zh-audit-pulse 1.2s ease-in-out infinite;
     }
     table {
       width: 100%;
@@ -1517,6 +1559,7 @@ __REPORT_COMPONENT_BUNDLE__
       const total = Number(counts.total || 0);
       const processed = Number(counts.processed || 0);
       const percent = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+      const translationIsLoading = status.status === "running" && !Boolean(status.error || terminology.error);
 
       translationSourceInput.value = config.source_path || "";
       translationTargetInput.value = config.target_path || "";
@@ -1526,13 +1569,14 @@ __REPORT_COMPONENT_BUNDLE__
         : translationBannerText(status);
       translationStatusBanner.title = translationStatusBanner.textContent;
       translationStatusBanner.classList.toggle("is-error", Boolean(status.error || terminology.error));
+      translationStatusBanner.classList.toggle("is-loading", translationIsLoading);
       translationStatusPill.textContent =
         status.status === "running" ? "运行中" :
         status.status === "done" ? "完成" :
         status.status === "interrupted" ? "中断" :
         status.status === "failed" ? "失败" :
         status.status === "stopped" ? "已停止" : "空闲";
-      translationStatusPill.className = `pill ${status.status === "running" ? "fix" : "keep"}`;
+      translationStatusPill.className = `pill ${status.status === "running" ? "fix" : "keep"}${translationIsLoading ? " is-loading" : ""}`;
       translationStartBtn.disabled = status.status === "running" || Boolean(terminology.error);
       translationResumeBtn.disabled = !status.resume_available || Boolean(terminology.error);
       translationStopBtn.disabled = status.status !== "running";
@@ -1549,6 +1593,7 @@ __REPORT_COMPONENT_BUNDLE__
       translationCurrentKey.textContent = (status.current || {}).key || "-";
       translationCurrentSource.textContent = (status.current || {}).source_text || "-";
       translationCurrentStatus.textContent = (status.current || {}).status || "-";
+      translationCurrentStatus.classList.toggle("is-loading", translationIsLoading && Boolean((status.current || {}).status));
       const events = Array.isArray(translation.events) ? translation.events : [];
       if (!events.length) {
         translationEvents.innerHTML = '<div class="translation-empty">当前还没有处理记录。</div>';
@@ -1634,6 +1679,7 @@ __REPORT_COMPONENT_BUNDLE__
       const total = Number(counts.total || 0);
       const processed = Number(counts.processed || 0);
       const percent = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+      const sqlTranslationIsLoading = status.status === "running" && !Boolean(status.error || terminology.error);
 
       sqlTranslationDirectoryInput.value = config.directory_path || "";
       sqlTranslationTableInput.value = config.table_name || "";
@@ -1643,13 +1689,14 @@ __REPORT_COMPONENT_BUNDLE__
       sqlTranslationStatusBanner.textContent = sqlTranslationBannerText(status, terminology);
       sqlTranslationStatusBanner.title = sqlTranslationStatusBanner.textContent;
       sqlTranslationStatusBanner.classList.toggle("is-error", Boolean(status.error || terminology.error));
+      sqlTranslationStatusBanner.classList.toggle("is-loading", sqlTranslationIsLoading);
       sqlTranslationStatusPill.textContent =
         status.status === "running" ? "运行中" :
         status.status === "done" ? "完成" :
         status.status === "interrupted" ? "中断" :
         status.status === "failed" ? "失败" :
         status.status === "stopped" ? "已停止" : "空闲";
-      sqlTranslationStatusPill.className = `pill ${status.status === "running" ? "fix" : "keep"}`;
+      sqlTranslationStatusPill.className = `pill ${status.status === "running" ? "fix" : "keep"}${sqlTranslationIsLoading ? " is-loading" : ""}`;
       sqlTranslationStartBtn.disabled = status.status === "running" || Boolean(terminology.error);
       sqlTranslationResumeBtn.disabled = !status.resume_available || Boolean(terminology.error);
       sqlTranslationStopBtn.disabled = status.status !== "running";
@@ -1674,6 +1721,7 @@ __REPORT_COMPONENT_BUNDLE__
       sqlTranslationCurrentPrimaryKey.textContent = (status.current || {}).primary_key_value || "-";
       sqlTranslationCurrentSource.textContent = (status.current || {}).source_text || "-";
       sqlTranslationCurrentStatus.textContent = (status.current || {}).status || "-";
+      sqlTranslationCurrentStatus.classList.toggle("is-loading", sqlTranslationIsLoading && Boolean((status.current || {}).status));
       sqlTranslationCurrentFile.title = (status.current || {}).file_path || "";
 
       const events = Array.isArray(sqlTranslation.events) ? sqlTranslation.events : [];

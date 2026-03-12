@@ -15,6 +15,7 @@ SQL_POLLUTION_PATTERN = re.compile(
     r"^\s*(?:update\s+\S+\s+set|insert\s+into|delete\s+from|replace\s+into|select\s+.+\s+from)\b|^\s*--",
     re.IGNORECASE | re.DOTALL,
 )
+QUOTED_REVIEW_TOKEN_PATTERN = re.compile(r"[\"'“”‘’]([^\"'“”‘’]{2,})[\"'“”‘’]")
 
 
 def sanitize_candidate_text(value):
@@ -73,7 +74,7 @@ def validate_candidate_text(
     return ""
 
 
-def normalize_review_result(result):
+def normalize_review_result(result, *, source_text="", target_text="", candidate_text=""):
     payload = dict(result or {})
     decision = str(payload.get("decision", "") or payload.get("verdict", "") or "").strip().lower()
     issues = payload.get("issues", [])
@@ -86,19 +87,34 @@ def normalize_review_result(result):
         value = decode_unicode_escapes(str(issue or "")).strip()
         if value:
             normalized_issues.append(value)
+    filtered_issues = [
+        issue
+        for issue in normalized_issues
+        if not _should_ignore_review_issue(
+            issue,
+            source_text=source_text,
+            target_text=target_text,
+            candidate_text=candidate_text,
+        )
+    ]
     if decision in {"pass", "passed", "approve", "approved", "ok"}:
         return {
             "decision": "pass",
-            "issues": normalized_issues,
+            "issues": filtered_issues,
         }
     if decision in {"fail", "failed", "reject", "rejected"}:
+        if normalized_issues and not filtered_issues:
+            return {
+                "decision": "pass",
+                "issues": [],
+            }
         return {
             "decision": "fail",
-            "issues": normalized_issues or ["AI复核未通过"],
+            "issues": filtered_issues or ["AI复核未通过"],
         }
     return {
         "decision": "fail",
-        "issues": normalized_issues or ["AI复核未返回有效结论"],
+        "issues": filtered_issues or ["AI复核未返回有效结论"],
     }
 
 
@@ -130,3 +146,37 @@ def _strip_placeholders(text):
     value = decode_unicode_escapes(str(text or ""))
     value = PLACEHOLDER_PATTERN.sub(" ", value)
     return value.strip()
+
+
+def _should_ignore_review_issue(issue, *, source_text="", target_text="", candidate_text=""):
+    value = decode_unicode_escapes(str(issue or "")).strip()
+    candidate_value = decode_unicode_escapes(str(candidate_text or ""))
+    lower_issue = value.lower()
+
+    if any(token in value for token in ("目标文本", "当前英文")) and any(
+        token in value for token in ("不匹配", "不一致", "不符", "不同")
+    ):
+        return True
+
+    if candidate_value and target_text and candidate_value.strip() != decode_unicode_escapes(str(target_text or "")).strip():
+        if any(
+            token in value
+            for token in (
+                "候选文本与目标文本不匹配",
+                "候选文本与目标文本不一致",
+                "候选文本与当前英文不匹配",
+                "候选文本与当前英文不一致",
+            )
+        ):
+            return True
+
+    if "拼写" in value:
+        quoted_tokens = [match.group(1).strip() for match in QUOTED_REVIEW_TOKEN_PATTERN.finditer(value)]
+        if quoted_tokens and all(token and token not in candidate_value for token in quoted_tokens):
+            return True
+
+    if source_text and candidate_value and _normalize_for_compare(source_text) == _normalize_for_compare(candidate_value):
+        if "目标文本" in value and any(token in lower_issue for token in ("mismatch", "different")):
+            return True
+
+    return False

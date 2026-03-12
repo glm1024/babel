@@ -450,7 +450,12 @@ class TranslationSession(object):
                     target_missing=target_missing,
                 )
                 model_calls_used += 1
-                reviewed = normalize_review_result(review_result)
+                reviewed = normalize_review_result(
+                    review_result,
+                    source_text=source_text,
+                    target_text=current_target,
+                    candidate_text=candidate_text,
+                )
                 if reviewed["decision"] != "pass":
                     retry_issue = reviewed["issues"][0]
                     last_result = {
@@ -817,7 +822,7 @@ def build_translation_review_user_prompt(key, source_text, target_text, candidat
     payload = {
         "key": key,
         "source_text": source_text,
-        "target_text": target_text,
+        "current_target_text": target_text,
         "candidate_text": candidate_text,
         "target_missing": bool(target_missing),
         "locked_terms": [
@@ -834,6 +839,10 @@ def build_translation_review_system_prompt():
         "Return JSON only with keys: decision, issues.\n"
         "decision must be either pass or fail.\n"
         "issues must be an array of short Simplified Chinese strings.\n"
+        "current_target_text is only the existing English value and may be wrong or outdated.\n"
+        "Do not fail merely because candidate_text differs from current_target_text.\n"
+        "Judge candidate_text only against source_text, placeholders, and locked_terms.\n"
+        "Only report spelling or wording problems that actually appear in candidate_text.\n"
         "Fail when the candidate is not natural English, still contains untranslated Chinese, omits source meaning, or breaks placeholders.\n"
         "Pass only when the candidate is a complete and accurate English translation of the source text."
     )

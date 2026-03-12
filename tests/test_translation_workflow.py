@@ -10,7 +10,11 @@ from zh_audit.terminology_xlsx import (
     match_locked_terms,
     write_terminology_xlsx,
 )
-from zh_audit.translation_workflow import TranslationSession, build_translation_system_prompt
+from zh_audit.translation_workflow import (
+    TranslationSession,
+    build_translation_review_system_prompt,
+    build_translation_system_prompt,
+)
 
 
 def _pass_review(**kwargs):
@@ -234,6 +238,9 @@ class TranslationWorkflowTest(unittest.TestCase):
     def test_translation_system_prompt_and_reason_fallback_are_chinese(self):
         prompt = build_translation_system_prompt()
         self.assertIn("reason must be written in Simplified Chinese.", prompt)
+        review_prompt = build_translation_review_system_prompt()
+        self.assertIn("current_target_text is only the existing English value", review_prompt)
+        self.assertIn("Do not fail merely because candidate_text differs from current_target_text.", review_prompt)
 
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "zh.properties"
@@ -284,6 +291,69 @@ class TranslationWorkflowTest(unittest.TestCase):
             snapshot = session.snapshot()
             self.assertEqual(snapshot["status"]["counts"]["skipped"], 1)
             self.assertEqual(snapshot["events"][0]["label"], "已跳过：翻译准确，无需更新")
+
+    def test_translation_session_ignores_reviewer_issue_about_target_mismatch(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "zh.properties"
+            target = Path(temp_dir) / "en.properties"
+            source.write_text("AUTH_RETRY=适配服务器无法处理请求站点连接需要更新认证信息，请重试。\n", encoding="utf-8")
+            target.write_text("AUTH_RETRY=Adapter server is not ready for request.\n", encoding="utf-8")
+
+            session = TranslationSession(
+                source_path=source,
+                target_path=target,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": "The adapter server cannot process the request because the site connection requires updated authentication. Please try again.",
+                    "reason": "ok",
+                },
+                reviewer_runner=lambda **kwargs: {
+                    "decision": "fail",
+                    "issues": ["候选文本与目标文本不匹配"],
+                },
+            )
+            session.start()
+            session.run(lambda: False)
+
+            snapshot = session.snapshot()
+            pending = snapshot["pending_items"][0]
+            self.assertEqual(pending["validation_state"], "passed")
+            self.assertTrue(pending["can_accept"])
+            self.assertEqual(pending["generation_attempts_used"], 1)
+            self.assertEqual(pending["candidate_text"], "The adapter server cannot process the request because the site connection requires updated authentication. Please try again.")
+
+    def test_translation_session_ignores_hallucinated_spelling_issue(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "zh.properties"
+            target = Path(temp_dir) / "en.properties"
+            source.write_text("API_NOT_FOUND=适配服务接口不存在。\n", encoding="utf-8")
+            target.write_text("API_NOT_FOUND=API not found in adapter server.\n", encoding="utf-8")
+
+            session = TranslationSession(
+                source_path=source,
+                target_path=target,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": "Adapter service API not found.",
+                    "reason": "ok",
+                },
+                reviewer_runner=lambda **kwargs: {
+                    "decision": "fail",
+                    "issues": ["拼写错误：'adpter' 应为 'adapter'"],
+                },
+            )
+            session.start()
+            session.run(lambda: False)
+
+            snapshot = session.snapshot()
+            pending = snapshot["pending_items"][0]
+            self.assertEqual(pending["validation_state"], "passed")
+            self.assertTrue(pending["can_accept"])
+            self.assertEqual(pending["generation_attempts_used"], 1)
 
     def test_translation_session_marks_failed_candidate_unacceptable_after_retry_budget(self):
         with tempfile.TemporaryDirectory() as temp_dir:

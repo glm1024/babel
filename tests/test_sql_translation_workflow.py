@@ -4,6 +4,7 @@ from pathlib import Path
 
 from zh_audit.sql_translation_workflow import (
     SqlTranslationSession,
+    build_sql_translation_review_system_prompt,
     parse_sql_translation_file,
     scan_sql_translation_directory,
 )
@@ -17,6 +18,11 @@ def _pass_review(**kwargs):
 
 
 class SqlTranslationWorkflowTest(unittest.TestCase):
+    def test_sql_translation_review_prompt_treats_current_target_as_context_only(self):
+        prompt = build_sql_translation_review_system_prompt()
+        self.assertIn("current_target_text is only the existing English value", prompt)
+        self.assertIn("Do not fail merely because candidate_text differs from current_target_text.", prompt)
+
     def test_parse_sql_translation_file_handles_schema_multiline_and_escaped_strings(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             sql_path = Path(temp_dir) / "demo.sql"
@@ -190,6 +196,43 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             self.assertIn("失败原因：候选仍含中文", pending["validation_message"])
             with self.assertRaises(ValueError):
                 session.accept(pending["id"])
+
+    def test_sql_translation_session_ignores_reviewer_issue_about_target_mismatch(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sql_dir = root / "sql"
+            sql_dir.mkdir()
+            (sql_dir / "demo.sql").write_text(
+                "INSERT INTO t_demo (id, name_zh, name_en) VALUES ('1', '适配服务器无法处理请求站点连接需要更新认证信息，请重试。', 'Adapter server is not ready for request.');\n",
+                encoding="utf-8",
+            )
+
+            session = SqlTranslationSession(
+                directory_path=sql_dir,
+                table_name="t_demo",
+                primary_key_field="id",
+                source_field="name_zh",
+                target_field="name_en",
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": "The adapter server cannot process the request because the site connection requires updated authentication. Please try again.",
+                    "reason": "ok",
+                },
+                reviewer_runner=lambda **kwargs: {
+                    "decision": "fail",
+                    "issues": ["候选文本与目标文本不匹配"],
+                },
+            )
+            session.start()
+            session.run()
+
+            snapshot = session.snapshot()
+            pending = snapshot["pending_items"][0]
+            self.assertEqual(pending["validation_state"], "passed")
+            self.assertTrue(pending["can_accept"])
+            self.assertEqual(pending["generation_attempts_used"], 1)
 
 
 if __name__ == "__main__":
