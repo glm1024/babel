@@ -17,12 +17,14 @@ from zh_audit.annotations import (
 )
 from zh_audit.app_state import (
     default_app_state,
+    default_sql_translation_config,
     default_translation_config,
     diff_model_config_overrides,
     load_app_state,
     merge_model_config,
     normalize_scan_policy,
     normalize_scan_roots,
+    normalize_sql_translation_config,
     normalize_translation_config,
     scan_settings_from_state,
     write_app_state,
@@ -34,6 +36,12 @@ from zh_audit.model_client import probe_openai_compatible_model
 from zh_audit.models import RepoSpec
 from zh_audit.pipeline import refresh_summary, run_scan
 from zh_audit.report import render_report
+from zh_audit.session_store import load_json_file, write_json_atomically
+from zh_audit.sql_translation_workflow import (
+    SqlTranslationSession,
+    build_sql_translation_system_prompt,
+    build_sql_translation_user_prompt,
+)
 from zh_audit.terminology_xlsx import ensure_default_terminology_xlsx, load_terminology_xlsx
 from zh_audit.translation_workflow import (
     TranslationSession,
@@ -48,16 +56,20 @@ class AppServiceState(object):
         self.findings_path = self.out_dir / "findings.json"
         self.summary_path = self.out_dir / "summary.json"
         self.report_path = self.out_dir / "report.html"
+        self.translation_session_path = self.out_dir / "translation_session.json"
+        self.sql_translation_session_path = self.out_dir / "sql_translation_session.json"
         self.annotations_path = resolve_annotation_path(self.out_dir, annotations_path)
         self.app_state_path = Path(app_state_path) if app_state_path is not None else (self.out_dir / "app_state.json")
         self.project_config_path = Path(project_config_path) if project_config_path is not None else None
         self.lock = threading.RLock()
         self.scan_thread = None
         self.translation_thread = None
+        self.sql_translation_thread = None
         self.results_revision = 0
         self.summary = {}
         self.findings = []
         self.translation_session = None
+        self.sql_translation_session = None
         self.annotation_store = load_annotation_store(self.annotations_path)
         self.annotation_stats = dict(ANNOTATION_STATS_DEFAULT)
         self.project_model_config = (
@@ -66,10 +78,14 @@ class AppServiceState(object):
         self.app_state = load_app_state(self.app_state_path)
         self.translation_auto_accept = bool(self.app_state.get("translation_config", {}).get("auto_accept", False))
         self.scan_status = self._idle_scan_status()
-        self.terminology_path = ensure_default_terminology_xlsx(Path(__file__).resolve().parents[2] / "resources" / "terminology.xlsx")
+        self.terminology_path = ensure_default_terminology_xlsx(
+            Path(__file__).resolve().parents[2] / "resources" / "terminology.xlsx"
+        )
         self.terminology = {}
         self.terminology_error = ""
         self._reload_terminology()
+        self._restore_translation_session()
+        self._restore_sql_translation_session()
 
     def render_home(self):
         return render_app_shell(
@@ -83,10 +99,18 @@ class AppServiceState(object):
                 "annotation_remove_api_path": "/api/annotations/remove",
                 "translation_start_api_path": "/api/translation/start",
                 "translation_stop_api_path": "/api/translation/stop",
+                "translation_resume_api_path": "/api/translation/resume",
                 "translation_status_api_path": "/api/translation/status",
                 "translation_accept_api_path": "/api/translation/accept",
                 "translation_regenerate_api_path": "/api/translation/regenerate",
                 "translation_reject_api_path": "/api/translation/reject",
+                "sql_translation_start_api_path": "/api/sql-translation/start",
+                "sql_translation_stop_api_path": "/api/sql-translation/stop",
+                "sql_translation_resume_api_path": "/api/sql-translation/resume",
+                "sql_translation_status_api_path": "/api/sql-translation/status",
+                "sql_translation_accept_api_path": "/api/sql-translation/accept",
+                "sql_translation_regenerate_api_path": "/api/sql-translation/regenerate",
+                "sql_translation_reject_api_path": "/api/sql-translation/reject",
             },
         )
 
@@ -100,6 +124,7 @@ class AppServiceState(object):
                 "has_results": bool(self.findings),
                 "results_revision": self.results_revision,
                 "translation": self.translation_payload_locked(),
+                "sql_translation": self.sql_translation_payload_locked(),
             }
 
     def scan_status_payload(self):
@@ -120,7 +145,7 @@ class AppServiceState(object):
         with self.lock:
             if self.scan_status["status"] == "running":
                 raise ValueError("A scan is already running.")
-            if self.translation_session is not None and self.translation_session.snapshot()["status"]["status"] == "running":
+            if self._has_running_task_locked():
                 raise ValueError("A translation task is already running.")
             self._update_config(payload)
             repos = self._build_repos(self.app_state["scan_roots"])
@@ -150,7 +175,7 @@ class AppServiceState(object):
         with self.lock:
             if self.scan_status["status"] == "running":
                 raise ValueError("A scan is already running.")
-            if self.translation_session is not None and self.translation_session.snapshot()["status"]["status"] == "running":
+            if self._has_running_task_locked():
                 raise ValueError("A translation task is already running.")
             self._update_config({"translation_config": payload})
             self._persist_app_state()
@@ -163,9 +188,7 @@ class AppServiceState(object):
                 raise ValueError("English properties file does not exist: {}".format(target_path))
             if source_path.is_dir() or target_path.is_dir():
                 raise ValueError("Translation paths must point to files, not directories.")
-            model_config = self._effective_model_config()
-            if not model_config.get("base_url") or not model_config.get("api_key") or not model_config.get("model"):
-                raise ValueError("Model config is incomplete. Please complete Base URL, API Key and model first.")
+            model_config = self._require_model_config()
             self._reload_terminology()
             if self.terminology_error:
                 raise ValueError(self.terminology_error)
@@ -175,15 +198,28 @@ class AppServiceState(object):
                 glossary=self.terminology,
                 model_config=model_config,
                 model_runner=self._translation_model_runner,
+                persist_callback=self._persist_translation_session,
             )
             self.translation_session.start()
-            self.translation_thread = threading.Thread(
-                target=self._run_translation_job,
-                args=(self.translation_session,),
-                name="zh-audit-translation",
-                daemon=True,
-            )
-            self.translation_thread.start()
+            self._start_translation_thread_locked(self.translation_session)
+            return self.translation_payload_locked()
+
+    def resume_translation(self):
+        with self.lock:
+            if self.scan_status["status"] == "running":
+                raise ValueError("A scan is already running.")
+            if self.sql_translation_session is not None and self._session_status(self.sql_translation_session) == "running":
+                raise ValueError("A SQL translation task is already running.")
+            session = self._require_translation_session()
+            model_config = self._require_model_config()
+            self._reload_terminology()
+            if self.terminology_error:
+                raise ValueError(self.terminology_error)
+            with session.lock:
+                session.model_config = dict(model_config)
+                session.glossary = self.terminology
+            session.resume()
+            self._start_translation_thread_locked(session)
             return self.translation_payload_locked()
 
     def stop_translation(self):
@@ -213,6 +249,91 @@ class AppServiceState(object):
     def translation_payload(self):
         with self.lock:
             return self.translation_payload_locked()
+
+    def start_sql_translation(self, payload):
+        with self.lock:
+            if self.scan_status["status"] == "running":
+                raise ValueError("A scan is already running.")
+            if self._has_running_task_locked():
+                raise ValueError("A translation task is already running.")
+            self._update_config({"sql_translation_config": payload})
+            self._persist_app_state()
+            sql_config = self.app_state.get("sql_translation_config", default_sql_translation_config())
+            directory_path = Path(sql_config.get("directory_path", "")).expanduser()
+            table_name = str(sql_config.get("table_name", "") or "").strip()
+            source_field = str(sql_config.get("source_field", "") or "").strip()
+            target_field = str(sql_config.get("target_field", "") or "").strip()
+            primary_key_field = str(sql_config.get("primary_key_field", "") or "id").strip() or "id"
+            if not directory_path.exists():
+                raise ValueError("SQL directory does not exist: {}".format(directory_path))
+            if not directory_path.is_dir():
+                raise ValueError("SQL path is not a directory: {}".format(directory_path))
+            if not table_name or not source_field or not target_field:
+                raise ValueError("SQL translation config requires table_name, source_field and target_field.")
+            model_config = self._require_model_config()
+            self._reload_terminology()
+            if self.terminology_error:
+                raise ValueError(self.terminology_error)
+            self.sql_translation_session = SqlTranslationSession(
+                directory_path=directory_path.resolve(),
+                table_name=table_name,
+                primary_key_field=primary_key_field,
+                source_field=source_field,
+                target_field=target_field,
+                glossary=self.terminology,
+                model_config=model_config,
+                model_runner=self._sql_translation_model_runner,
+                persist_callback=self._persist_sql_translation_session,
+            )
+            self.sql_translation_session.start()
+            self._start_sql_translation_thread_locked(self.sql_translation_session)
+            return self.sql_translation_payload_locked()
+
+    def resume_sql_translation(self):
+        with self.lock:
+            if self.scan_status["status"] == "running":
+                raise ValueError("A scan is already running.")
+            if self.translation_session is not None and self._session_status(self.translation_session) == "running":
+                raise ValueError("A translation task is already running.")
+            session = self._require_sql_translation_session()
+            model_config = self._require_model_config()
+            self._reload_terminology()
+            if self.terminology_error:
+                raise ValueError(self.terminology_error)
+            with session.lock:
+                session.model_config = dict(model_config)
+                session.glossary = self.terminology
+            session.resume()
+            self._start_sql_translation_thread_locked(session)
+            return self.sql_translation_payload_locked()
+
+    def stop_sql_translation(self):
+        with self.lock:
+            session = self._require_sql_translation_session()
+            session.stop()
+            return self.sql_translation_payload_locked()
+
+    def sql_translation_accept(self, item_id):
+        with self.lock:
+            session = self._require_sql_translation_session()
+        session.accept(item_id)
+        return self.sql_translation_payload()
+
+    def sql_translation_regenerate(self, item_id, prompt):
+        with self.lock:
+            session = self._require_sql_translation_session()
+        session.regenerate(item_id, prompt)
+        return self.sql_translation_payload()
+
+    def sql_translation_reject(self, item_id):
+        with self.lock:
+            session = self._require_sql_translation_session()
+        session.reject(item_id)
+        return self.sql_translation_payload()
+
+    def sql_translation_payload(self):
+        with self.lock:
+            return self.sql_translation_payload_locked()
 
     def annotate(self, finding_id, reason):
         with self.lock:
@@ -284,15 +405,21 @@ class AppServiceState(object):
         try:
             session.run(should_auto_accept=self._translation_auto_accept)
         except Exception as exc:
-            with session.lock:
-                session.status = "failed"
-                session.message = "校译失败"
-                session.error = str(exc)
-                session.finished_at = self._timestamp()
-                session.current = {"key": "", "source_text": "", "status": ""}
+            session.interrupt(str(exc))
         finally:
             with self.lock:
-                self.translation_thread = None
+                if self.translation_session is session:
+                    self.translation_thread = None
+
+    def _run_sql_translation_job(self, session):
+        try:
+            session.run()
+        except Exception as exc:
+            session.interrupt(str(exc))
+        finally:
+            with self.lock:
+                if self.sql_translation_session is session:
+                    self.sql_translation_thread = None
 
     def _scan_progress(self, stage, **payload):
         with self.lock:
@@ -325,6 +452,7 @@ class AppServiceState(object):
         roots = payload.get("scan_roots", self.app_state.get("scan_roots", []))
         scan_policy = payload.get("scan_policy", self.app_state.get("scan_policy", {}))
         translation_config = payload.get("translation_config", self.app_state.get("translation_config", {}))
+        sql_translation_config = payload.get("sql_translation_config", self.app_state.get("sql_translation_config", {}))
         model_config_overrides = dict(self.app_state.get("model_config_overrides", {}))
         if "model_config" in payload:
             try:
@@ -339,6 +467,7 @@ class AppServiceState(object):
             "scan_policy": normalize_scan_policy(scan_policy),
             "model_config_overrides": model_config_overrides,
             "translation_config": normalize_translation_config(translation_config),
+            "sql_translation_config": normalize_sql_translation_config(sql_translation_config),
         }
 
     def _update_config(self, payload):
@@ -374,6 +503,12 @@ class AppServiceState(object):
             encoding="utf-8",
         )
 
+    def _persist_translation_session(self, payload):
+        write_json_atomically(self.translation_session_path, payload)
+
+    def _persist_sql_translation_session(self, payload):
+        write_json_atomically(self.sql_translation_session_path, payload)
+
     def _reapply_annotations_and_persist(self):
         self.annotation_stats = apply_annotation_store(self.findings, self.annotation_store)
         self.summary = refresh_summary(self.summary, self.findings, annotation_stats=self.annotation_stats)
@@ -405,6 +540,9 @@ class AppServiceState(object):
             "scan_policy": dict(self.app_state.get("scan_policy", default_app_state()["scan_policy"])),
             "model_config": self._effective_model_config(),
             "translation_config": dict(self.app_state.get("translation_config", default_translation_config())),
+            "sql_translation_config": dict(
+                self.app_state.get("sql_translation_config", default_sql_translation_config())
+            ),
             "out_dir": str(self.out_dir),
         }
 
@@ -418,6 +556,12 @@ class AppServiceState(object):
     def _validate_model_config(self, app_state=None):
         model_config = self._effective_model_config(app_state)
         probe_openai_compatible_model(model_config)
+
+    def _require_model_config(self):
+        model_config = self._effective_model_config()
+        if not model_config.get("base_url") or not model_config.get("api_key") or not model_config.get("model"):
+            raise ValueError("Model config is incomplete. Please complete Base URL, API Key and model first.")
+        return model_config
 
     def _idle_scan_status(self):
         return {
@@ -440,46 +584,85 @@ class AppServiceState(object):
             self.terminology = {}
             self.terminology_error = str(exc)
 
+    def _restore_translation_session(self):
+        payload = load_json_file(self.translation_session_path)
+        if not isinstance(payload, dict):
+            return
+        try:
+            self.translation_session = TranslationSession.from_saved_state(
+                payload=payload,
+                glossary=self.terminology,
+                model_config=self._effective_model_config(),
+                model_runner=self._translation_model_runner,
+                persist_callback=self._persist_translation_session,
+            )
+            self._persist_translation_session(self.translation_session.save_state())
+        except Exception:
+            self.translation_session = None
+
+    def _restore_sql_translation_session(self):
+        payload = load_json_file(self.sql_translation_session_path)
+        if not isinstance(payload, dict):
+            return
+        try:
+            self.sql_translation_session = SqlTranslationSession.from_saved_state(
+                payload=payload,
+                glossary=self.terminology,
+                model_config=self._effective_model_config(),
+                model_runner=self._sql_translation_model_runner,
+                persist_callback=self._persist_sql_translation_session,
+            )
+            self._persist_sql_translation_session(self.sql_translation_session.save_state())
+        except Exception:
+            self.sql_translation_session = None
+
     def translation_payload_locked(self):
         self._reload_terminology()
         session_snapshot = None
         if self.translation_session is not None:
             session_snapshot = self.translation_session.snapshot()
         if session_snapshot is None:
-            session_snapshot = {
-                "config": dict(self.app_state.get("translation_config", default_translation_config())),
-                "status": {
-                    "status": "idle",
-                    "message": "等待校译",
-                    "error": "",
-                    "started_at": "",
-                    "finished_at": "",
-                    "backup_path": "",
-                    "current": {"key": "", "source_text": "", "status": ""},
-                    "counts": {
-                        "total": 0,
-                        "processed": 0,
-                        "skipped": 0,
-                        "pending": 0,
-                        "accepted": 0,
-                        "appended": 0,
-                        "failed": 0,
-                        "rejected": 0,
-                        "regenerated": 0,
-                        "glossary_applied": 0,
-                    },
-                },
-                "pending_items": [],
-                "recent_items": [],
-                "events": [],
-            }
+            session_snapshot = _default_translation_payload()
         session_snapshot["config"] = dict(self.app_state.get("translation_config", default_translation_config()))
         session_snapshot["terminology"] = {
             "path": str(self.terminology_path),
             "count": len(self.terminology),
             "error": self.terminology_error,
         }
+        self._attach_resume_status(session_snapshot["status"])
         return session_snapshot
+
+    def sql_translation_payload_locked(self):
+        self._reload_terminology()
+        session_snapshot = None
+        if self.sql_translation_session is not None:
+            session_snapshot = self.sql_translation_session.snapshot()
+        if session_snapshot is None:
+            session_snapshot = _default_sql_translation_payload()
+        session_snapshot["config"] = dict(
+            self.app_state.get("sql_translation_config", default_sql_translation_config())
+        )
+        session_snapshot["terminology"] = {
+            "path": str(self.terminology_path),
+            "count": len(self.terminology),
+            "error": self.terminology_error,
+        }
+        self._attach_resume_status(session_snapshot["status"], output_path=session_snapshot["status"].get("output_path", ""))
+        return session_snapshot
+
+    def _attach_resume_status(self, status, output_path=""):
+        resume_available = str(status.get("status", "") or "") in ("interrupted", "stopped")
+        if resume_available:
+            prefix = "任务已中断，可继续执行" if status.get("status") == "interrupted" else "任务已停止，可继续执行"
+            if output_path:
+                resume_message = "{}；已生成内容保留在：{}".format(prefix, output_path)
+            else:
+                resume_message = prefix
+        else:
+            resume_message = ""
+        status["resume_available"] = resume_available
+        status["resume_message"] = resume_message
+        return status
 
     def _translation_model_runner(self, key, source_text, target_text, locked_terms, model_config, extra_prompt, target_missing):
         response = call_openai_compatible_json(
@@ -497,16 +680,146 @@ class AppServiceState(object):
         )
         return response
 
+    def _sql_translation_model_runner(
+        self,
+        source_path,
+        line,
+        table_name,
+        primary_key_field,
+        primary_key_value,
+        source_field,
+        source_text,
+        target_field,
+        target_text,
+        target_missing,
+        locked_terms,
+        model_config,
+        extra_prompt,
+    ):
+        response = call_openai_compatible_json(
+            model_config=model_config,
+            system_prompt=build_sql_translation_system_prompt(),
+            user_prompt=build_sql_translation_user_prompt(
+                source_path=source_path,
+                line=line,
+                table_name=table_name,
+                primary_key_field=primary_key_field,
+                primary_key_value=primary_key_value,
+                source_field=source_field,
+                source_text=source_text,
+                target_field=target_field,
+                target_text=target_text,
+                target_missing=target_missing,
+                locked_terms=locked_terms,
+                extra_prompt=extra_prompt,
+            ),
+            max_tokens=model_config.get("max_tokens"),
+        )
+        return response
+
     def _translation_auto_accept(self):
         return bool(self.translation_auto_accept)
+
+    def _start_translation_thread_locked(self, session):
+        self.translation_thread = threading.Thread(
+            target=self._run_translation_job,
+            args=(session,),
+            name="zh-audit-translation",
+            daemon=True,
+        )
+        self.translation_thread.start()
+
+    def _start_sql_translation_thread_locked(self, session):
+        self.sql_translation_thread = threading.Thread(
+            target=self._run_sql_translation_job,
+            args=(session,),
+            name="zh-audit-sql-translation",
+            daemon=True,
+        )
+        self.sql_translation_thread.start()
 
     def _require_translation_session(self):
         if self.translation_session is None:
             raise ValueError("No translation task has been created yet.")
         return self.translation_session
 
+    def _require_sql_translation_session(self):
+        if self.sql_translation_session is None:
+            raise ValueError("No SQL translation task has been created yet.")
+        return self.sql_translation_session
+
+    def _has_running_task_locked(self):
+        return (
+            self.translation_session is not None and self._session_status(self.translation_session) == "running"
+        ) or (
+            self.sql_translation_session is not None and self._session_status(self.sql_translation_session) == "running"
+        )
+
+    def _session_status(self, session):
+        return session.snapshot()["status"]["status"]
+
     def _timestamp(self):
         return datetime.now().astimezone().replace(microsecond=0).isoformat()
+
+
+def _default_translation_payload():
+    return {
+        "config": dict(default_translation_config()),
+        "status": {
+            "status": "idle",
+            "message": "等待校译",
+            "error": "",
+            "started_at": "",
+            "finished_at": "",
+            "backup_path": "",
+            "current": {"key": "", "source_text": "", "status": ""},
+            "counts": {
+                "total": 0,
+                "processed": 0,
+                "skipped": 0,
+                "pending": 0,
+                "accepted": 0,
+                "appended": 0,
+                "failed": 0,
+                "rejected": 0,
+                "regenerated": 0,
+                "glossary_applied": 0,
+            },
+        },
+        "pending_items": [],
+        "recent_items": [],
+        "events": [],
+    }
+
+
+def _default_sql_translation_payload():
+    return {
+        "config": dict(default_sql_translation_config()),
+        "status": {
+            "status": "idle",
+            "message": "等待校译",
+            "error": "",
+            "started_at": "",
+            "finished_at": "",
+            "output_path": "",
+            "current": {"file_path": "", "primary_key_value": "", "source_text": "", "status": ""},
+            "counts": {
+                "total": 0,
+                "processed": 0,
+                "skipped": 0,
+                "pending": 0,
+                "accepted": 0,
+                "appended": 0,
+                "failed": 0,
+                "rejected": 0,
+                "regenerated": 0,
+                "glossary_applied": 0,
+            },
+        },
+        "pending_items": [],
+        "recent_items": [],
+        "events": [],
+    }
 
 
 class _ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
@@ -529,6 +842,9 @@ class AppRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/translation/status":
             self._send_json(200, self.server.app_state.translation_payload())
+            return
+        if parsed.path == "/api/sql-translation/status":
+            self._send_json(200, self.server.app_state.sql_translation_payload())
             return
         self._send_json(404, {"error": "not_found"})
 
@@ -557,6 +873,9 @@ class AppRequestHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/translation/stop":
                 self._send_json(200, self.server.app_state.stop_translation())
                 return
+            if parsed.path == "/api/translation/resume":
+                self._send_json(200, self.server.app_state.resume_translation())
+                return
             if parsed.path == "/api/translation/accept":
                 self._send_json(200, self.server.app_state.translation_accept(payload.get("item_id", "")))
                 return
@@ -568,6 +887,27 @@ class AppRequestHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/translation/reject":
                 self._send_json(200, self.server.app_state.translation_reject(payload.get("item_id", "")))
+                return
+            if parsed.path == "/api/sql-translation/start":
+                self._send_json(200, self.server.app_state.start_sql_translation(payload))
+                return
+            if parsed.path == "/api/sql-translation/stop":
+                self._send_json(200, self.server.app_state.stop_sql_translation())
+                return
+            if parsed.path == "/api/sql-translation/resume":
+                self._send_json(200, self.server.app_state.resume_sql_translation())
+                return
+            if parsed.path == "/api/sql-translation/accept":
+                self._send_json(200, self.server.app_state.sql_translation_accept(payload.get("item_id", "")))
+                return
+            if parsed.path == "/api/sql-translation/regenerate":
+                self._send_json(
+                    200,
+                    self.server.app_state.sql_translation_regenerate(payload.get("item_id", ""), payload.get("prompt", "")),
+                )
+                return
+            if parsed.path == "/api/sql-translation/reject":
+                self._send_json(200, self.server.app_state.sql_translation_reject(payload.get("item_id", "")))
                 return
         except Exception as exc:
             self._send_json(400, {"error": str(exc)})
