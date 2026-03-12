@@ -175,10 +175,14 @@ class AppServerSmokeTest(unittest.TestCase):
             state = AppServiceState(out_dir=out_dir)
 
             html = state.render_home()
+            self.assertIn("scrollbar-gutter: stable;", html)
+            self.assertIn("overflow-y: scroll;", html)
             self.assertIn("扫描目录", html)
             self.assertIn("扫描结果", html)
-            self.assertIn("码值校译", html)
-            self.assertIn("SQL校译", html)
+            self.assertIn("国际化文件", html)
+            self.assertIn("数据库数据", html)
+            self.assertIn("国际化文件中英文校对和翻译", html)
+            self.assertIn("数据库数据中英文校对和翻译", html)
             self.assertIn("模型配置", html)
             self.assertIn("Base URL", html)
             self.assertIn("保存模型配置", html)
@@ -194,6 +198,11 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn('placeholder="请输入中文文案字段名"', html)
             self.assertIn('placeholder="请输入英文文案字段名"', html)
             self.assertIn("输出文件", html)
+            self.assertIn("重试轮次：", html)
+            self.assertIn("接受", html)
+            self.assertIn("重新生成", html)
+            self.assertIn("正在重新生成当前条目，完成后会自动刷新。", html)
+            self.assertNotIn("模型调用：", html)
             self.assertIn("复制路径", html)
             self.assertNotIn("最近完成", html)
             self.assertNotIn("Local Service", html)
@@ -467,6 +476,7 @@ class AppServerSmokeTest(unittest.TestCase):
                 pending = latest["pending_items"][0]
                 self.assertEqual(pending["candidate_text"], "create link: {0}")
                 self.assertTrue(pending["can_accept"])
+                self.assertEqual(pending["generation_attempts_used"], 1)
                 self.assertGreaterEqual(pending["model_calls_used"], 2)
 
                 accepted = state.translation_accept(pending["id"])
@@ -475,7 +485,7 @@ class AppServerSmokeTest(unittest.TestCase):
                 self.assertIn("RESOURCE_POOL=resource pool", target_text)
                 self.assertIn("NETWORK_LINK_ADD=create link: {0}", target_text)
                 self.assertNotIn("# Added by zh-audit 码值校译", target_text)
-                self.assertTrue(any(path.name.startswith("messages_en.properties.bak.") for path in root.iterdir()))
+                self.assertFalse(any(path.name.startswith("messages_en.properties.bak.") for path in root.iterdir()))
 
     def test_translation_session_restores_and_resumes_after_model_error(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -185,8 +185,9 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             pending = snapshot["pending_items"][0]
             self.assertEqual(pending["validation_state"], "failed")
             self.assertFalse(pending["can_accept"])
-            self.assertEqual(pending["model_calls_used"], 5)
-            self.assertIn("候选仍含中文", pending["validation_message"])
+            self.assertEqual(pending["generation_attempts_used"], 5)
+            self.assertIn("已重试 5 次仍未通过", pending["validation_message"])
+            self.assertIn("失败原因：候选仍含中文", pending["validation_message"])
             with self.assertRaises(ValueError):
                 session.accept(pending["id"])
 

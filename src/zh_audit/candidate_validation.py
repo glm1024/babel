@@ -5,7 +5,9 @@ import re
 from zh_audit.utils import contains_han, decode_unicode_escapes
 
 
-MAX_MODEL_CALLS_PER_ITEM = 5
+MAX_GENERATION_ATTEMPTS_PER_ITEM = 5
+# Backward compatibility for older imports and serialized state readers.
+MAX_MODEL_CALLS_PER_ITEM = MAX_GENERATION_ATTEMPTS_PER_ITEM
 PLACEHOLDER_PATTERN = re.compile(
     r"\$\{[^{}\r\n]+\}|\{[^{}\r\n]*\}|%(?:\d+\$)?[#0\- +,(]*\d*(?:\.\d+)?[A-Za-z]"
 )
@@ -104,7 +106,17 @@ def validation_message(issue):
     value = str(issue or "").strip()
     if not value:
         value = "校验未通过"
-    return "{}，请重生成".format(value)
+    return "{}，请重新生成".format(value)
+
+
+def exhausted_validation_message(issue, attempts):
+    value = str(issue or "").strip()
+    if not value:
+        value = "校验未通过"
+    return "已重试 {} 次仍未通过，失败原因：{}，请重新生成".format(
+        int(attempts or MAX_GENERATION_ATTEMPTS_PER_ITEM),
+        value,
+    )
 
 
 def _normalize_for_compare(text):

@@ -8,8 +8,9 @@ from datetime import datetime
 from pathlib import Path
 
 from zh_audit.candidate_validation import (
-    MAX_MODEL_CALLS_PER_ITEM,
+    MAX_GENERATION_ATTEMPTS_PER_ITEM,
     contains_locked_terms,
+    exhausted_validation_message,
     normalize_review_result,
     sanitize_candidate_text,
     validate_candidate_text,
@@ -281,14 +282,14 @@ class SqlTranslationSession(object):
             item["status"] = "accepted"
             item["target_text"] = item.get("candidate_text", "")
             item["updated_at"] = _timestamp()
-            item["accepted_reason"] = "人工接收"
+            item["accepted_reason"] = "人工接受"
             self.pending_ids.remove(item_id)
             self.pending -= 1
             self.accepted += 1
             if appended:
                 self.appended += 1
             self._push_recent(item_id)
-            self._push_event("人工接收", item, item.get("candidate_text", ""))
+            self._push_event("人工接受", item, item.get("candidate_text", ""))
             self._persist_locked()
             return self.snapshot()
 
@@ -336,7 +337,7 @@ class SqlTranslationSession(object):
             item["updated_at"] = _timestamp()
             item["regeneration_prompt"] = extra_prompt
             self.regenerated += 1
-            self._push_event(self._pending_event_label(item, "已重生成"), item, item.get("candidate_text", ""))
+            self._push_event(self._pending_event_label(item, "已重新生成"), item, item.get("candidate_text", ""))
             self._persist_locked()
             return self.snapshot()
 
@@ -383,6 +384,7 @@ class SqlTranslationSession(object):
                 validation_message="",
                 validation_issue="",
                 can_accept=True,
+                generation_attempts_used=0,
                 model_calls_used=0,
             )
             with self.lock:
@@ -425,12 +427,14 @@ class SqlTranslationSession(object):
             validation_message=normalized["validation_message"],
             validation_issue=normalized.get("validation_issue", ""),
             can_accept=normalized["can_accept"],
+            generation_attempts_used=normalized["generation_attempts_used"],
             model_calls_used=normalized["model_calls_used"],
         )
         with self.lock:
             self._finalize_item(item, "待审批")
 
     def _build_candidate_with_guardrails(self, item, base_extra_prompt):
+        generation_attempts_used = 0
         model_calls_used = 0
         retry_issue = ""
         last_result = {
@@ -441,9 +445,10 @@ class SqlTranslationSession(object):
             "validation_message": validation_message("校验未通过"),
             "validation_issue": "校验未通过",
             "can_accept": False,
+            "generation_attempts_used": 0,
             "model_calls_used": 0,
         }
-        while model_calls_used < MAX_MODEL_CALLS_PER_ITEM:
+        while generation_attempts_used < MAX_GENERATION_ATTEMPTS_PER_ITEM:
             raw_result = self.model_runner(
                 source_path=item.get("source_path", ""),
                 line=item.get("line", 0),
@@ -459,6 +464,7 @@ class SqlTranslationSession(object):
                 model_config=self.model_config,
                 extra_prompt=self._build_retry_prompt(base_extra_prompt, retry_issue),
             )
+            generation_attempts_used += 1
             model_calls_used += 1
             normalized = self._normalize_model_result(item, raw_result, item.get("target_text", ""))
             candidate_text = normalized["candidate_text"]
@@ -480,13 +486,11 @@ class SqlTranslationSession(object):
                     "validation_message": validation_message(validation_issue),
                     "validation_issue": validation_issue,
                     "can_accept": False,
+                    "generation_attempts_used": generation_attempts_used,
                     "model_calls_used": model_calls_used,
                 }
                 continue
             if self.reviewer_runner is not None:
-                if model_calls_used >= MAX_MODEL_CALLS_PER_ITEM:
-                    retry_issue = "已达到最大模型调用次数，未完成AI复核"
-                    break
                 review_result = self.reviewer_runner(
                     source_path=item.get("source_path", ""),
                     line=item.get("line", 0),
@@ -514,6 +518,7 @@ class SqlTranslationSession(object):
                         "validation_message": validation_message(retry_issue),
                         "validation_issue": retry_issue,
                         "can_accept": False,
+                        "generation_attempts_used": generation_attempts_used,
                         "model_calls_used": model_calls_used,
                     }
                     continue
@@ -525,14 +530,22 @@ class SqlTranslationSession(object):
                 "validation_message": "",
                 "validation_issue": "",
                 "can_accept": True,
+                "generation_attempts_used": generation_attempts_used,
                 "model_calls_used": model_calls_used,
             }
-        failure_issue = retry_issue or last_result.get("validation_issue") or "已达到最大模型调用次数"
+        failure_issue = retry_issue or last_result.get("validation_issue") or "校验未通过"
         last_result["validation_state"] = "failed"
-        last_result["validation_message"] = validation_message(failure_issue)
+        last_result["validation_message"] = exhausted_validation_message(
+            failure_issue,
+            generation_attempts_used or MAX_GENERATION_ATTEMPTS_PER_ITEM,
+        )
         last_result["validation_issue"] = failure_issue
         last_result["can_accept"] = False
-        last_result["model_calls_used"] = min(model_calls_used, MAX_MODEL_CALLS_PER_ITEM)
+        last_result["generation_attempts_used"] = min(
+            generation_attempts_used,
+            MAX_GENERATION_ATTEMPTS_PER_ITEM,
+        )
+        last_result["model_calls_used"] = model_calls_used
         return last_result
 
     def _normalize_model_result(self, item, result, current_target):
@@ -589,6 +602,7 @@ class SqlTranslationSession(object):
         validation_message,
         validation_issue,
         can_accept,
+        generation_attempts_used,
         model_calls_used,
     ):
         with self.lock:
@@ -618,6 +632,7 @@ class SqlTranslationSession(object):
                 "validation_message": str(validation_message or ""),
                 "validation_issue": str(validation_issue or ""),
                 "can_accept": bool(can_accept),
+                "generation_attempts_used": int(generation_attempts_used or 0),
                 "model_calls_used": int(model_calls_used or 0),
                 "status": "pending",
                 "updated_at": _timestamp(),
@@ -634,6 +649,7 @@ class SqlTranslationSession(object):
         item["validation_message"] = normalized["validation_message"]
         item["validation_issue"] = normalized.get("validation_issue", "")
         item["can_accept"] = bool(normalized["can_accept"])
+        item["generation_attempts_used"] = int(normalized.get("generation_attempts_used", item.get("generation_attempts_used", 0)) or 0)
         item["model_calls_used"] = int(normalized["model_calls_used"])
 
     def _finalize_item(self, item, event_label):
@@ -649,7 +665,7 @@ class SqlTranslationSession(object):
 
     def _pending_event_label(self, item, default_label):
         if item.get("validation_state") == "failed":
-            return "候选未通过校验：{}".format(item.get("validation_issue") or "请重生成")
+            return "候选未通过校验：{}".format(item.get("validation_issue") or "请重新生成")
         return default_label
 
     def _append_update_sql_once(self, item):
@@ -733,6 +749,7 @@ class SqlTranslationSession(object):
             "validation_state": item.get("validation_state", "passed"),
             "validation_message": item.get("validation_message", ""),
             "can_accept": bool(item.get("can_accept", True)),
+            "generation_attempts_used": int(item.get("generation_attempts_used", item.get("model_calls_used", 0)) or 0),
             "model_calls_used": int(item.get("model_calls_used", 0) or 0),
             "updated_at": item.get("updated_at", ""),
         }
@@ -801,6 +818,10 @@ class SqlTranslationSession(object):
             restored.setdefault("validation_message", "")
             restored.setdefault("validation_issue", "")
             restored.setdefault("can_accept", True)
+            restored.setdefault(
+                "generation_attempts_used",
+                min(int(restored.get("model_calls_used", 0) or 0), MAX_GENERATION_ATTEMPTS_PER_ITEM),
+            )
             restored.setdefault("model_calls_used", 0)
             self.items[item_id] = restored
         self.pending_ids = [item_id for item_id in payload.get("pending_ids", []) if item_id in self.items]

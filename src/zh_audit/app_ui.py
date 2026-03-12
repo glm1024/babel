@@ -16,6 +16,11 @@ def render_app_shell(bootstrap_payload, client_config):
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>中文硬编码盘点服务</title>
   <style>
+    html {
+      min-height: 100%;
+      overflow-y: scroll;
+      scrollbar-gutter: stable;
+    }
     :root {
       --bg: #f4efe8;
       --panel: #fffdfa;
@@ -31,6 +36,7 @@ def render_app_shell(bootstrap_payload, client_config):
     * { box-sizing: border-box; }
     body {
       margin: 0;
+      min-height: 100vh;
       font-family: "Iowan Old Style", "Noto Serif SC", serif;
       color: var(--ink);
       background:
@@ -227,6 +233,11 @@ def render_app_shell(bootstrap_payload, client_config):
     .primary-btn.is-loading {
       opacity: 0.92;
       box-shadow: 0 12px 24px rgba(159,61,42,0.22);
+    }
+    .secondary-btn.is-loading,
+    .danger-btn.is-loading {
+      opacity: 0.92;
+      box-shadow: 0 10px 20px rgba(64, 47, 30, 0.12);
     }
     .danger-btn {
       color: var(--danger);
@@ -703,9 +714,16 @@ def render_app_shell(bootstrap_payload, client_config):
     .translation-validation-note.is-error {
       color: var(--danger);
     }
+    .translation-validation-note.is-progress {
+      color: var(--accent);
+    }
     .translation-call-budget {
       font-size: 12px;
       color: var(--muted);
+    }
+    .translation-log-item.is-busy {
+      border-color: rgba(159,61,42,0.26);
+      background: rgba(255,249,243,0.9);
     }
     .translation-actions {
       display: flex;
@@ -773,8 +791,8 @@ def render_app_shell(bootstrap_payload, client_config):
     <div class="tab-bar" id="tabBar">
       <button class="tab-btn is-active" type="button" data-tab="home">首页</button>
       <button class="tab-btn" type="button" data-tab="results">扫描结果</button>
-      <button class="tab-btn" type="button" data-tab="translation">码值校译</button>
-      <button class="tab-btn" type="button" data-tab="sqlTranslation">SQL校译</button>
+      <button class="tab-btn" type="button" data-tab="translation">国际化文件</button>
+      <button class="tab-btn" type="button" data-tab="sqlTranslation">数据库数据</button>
       <button class="tab-btn" type="button" data-tab="settings">模型配置</button>
     </div>
 
@@ -844,8 +862,8 @@ def render_app_shell(bootstrap_payload, client_config):
           <div class="panel card translation-top-card">
             <div class="card-head">
               <div>
-                <div class="muted">Translation</div>
-                <h2 class="card-title">码值校译</h2>
+                <div class="muted">I18N Files</div>
+                <h2 class="card-title">国际化文件中英文校对和翻译</h2>
               </div>
               <span id="translationStatusPill" class="pill keep">空闲</span>
             </div>
@@ -886,7 +904,7 @@ def render_app_shell(bootstrap_payload, client_config):
               <span class="translation-stat-chip">总 <strong id="translationTotalCount">0</strong></span>
               <span class="translation-stat-chip">已处理 <strong id="translationProcessedCount">0</strong></span>
               <span class="translation-stat-chip">待审批 <strong id="translationPendingCount">0</strong></span>
-              <span class="translation-stat-chip">已接收 <strong id="translationAcceptedCount">0</strong></span>
+              <span class="translation-stat-chip">已接受 <strong id="translationAcceptedCount">0</strong></span>
               <span class="translation-stat-chip">已追加 <strong id="translationAppendedCount">0</strong></span>
               <span class="translation-stat-chip">已跳过 <strong id="translationSkippedCount">0</strong></span>
             </div>
@@ -906,12 +924,6 @@ def render_app_shell(bootstrap_payload, client_config):
                   <span id="translationCurrentSource" class="progress-meta-value">-</span>
                 </div>
               </div>
-              <details class="translation-details">
-                <summary>更多进度</summary>
-                <div class="translation-details-content">
-                  <div class="readonly-output">备份文件：<span id="translationBackupPath">-</span></div>
-                </div>
-              </details>
             </div>
           </div>
         </div>
@@ -949,8 +961,8 @@ def render_app_shell(bootstrap_payload, client_config):
           <div class="panel card translation-top-card">
             <div class="card-head">
               <div>
-                <div class="muted">SQL Translation</div>
-                <h2 class="card-title">SQL校译</h2>
+                <div class="muted">Database Data</div>
+                <h2 class="card-title">数据库数据中英文校对和翻译</h2>
               </div>
               <span id="sqlTranslationStatusPill" class="pill keep">空闲</span>
             </div>
@@ -1001,7 +1013,7 @@ def render_app_shell(bootstrap_payload, client_config):
               <span class="translation-stat-chip">总 <strong id="sqlTranslationTotalCount">0</strong></span>
               <span class="translation-stat-chip">已处理 <strong id="sqlTranslationProcessedCount">0</strong></span>
               <span class="translation-stat-chip">待审批 <strong id="sqlTranslationPendingCount">0</strong></span>
-              <span class="translation-stat-chip">已接收 <strong id="sqlTranslationAcceptedCount">0</strong></span>
+              <span class="translation-stat-chip">已接受 <strong id="sqlTranslationAcceptedCount">0</strong></span>
               <span class="translation-stat-chip">已追加 <strong id="sqlTranslationAppendedCount">0</strong></span>
               <span class="translation-stat-chip">已跳过 <strong id="sqlTranslationSkippedCount">0</strong></span>
             </div>
@@ -1126,6 +1138,8 @@ __REPORT_COMPONENT_BUNDLE__
       sqlTranslation: BOOTSTRAP.sql_translation || defaultSqlTranslationPayload(),
       translationPromptDrafts: {},
       sqlTranslationPromptDrafts: {},
+      translationItemOps: {},
+      sqlTranslationItemOps: {},
     };
     state.draftConfig = cloneConfig(state.config);
 
@@ -1170,7 +1184,6 @@ __REPORT_COMPONENT_BUNDLE__
     const translationCurrentKey = document.getElementById("translationCurrentKey");
     const translationCurrentSource = document.getElementById("translationCurrentSource");
     const translationCurrentStatus = document.getElementById("translationCurrentStatus");
-    const translationBackupPath = document.getElementById("translationBackupPath");
     const translationPendingEmpty = document.getElementById("translationPendingEmpty");
     const translationPendingList = document.getElementById("translationPendingList");
     const sqlTranslationStatusPill = document.getElementById("sqlTranslationStatusPill");
@@ -1367,6 +1380,26 @@ __REPORT_COMPONENT_BUNDLE__
       renderAll();
     }
 
+    function pruneItemOps(itemOps, items) {
+      const activeIds = new Set((Array.isArray(items) ? items : []).map(item => item.id));
+      Object.keys(itemOps || {}).forEach(itemId => {
+        if (!activeIds.has(itemId)) {
+          delete itemOps[itemId];
+        }
+      });
+    }
+
+    function setItemOp(itemOps, itemId, action, message) {
+      itemOps[itemId] = {
+        action: String(action || ""),
+        message: String(message || ""),
+      };
+    }
+
+    function clearItemOp(itemOps, itemId) {
+      delete itemOps[itemId];
+    }
+
     function renderTabs() {
       const buttons = tabBar.querySelectorAll(".tab-btn");
       buttons.forEach(button => {
@@ -1516,9 +1549,6 @@ __REPORT_COMPONENT_BUNDLE__
       translationCurrentKey.textContent = (status.current || {}).key || "-";
       translationCurrentSource.textContent = (status.current || {}).source_text || "-";
       translationCurrentStatus.textContent = (status.current || {}).status || "-";
-      translationBackupPath.textContent = status.backup_path || "-";
-      translationBackupPath.title = status.backup_path || "";
-
       const events = Array.isArray(translation.events) ? translation.events : [];
       if (!events.length) {
         translationEvents.innerHTML = '<div class="translation-empty">当前还没有处理记录。</div>';
@@ -1537,29 +1567,38 @@ __REPORT_COMPONENT_BUNDLE__
       }
 
       const pendingItems = Array.isArray(translation.pending_items) ? translation.pending_items : [];
+      pruneItemOps(state.translationItemOps, pendingItems);
       translationPendingEmpty.classList.toggle("hidden", pendingItems.length > 0);
       translationPendingList.classList.toggle("hidden", pendingItems.length === 0);
-      translationPendingList.innerHTML = pendingItems.map(item => `
-        <div class="translation-log-item">
+      translationPendingList.innerHTML = pendingItems.map(item => {
+        const itemOp = state.translationItemOps[item.id] || null;
+        const isBusy = Boolean(itemOp);
+        const acceptTitle = isBusy
+          ? (itemOp.message || "正在处理当前条目")
+          : (item.validation_message || "校验未通过，请重新生成");
+        return `
+        <div class="translation-log-item${isBusy ? " is-busy" : ""}">
           <div class="translation-item-stack">
             <strong>${escapeHtml(item.key || "-")}</strong>
             <div><span class="muted">中文：</span>${escapeHtml(item.source_text || "-")}</div>
             <div><span class="muted">当前英文：</span><code>${escapeHtml(item.target_text || "(空)")}</code></div>
             <div><span class="muted">候选英文：</span><code>${escapeHtml(item.candidate_text || "-")}</code></div>
             ${item.validation_message ? `<div class="translation-validation-note ${item.validation_state === "failed" ? "is-error" : ""}">${escapeHtml(item.validation_message)}</div>` : ""}
-            <div class="translation-call-budget">模型调用：${escapeHtml(String(item.model_calls_used || 0))}/${escapeHtml(String(5))}</div>
+            ${itemOp ? `<div class="translation-validation-note is-progress">${escapeHtml(itemOp.message || "正在处理当前条目...")}</div>` : ""}
+            <div class="translation-call-budget">重试轮次：${escapeHtml(String(item.generation_attempts_used || 0))}/${escapeHtml(String(5))}</div>
             <div class="translation-tags">
               ${(item.locked_terms || []).map(term => `<span class="translation-tag">${escapeHtml(`${term.source} => ${term.target}`)}</span>`).join("")}
             </div>
           </div>
           <div class="translation-actions">
-            <button class="primary-btn" type="button" data-action="translation-accept" data-id="${escapeAttr(item.id)}" ${item.can_accept === false ? `disabled title="${escapeAttr(item.validation_message || "校验未通过，请重生成")}"` : ""}>接收</button>
-            <input class="field-input translation-inline-input" data-prompt-id="${escapeAttr(item.id)}" value="${escapeAttr(state.translationPromptDrafts[item.id] || "")}" placeholder="可选：输入额外 prompt 后重生成">
-            <button class="secondary-btn" type="button" data-action="translation-regenerate" data-id="${escapeAttr(item.id)}">重生成</button>
-            <button class="danger-btn" type="button" data-action="translation-reject" data-id="${escapeAttr(item.id)}">忽略</button>
+            <button class="primary-btn${itemOp && itemOp.action === "accept" ? " is-loading" : ""}" type="button" data-action="translation-accept" data-id="${escapeAttr(item.id)}" ${isBusy || item.can_accept === false ? `disabled title="${escapeAttr(acceptTitle)}"` : ""}>${escapeHtml(itemOp && itemOp.action === "accept" ? "接受中..." : "接受")}</button>
+            <input class="field-input translation-inline-input" data-prompt-id="${escapeAttr(item.id)}" value="${escapeAttr(state.translationPromptDrafts[item.id] || "")}" placeholder="可选：输入额外 prompt 后重新生成" ${isBusy ? "disabled" : ""}>
+            <button class="secondary-btn${itemOp && itemOp.action === "regenerate" ? " is-loading" : ""}" type="button" data-action="translation-regenerate" data-id="${escapeAttr(item.id)}" ${isBusy ? `disabled title="${escapeAttr(itemOp.message || "正在处理当前条目")}"` : ""}>${escapeHtml(itemOp && itemOp.action === "regenerate" ? "重新生成中..." : "重新生成")}</button>
+            <button class="danger-btn${itemOp && itemOp.action === "reject" ? " is-loading" : ""}" type="button" data-action="translation-reject" data-id="${escapeAttr(item.id)}" ${isBusy ? `disabled title="${escapeAttr(itemOp.message || "正在处理当前条目")}"` : ""}>${escapeHtml(itemOp && itemOp.action === "reject" ? "忽略中..." : "忽略")}</button>
           </div>
         </div>
-      `).join("");
+      `;
+      }).join("");
 
     }
 
@@ -1578,7 +1617,7 @@ __REPORT_COMPONENT_BUNDLE__
         return status.error ? `${status.resume_message}；原因：${status.error}` : status.resume_message;
       }
       if (status.status === "running" && status.output_path) {
-        return `已创建输出文件：${status.output_path}，后续每接收 1 条会立即写入`;
+        return `已创建输出文件：${status.output_path}，后续每接受 1 条会立即写入`;
       }
       if (status.status === "done" && status.output_path) {
         return `校译完成，SQL 文件已生成：${status.output_path}`;
@@ -1656,10 +1695,17 @@ __REPORT_COMPONENT_BUNDLE__
       }
 
       const pendingItems = Array.isArray(sqlTranslation.pending_items) ? sqlTranslation.pending_items : [];
+      pruneItemOps(state.sqlTranslationItemOps, pendingItems);
       sqlTranslationPendingEmpty.classList.toggle("hidden", pendingItems.length > 0);
       sqlTranslationPendingList.classList.toggle("hidden", pendingItems.length === 0);
-      sqlTranslationPendingList.innerHTML = pendingItems.map(item => `
-        <div class="translation-log-item">
+      sqlTranslationPendingList.innerHTML = pendingItems.map(item => {
+        const itemOp = state.sqlTranslationItemOps[item.id] || null;
+        const isBusy = Boolean(itemOp);
+        const acceptTitle = isBusy
+          ? (itemOp.message || "正在处理当前条目")
+          : (item.validation_message || "校验未通过，请重新生成");
+        return `
+        <div class="translation-log-item${isBusy ? " is-busy" : ""}">
           <div class="translation-item-stack">
             <strong>${escapeHtml(`${item.source_path || "-"}:${item.line || "-"}`)}</strong>
             <div><span class="muted">主键：</span>${escapeHtml(item.primary_key_value || "-")}</div>
@@ -1667,19 +1713,21 @@ __REPORT_COMPONENT_BUNDLE__
             <div><span class="muted">当前英文：</span><code>${escapeHtml(item.target_text || "(空)")}</code></div>
             <div><span class="muted">候选英文：</span><code>${escapeHtml(item.candidate_text || "-")}</code></div>
             ${item.validation_message ? `<div class="translation-validation-note ${item.validation_state === "failed" ? "is-error" : ""}">${escapeHtml(item.validation_message)}</div>` : ""}
-            <div class="translation-call-budget">模型调用：${escapeHtml(String(item.model_calls_used || 0))}/${escapeHtml(String(5))}</div>
+            ${itemOp ? `<div class="translation-validation-note is-progress">${escapeHtml(itemOp.message || "正在处理当前条目...")}</div>` : ""}
+            <div class="translation-call-budget">重试轮次：${escapeHtml(String(item.generation_attempts_used || 0))}/${escapeHtml(String(5))}</div>
             <div class="translation-tags">
               ${(item.locked_terms || []).map(term => `<span class="translation-tag">${escapeHtml(`${term.source} => ${term.target}`)}</span>`).join("")}
             </div>
           </div>
           <div class="translation-actions">
-            <button class="primary-btn" type="button" data-action="sql-translation-accept" data-id="${escapeAttr(item.id)}" ${item.can_accept === false ? `disabled title="${escapeAttr(item.validation_message || "校验未通过，请重生成")}"` : ""}>接收</button>
-            <input class="field-input translation-inline-input" data-sql-prompt-id="${escapeAttr(item.id)}" value="${escapeAttr(state.sqlTranslationPromptDrafts[item.id] || "")}" placeholder="可选：输入额外 prompt 后重生成">
-            <button class="secondary-btn" type="button" data-action="sql-translation-regenerate" data-id="${escapeAttr(item.id)}">重生成</button>
-            <button class="danger-btn" type="button" data-action="sql-translation-reject" data-id="${escapeAttr(item.id)}">忽略</button>
+            <button class="primary-btn${itemOp && itemOp.action === "accept" ? " is-loading" : ""}" type="button" data-action="sql-translation-accept" data-id="${escapeAttr(item.id)}" ${isBusy || item.can_accept === false ? `disabled title="${escapeAttr(acceptTitle)}"` : ""}>${escapeHtml(itemOp && itemOp.action === "accept" ? "接受中..." : "接受")}</button>
+            <input class="field-input translation-inline-input" data-sql-prompt-id="${escapeAttr(item.id)}" value="${escapeAttr(state.sqlTranslationPromptDrafts[item.id] || "")}" placeholder="可选：输入额外 prompt 后重新生成" ${isBusy ? "disabled" : ""}>
+            <button class="secondary-btn${itemOp && itemOp.action === "regenerate" ? " is-loading" : ""}" type="button" data-action="sql-translation-regenerate" data-id="${escapeAttr(item.id)}" ${isBusy ? `disabled title="${escapeAttr(itemOp.message || "正在处理当前条目")}"` : ""}>${escapeHtml(itemOp && itemOp.action === "regenerate" ? "重新生成中..." : "重新生成")}</button>
+            <button class="danger-btn${itemOp && itemOp.action === "reject" ? " is-loading" : ""}" type="button" data-action="sql-translation-reject" data-id="${escapeAttr(item.id)}" ${isBusy ? `disabled title="${escapeAttr(itemOp.message || "正在处理当前条目")}"` : ""}>${escapeHtml(itemOp && itemOp.action === "reject" ? "忽略中..." : "忽略")}</button>
           </div>
         </div>
-      `).join("");
+      `;
+      }).join("");
 
     }
 
@@ -1886,6 +1934,38 @@ __REPORT_COMPONENT_BUNDLE__
       renderSqlTranslation();
     }
 
+    async function runTranslationItemAction(itemId, action, runner) {
+      const messages = {
+        accept: "正在接受当前条目，完成后会自动刷新。",
+        regenerate: "正在重新生成当前条目，完成后会自动刷新。",
+        reject: "正在忽略当前条目，完成后会自动刷新。",
+      };
+      setItemOp(state.translationItemOps, itemId, action, messages[action] || "正在处理当前条目，完成后会自动刷新。");
+      renderTranslation();
+      try {
+        await runner();
+      } finally {
+        clearItemOp(state.translationItemOps, itemId);
+        renderTranslation();
+      }
+    }
+
+    async function runSqlTranslationItemAction(itemId, action, runner) {
+      const messages = {
+        accept: "正在接受当前条目，完成后会自动刷新。",
+        regenerate: "正在重新生成当前条目，完成后会自动刷新。",
+        reject: "正在忽略当前条目，完成后会自动刷新。",
+      };
+      setItemOp(state.sqlTranslationItemOps, itemId, action, messages[action] || "正在处理当前条目，完成后会自动刷新。");
+      renderSqlTranslation();
+      try {
+        await runner();
+      } finally {
+        clearItemOp(state.sqlTranslationItemOps, itemId);
+        renderSqlTranslation();
+      }
+    }
+
     function syncRootsFromInputs() {
       const inputs = rootsList.querySelectorAll(".root-input");
       state.draftConfig.scan_roots = Array.from(inputs).map(input => input.value);
@@ -1958,7 +2038,7 @@ __REPORT_COMPONENT_BUNDLE__
           }
         } catch (error) {
           stopSqlTranslationPolling();
-          sqlTranslationStatusBanner.textContent = error.message || "获取 SQL 校译状态失败";
+          sqlTranslationStatusBanner.textContent = error.message || "获取数据库数据状态失败";
           sqlTranslationStatusBanner.classList.add("is-error");
         }
       }, 1000);
@@ -1982,10 +2062,10 @@ __REPORT_COMPONENT_BUNDLE__
           await refreshBootstrap(true);
         } catch (error) {
           if (nextTab === "translation") {
-            translationStatusBanner.textContent = error.message || "刷新码值校译状态失败";
+            translationStatusBanner.textContent = error.message || "刷新国际化文件状态失败";
             translationStatusBanner.classList.add("is-error");
           } else if (nextTab === "sqlTranslation") {
-            sqlTranslationStatusBanner.textContent = error.message || "刷新 SQL 校译状态失败";
+            sqlTranslationStatusBanner.textContent = error.message || "刷新数据库数据状态失败";
             sqlTranslationStatusBanner.classList.add("is-error");
           }
         }
@@ -2044,7 +2124,7 @@ __REPORT_COMPONENT_BUNDLE__
       try {
         await startTranslation();
       } catch (error) {
-        translationStatusBanner.textContent = error.message || "启动码值校译失败";
+        translationStatusBanner.textContent = error.message || "启动国际化文件任务失败";
         translationStatusBanner.classList.add("is-error");
       }
     });
@@ -2053,7 +2133,7 @@ __REPORT_COMPONENT_BUNDLE__
       try {
         await resumeTranslation();
       } catch (error) {
-        translationStatusBanner.textContent = error.message || "继续码值校译失败";
+        translationStatusBanner.textContent = error.message || "继续国际化文件任务失败";
         translationStatusBanner.classList.add("is-error");
       }
     });
@@ -2062,7 +2142,7 @@ __REPORT_COMPONENT_BUNDLE__
       try {
         await stopTranslation();
       } catch (error) {
-        translationStatusBanner.textContent = error.message || "停止码值校译失败";
+        translationStatusBanner.textContent = error.message || "停止国际化文件任务失败";
         translationStatusBanner.classList.add("is-error");
       }
     });
@@ -2071,7 +2151,7 @@ __REPORT_COMPONENT_BUNDLE__
       try {
         await saveTranslationConfig();
       } catch (error) {
-        translationStatusBanner.textContent = error.message || "保存自动接收配置失败";
+        translationStatusBanner.textContent = error.message || "保存自动接受配置失败";
         translationStatusBanner.classList.add("is-error");
       }
     });
@@ -2134,7 +2214,7 @@ __REPORT_COMPONENT_BUNDLE__
           try {
             await saveSqlTranslationConfig();
           } catch (error) {
-            sqlTranslationStatusBanner.textContent = error.message || "保存 SQL 校译配置失败";
+            sqlTranslationStatusBanner.textContent = error.message || "保存数据库数据配置失败";
             sqlTranslationStatusBanner.classList.add("is-error");
           }
         });
@@ -2161,7 +2241,7 @@ __REPORT_COMPONENT_BUNDLE__
       try {
         await startSqlTranslation();
       } catch (error) {
-        sqlTranslationStatusBanner.textContent = error.message || "启动 SQL 校译失败";
+        sqlTranslationStatusBanner.textContent = error.message || "启动数据库数据任务失败";
         sqlTranslationStatusBanner.classList.add("is-error");
       }
     });
@@ -2170,7 +2250,7 @@ __REPORT_COMPONENT_BUNDLE__
       try {
         await resumeSqlTranslation();
       } catch (error) {
-        sqlTranslationStatusBanner.textContent = error.message || "继续 SQL 校译失败";
+        sqlTranslationStatusBanner.textContent = error.message || "继续数据库数据任务失败";
         sqlTranslationStatusBanner.classList.add("is-error");
       }
     });
@@ -2179,7 +2259,7 @@ __REPORT_COMPONENT_BUNDLE__
       try {
         await stopSqlTranslation();
       } catch (error) {
-        sqlTranslationStatusBanner.textContent = error.message || "停止 SQL 校译失败";
+        sqlTranslationStatusBanner.textContent = error.message || "停止数据库数据任务失败";
         sqlTranslationStatusBanner.classList.add("is-error");
       }
     });
@@ -2210,17 +2290,17 @@ __REPORT_COMPONENT_BUNDLE__
       const itemId = target.dataset.id || "";
       try {
         if (target.dataset.action === "translation-accept") {
-          await acceptTranslation(itemId);
+          await runTranslationItemAction(itemId, "accept", () => acceptTranslation(itemId));
           return;
         }
         if (target.dataset.action === "translation-regenerate") {
           const promptInput = translationPendingList.querySelector(`[data-prompt-id="${itemId}"]`);
           const prompt = promptInput ? promptInput.value : "";
-          await regenerateTranslation(itemId, prompt);
+          await runTranslationItemAction(itemId, "regenerate", () => regenerateTranslation(itemId, prompt));
           return;
         }
         if (target.dataset.action === "translation-reject") {
-          await rejectTranslation(itemId);
+          await runTranslationItemAction(itemId, "reject", () => rejectTranslation(itemId));
         }
       } catch (error) {
         translationStatusBanner.textContent = error.message || "处理审批条目失败";
@@ -2240,20 +2320,20 @@ __REPORT_COMPONENT_BUNDLE__
       const itemId = target.dataset.id || "";
       try {
         if (target.dataset.action === "sql-translation-accept") {
-          await acceptSqlTranslation(itemId);
+          await runSqlTranslationItemAction(itemId, "accept", () => acceptSqlTranslation(itemId));
           return;
         }
         if (target.dataset.action === "sql-translation-regenerate") {
           const promptInput = sqlTranslationPendingList.querySelector(`[data-sql-prompt-id="${itemId}"]`);
           const prompt = promptInput ? promptInput.value : "";
-          await regenerateSqlTranslation(itemId, prompt);
+          await runSqlTranslationItemAction(itemId, "regenerate", () => regenerateSqlTranslation(itemId, prompt));
           return;
         }
         if (target.dataset.action === "sql-translation-reject") {
-          await rejectSqlTranslation(itemId);
+          await runSqlTranslationItemAction(itemId, "reject", () => rejectSqlTranslation(itemId));
         }
       } catch (error) {
-        sqlTranslationStatusBanner.textContent = error.message || "处理 SQL 审批条目失败";
+        sqlTranslationStatusBanner.textContent = error.message || "处理数据库数据审批条目失败";
         sqlTranslationStatusBanner.classList.add("is-error");
       }
     });
