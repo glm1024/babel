@@ -172,10 +172,16 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("测试并保存中...", html)
             self.assertIn("开始校译", html)
             self.assertIn("继续任务", html)
-            self.assertIn("已加载术语", html)
+            self.assertIn("处理记录", html)
             self.assertIn("主键字段名", html)
+            self.assertIn('placeholder="请输入数据库脚本目录绝对路径"', html)
+            self.assertIn('placeholder="请输入目标表名"', html)
+            self.assertIn('placeholder="请输入主键字段名，默认 id"', html)
+            self.assertIn('placeholder="请输入中文文案字段名"', html)
+            self.assertIn('placeholder="请输入英文文案字段名"', html)
             self.assertIn("输出文件", html)
             self.assertIn("复制路径", html)
+            self.assertNotIn("最近完成", html)
             self.assertNotIn("Local Service", html)
             self.assertNotIn("首页先配置扫描目录，再启动扫描。", html)
             self.assertIn('class="root-remove-btn"', html)
@@ -193,6 +199,17 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("margin: 0 auto;", html)
             self.assertIn(".settings-workspace {", html)
             self.assertIn("height: calc(100vh - 124px);", html)
+            self.assertIn(".translation-page-shell {", html)
+            self.assertIn(".translation-top-grid {", html)
+            self.assertIn(".translation-bottom-grid {", html)
+            self.assertIn(".translation-top-card {", html)
+            self.assertIn(".translation-stat-row {", html)
+            self.assertIn(".translation-details {", html)
+            self.assertNotIn("已加载术语", html)
+            self.assertNotIn("更多信息", html)
+            self.assertIn("更多进度", html)
+            self.assertNotIn(".translation-stats {", html)
+            self.assertNotIn("grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);", html)
             self.assertIn('data-layout=\\"embedded\\"] .table-wrap {', html)
             self.assertIn(".findings-table col.col-sequence { width: 84px; }", html)
             self.assertIn(".findings-table col.col-action { width: 140px; }", html)
@@ -388,7 +405,7 @@ class AppServerSmokeTest(unittest.TestCase):
             source = root / "messages_zh.properties"
             target = root / "messages_en.properties"
             source.write_text("RESOURCE_POOL=资源池\nNETWORK_LINK_ADD=创建对等连接：{0}\n", encoding="utf-8")
-            target.write_text("RESOURCE_POOL=wrong\n", encoding="utf-8")
+            target.write_text("RESOURCE_POOL=wrong\nNETWORK_LINK_ADD=wrong value: {0}\n", encoding="utf-8")
 
             config_path = root / "zh-audit.config.json"
             config_path.write_text(
@@ -442,6 +459,7 @@ class AppServerSmokeTest(unittest.TestCase):
                 target_text = target.read_text(encoding="utf-8")
                 self.assertIn("RESOURCE_POOL=resource pool", target_text)
                 self.assertIn("NETWORK_LINK_ADD=create link: {0}", target_text)
+                self.assertNotIn("# Added by zh-audit 码值校译", target_text)
                 self.assertTrue(any(path.name.startswith("messages_en.properties.bak.") for path in root.iterdir()))
 
     def test_translation_session_restores_and_resumes_after_model_error(self) -> None:
@@ -451,7 +469,7 @@ class AppServerSmokeTest(unittest.TestCase):
             source = root / "messages_zh.properties"
             target = root / "messages_en.properties"
             source.write_text("NETWORK_LINK_ADD=创建对等连接：{0}\n", encoding="utf-8")
-            target.write_text("", encoding="utf-8")
+            target.write_text("NETWORK_LINK_ADD=wrong value: {0}\n", encoding="utf-8")
 
             config_path = root / "zh-audit.config.json"
             config_path.write_text(

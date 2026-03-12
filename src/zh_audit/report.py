@@ -332,8 +332,9 @@ def render_report(summary, findings, client_config=None):
     }
     select option,
     select optgroup {
-      padding: 4px 10px;
-      line-height: 1.5;
+      padding: 8px 12px;
+      min-height: 34px;
+      line-height: 1.8;
     }
     button {
       padding: 10px 14px;
@@ -787,7 +788,7 @@ def render_report(summary, findings, client_config=None):
         <select id="actionFilter"></select>
         <select id="categoryFilter"></select>
         <select id="langFilter"></select>
-        <input id="keywordFilter" placeholder="按文本、路径或分类搜索">
+        <input id="keywordFilter" placeholder="按文本、位置或分类搜索">
         <button id="exportBtn" class="export-btn">导出全部结果到 Excel</button>
       </div>
       <div class="table-toolbar">

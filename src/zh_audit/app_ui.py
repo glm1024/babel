@@ -196,6 +196,15 @@ def render_app_shell(bootstrap_payload, client_config):
       flex: 1 1 auto;
       min-width: 0;
     }
+    .clearable-input {
+      position: relative;
+      display: flex;
+      align-items: center;
+      min-width: 0;
+    }
+    .clearable-input .field-input {
+      padding-right: 48px;
+    }
     .field-textarea {
       min-height: 140px;
       resize: vertical;
@@ -234,11 +243,30 @@ def render_app_shell(bootstrap_payload, client_config):
       font-size: 20px;
       line-height: 1;
     }
+    .field-clear-btn {
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border-radius: 999px;
+      border: 1px solid rgba(157,47,47,0.18);
+      background: rgba(157,47,47,0.08);
+      color: var(--danger);
+      font-size: 18px;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
     .tab-btn:not(:disabled):hover,
     .small-btn:not(:disabled):hover,
     .secondary-btn:not(:disabled):hover,
     .danger-btn:not(:disabled):hover,
-    .root-remove-btn:not(:disabled):hover {
+    .root-remove-btn:not(:disabled):hover,
+    .field-clear-btn:not(:disabled):hover {
       transform: translateY(-1px);
       box-shadow: 0 10px 20px rgba(64, 47, 30, 0.10);
     }
@@ -247,6 +275,7 @@ def render_app_shell(bootstrap_payload, client_config):
     .secondary-btn:not(:disabled):active,
     .danger-btn:not(:disabled):active,
     .root-remove-btn:not(:disabled):active,
+    .field-clear-btn:not(:disabled):active,
     .primary-btn:not(:disabled):active {
       transform: translateY(0) scale(0.98);
       box-shadow: 0 4px 10px rgba(64, 47, 30, 0.10);
@@ -402,35 +431,196 @@ def render_app_shell(bootstrap_payload, client_config):
       color: var(--muted);
       word-break: break-all;
     }
-    .translation-layout {
-      display: grid;
-      gap: 20px;
-      grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-      align-items: start;
-    }
-    .translation-column {
+    .translation-page-shell {
       display: grid;
       gap: 20px;
       min-width: 0;
+      min-height: 0;
+      height: calc(100vh - 124px);
+      overflow: hidden;
+      grid-template-rows: auto minmax(0, 1fr);
     }
-    .translation-stats {
+    .translation-top-grid,
+    .translation-bottom-grid {
       display: grid;
-      gap: 12px;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 20px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      min-width: 0;
     }
-    .translation-stat {
+    .translation-top-grid {
+      align-items: stretch;
+    }
+    .translation-bottom-grid {
+      min-height: 0;
+      align-items: stretch;
+    }
+    .translation-top-grid > .panel,
+    .translation-bottom-grid > .panel {
+      min-height: 0;
+      height: 100%;
+    }
+    .translation-top-card {
       padding: 14px 16px;
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      background: var(--soft-bg);
+      gap: 10px;
+      align-content: start;
     }
-    .translation-stat .muted {
-      display: block;
-      margin-bottom: 8px;
+    .translation-top-card .card-head {
+      gap: 10px;
     }
-    .translation-stat strong {
-      font-size: 24px;
+    .translation-top-card .card-title {
+      font-size: 17px;
+    }
+    .translation-top-card .muted {
+      font-size: 12px;
+    }
+    .translation-top-card .field-input {
+      padding: 9px 12px;
+      border-radius: 12px;
+    }
+    .translation-top-card .clearable-input .field-input {
+      padding-right: 42px;
+    }
+    .translation-top-card .field-clear-btn {
+      width: 24px;
+      height: 24px;
+      right: 9px;
+      font-size: 16px;
+    }
+    .translation-top-card .checkbox-row {
+      font-size: 13px;
+      gap: 8px;
+    }
+    .translation-top-card .field-label {
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+    .translation-top-card .btn-row {
+      gap: 8px;
+    }
+    .translation-top-card .primary-btn,
+    .translation-top-card .secondary-btn {
+      padding: 8px 14px;
+      border-radius: 12px;
+    }
+    .translation-control-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+    .translation-control-row .checkbox-row {
+      flex: 1 1 auto;
+      min-width: 180px;
+    }
+    .translation-control-row .btn-row {
+      flex: 0 0 auto;
+      flex-wrap: nowrap;
+    }
+    .translation-status-inline {
+      padding: 8px 12px;
+      border-radius: 12px;
       line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .translation-compact-field-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+    .translation-inline-output {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      flex-wrap: wrap;
+    }
+    .translation-inline-output .readonly-output {
+      flex: 1 1 auto;
+      min-width: 0;
+      padding: 8px 12px;
+      border-radius: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .translation-inline-output .btn-row {
+      flex: 0 0 auto;
+      flex-wrap: nowrap;
+    }
+    .translation-details {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255,255,255,0.68);
+      overflow: hidden;
+    }
+    .translation-details summary {
+      cursor: pointer;
+      padding: 8px 12px;
+      color: var(--muted);
+      font-size: 12px;
+      list-style: none;
+    }
+    .translation-details summary::-webkit-details-marker {
+      display: none;
+    }
+    .translation-details-content {
+      display: grid;
+      gap: 8px;
+      padding: 0 12px 12px;
+      min-width: 0;
+    }
+    .translation-details-content .readonly-output {
+      padding: 8px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+    }
+    .translation-stat-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 10px;
+      align-items: center;
+      min-width: 0;
+    }
+    .translation-stat-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--soft-bg);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .translation-stat-chip strong {
+      color: var(--ink);
+      font-size: 13px;
+      line-height: 1;
+    }
+    .translation-top-card .progress-box {
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: 14px;
+    }
+    .translation-top-card .progress-bar {
+      height: 8px;
+    }
+    .translation-top-card .progress-meta {
+      gap: 6px;
+      font-size: 12px;
+    }
+    .translation-top-card .progress-meta-item {
+      gap: 4px;
+    }
+    .translation-fill-card {
+      min-height: 0;
+      grid-template-rows: auto minmax(0, 1fr);
     }
     .translation-grid {
       display: grid;
@@ -442,9 +632,18 @@ def render_app_shell(bootstrap_payload, client_config):
     .translation-list {
       display: grid;
       gap: 10px;
-      max-height: 300px;
+      min-height: 0;
       overflow: auto;
       padding-right: 4px;
+      align-content: start;
+    }
+    .translation-panel-body {
+      min-height: 0;
+      overflow: hidden;
+    }
+    .translation-panel-body > .translation-empty,
+    .translation-panel-body > .translation-list {
+      height: 100%;
     }
     .translation-log-item {
       padding: 12px 14px;
@@ -516,9 +715,16 @@ def render_app_shell(bootstrap_payload, client_config):
       border: 1px dashed var(--line);
       background: rgba(255,255,255,0.54);
       color: var(--muted);
+      display: flex;
+      align-items: center;
     }
     .hidden {
       display: none !important;
+    }
+    @media (max-width: 1500px) {
+      .translation-compact-field-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
     }
     @media (max-width: 1100px) {
       .shell {
@@ -533,10 +739,18 @@ def render_app_shell(bootstrap_payload, client_config):
         height: auto;
         overflow: visible;
       }
-      .translation-layout,
+      .translation-page-shell {
+        height: auto;
+        overflow: visible;
+      }
+      .translation-top-grid,
+      .translation-bottom-grid,
       .translation-grid.two,
-      .translation-stats {
+      .translation-compact-field-grid {
         grid-template-columns: 1fr;
+      }
+      .translation-control-row .btn-row {
+        flex-wrap: wrap;
       }
     }
   </style>
@@ -612,9 +826,9 @@ def render_app_shell(bootstrap_payload, client_config):
     </section>
 
     <section class="page" id="translationPage">
-      <div class="translation-layout">
-        <div class="translation-column">
-          <div class="panel card">
+      <div class="translation-page-shell">
+        <div class="translation-top-grid">
+          <div class="panel card translation-top-card">
             <div class="card-head">
               <div>
                 <div class="muted">Translation</div>
@@ -623,53 +837,45 @@ def render_app_shell(bootstrap_payload, client_config):
               <span id="translationStatusPill" class="pill keep">空闲</span>
             </div>
             <label>
-              <input id="translationSourceInput" class="field-input" type="text" placeholder="请填写中文国际化文件绝对路径...">
+              <div class="clearable-input">
+                <input id="translationSourceInput" class="field-input" type="text" placeholder="请填写中文国际化文件绝对路径...">
+                <button id="translationSourceClearBtn" class="field-clear-btn hidden" type="button" aria-label="清空中文文件路径" title="清空中文文件路径">×</button>
+              </div>
             </label>
             <label>
-              <input id="translationTargetInput" class="field-input" type="text" placeholder="请填写英文国际化文件绝对路径...">
+              <div class="clearable-input">
+                <input id="translationTargetInput" class="field-input" type="text" placeholder="请填写英文国际化文件绝对路径...">
+                <button id="translationTargetClearBtn" class="field-clear-btn hidden" type="button" aria-label="清空英文文件路径" title="清空英文文件路径">×</button>
+              </div>
             </label>
-            <label class="checkbox-row">
-              <input id="translationAutoAccept" type="checkbox">
-              <span>自动接受后续建议</span>
-            </label>
-            <div class="btn-row">
-              <button id="translationStartBtn" class="primary-btn" type="button">开始校译</button>
-              <button id="translationResumeBtn" class="secondary-btn" type="button">继续任务</button>
-              <button id="translationStopBtn" class="secondary-btn" type="button">停止任务</button>
-            </div>
-            <div id="translationStatusBanner" class="status-banner">等待校译</div>
-            <div class="translation-grid two">
-              <div class="readonly-output">术语词典：<span id="terminologyPathText"></span></div>
-              <div class="readonly-output">已加载术语：<span id="terminologyCountText">0</span></div>
-            </div>
-          </div>
-
-          <div class="panel card">
-            <div class="card-head">
-              <div>
-                <div class="muted">Live Feed</div>
-                <h2 class="card-title">实时流水</h2>
+            <div class="translation-control-row">
+              <label class="checkbox-row">
+                <input id="translationAutoAccept" type="checkbox">
+                <span>自动接受后续建议</span>
+              </label>
+              <div class="btn-row">
+                <button id="translationStartBtn" class="primary-btn" type="button">开始校译</button>
+                <button id="translationResumeBtn" class="secondary-btn" type="button">继续任务</button>
+                <button id="translationStopBtn" class="secondary-btn" type="button">停止任务</button>
               </div>
             </div>
-            <div id="translationEvents" class="translation-list"></div>
+            <div id="translationStatusBanner" class="status-banner translation-status-inline" title="等待校译">等待校译</div>
           </div>
-        </div>
 
-        <div class="translation-column">
-          <div class="panel card">
+          <div class="panel card translation-top-card">
             <div class="card-head">
               <div>
                 <div class="muted">Progress</div>
                 <h2 class="card-title">任务进度</h2>
               </div>
             </div>
-            <div class="translation-stats">
-              <div class="translation-stat"><span class="muted">总条数</span><strong id="translationTotalCount">0</strong></div>
-              <div class="translation-stat"><span class="muted">已处理</span><strong id="translationProcessedCount">0</strong></div>
-              <div class="translation-stat"><span class="muted">待审批</span><strong id="translationPendingCount">0</strong></div>
-              <div class="translation-stat"><span class="muted">已接收</span><strong id="translationAcceptedCount">0</strong></div>
-              <div class="translation-stat"><span class="muted">已追加</span><strong id="translationAppendedCount">0</strong></div>
-              <div class="translation-stat"><span class="muted">已跳过</span><strong id="translationSkippedCount">0</strong></div>
+            <div class="translation-stat-row">
+              <span class="translation-stat-chip">总 <strong id="translationTotalCount">0</strong></span>
+              <span class="translation-stat-chip">已处理 <strong id="translationProcessedCount">0</strong></span>
+              <span class="translation-stat-chip">待审批 <strong id="translationPendingCount">0</strong></span>
+              <span class="translation-stat-chip">已接收 <strong id="translationAcceptedCount">0</strong></span>
+              <span class="translation-stat-chip">已追加 <strong id="translationAppendedCount">0</strong></span>
+              <span class="translation-stat-chip">已跳过 <strong id="translationSkippedCount">0</strong></span>
             </div>
             <div class="progress-box">
               <div class="progress-bar"><span id="translationProgressBarInner"></span></div>
@@ -679,50 +885,55 @@ def render_app_shell(bootstrap_payload, client_config):
                   <span id="translationCurrentKey" class="progress-meta-value">-</span>
                 </div>
                 <div class="progress-meta-item">
-                  <span class="progress-meta-label">当前中文：</span>
-                  <span id="translationCurrentSource" class="progress-meta-value">-</span>
-                </div>
-                <div class="progress-meta-item">
                   <span class="progress-meta-label">当前状态：</span>
                   <span id="translationCurrentStatus" class="progress-meta-value">-</span>
                 </div>
                 <div class="progress-meta-item">
-                  <span class="progress-meta-label">备份文件：</span>
-                  <span id="translationBackupPath" class="progress-meta-value">-</span>
+                  <span class="progress-meta-label">当前中文：</span>
+                  <span id="translationCurrentSource" class="progress-meta-value">-</span>
                 </div>
               </div>
+              <details class="translation-details">
+                <summary>更多进度</summary>
+                <div class="translation-details-content">
+                  <div class="readonly-output">备份文件：<span id="translationBackupPath">-</span></div>
+                </div>
+              </details>
             </div>
           </div>
+        </div>
 
-          <div class="panel card">
+        <div class="translation-bottom-grid">
+          <div class="panel card translation-fill-card">
+            <div class="card-head">
+              <div>
+                <div class="muted">Processing Log</div>
+                <h2 class="card-title">处理记录</h2>
+              </div>
+            </div>
+            <div id="translationEvents" class="translation-list"></div>
+          </div>
+
+          <div class="panel card translation-fill-card">
             <div class="card-head">
               <div>
                 <div class="muted">Review Queue</div>
                 <h2 class="card-title">待审批条目</h2>
               </div>
             </div>
-            <div id="translationPendingEmpty" class="translation-empty">当前没有待审批条目。</div>
-            <div id="translationPendingList" class="translation-list hidden"></div>
-          </div>
-
-          <div class="panel card">
-            <div class="card-head">
-              <div>
-                <div class="muted">Recent</div>
-                <h2 class="card-title">最近完成</h2>
-              </div>
+            <div class="translation-panel-body">
+              <div id="translationPendingEmpty" class="translation-empty">当前没有待审批条目。</div>
+              <div id="translationPendingList" class="translation-list hidden"></div>
             </div>
-            <div id="translationRecentEmpty" class="translation-empty">当前还没有已完成条目。</div>
-            <div id="translationRecentList" class="translation-list hidden"></div>
           </div>
         </div>
       </div>
     </section>
 
     <section class="page" id="sqlTranslationPage">
-      <div class="translation-layout">
-        <div class="translation-column">
-          <div class="panel card">
+      <div class="translation-page-shell">
+        <div class="translation-top-grid">
+          <div class="panel card translation-top-card">
             <div class="card-head">
               <div>
                 <div class="muted">SQL Translation</div>
@@ -731,40 +942,34 @@ def render_app_shell(bootstrap_payload, client_config):
               <span id="sqlTranslationStatusPill" class="pill keep">空闲</span>
             </div>
             <label>
-              <div class="field-label">数据库脚本目录绝对路径</div>
-              <input id="sqlTranslationDirectoryInput" class="field-input" type="text" placeholder="/abs/path/to/resources/db/migration">
+              <div class="clearable-input">
+                <input id="sqlTranslationDirectoryInput" class="field-input" type="text" placeholder="请输入数据库脚本目录绝对路径" aria-label="数据库脚本目录绝对路径">
+                <button id="sqlTranslationDirectoryClearBtn" class="field-clear-btn hidden" type="button" aria-label="清空数据库脚本目录" title="清空数据库脚本目录">×</button>
+              </div>
             </label>
-            <div class="translation-grid two">
+            <div class="translation-compact-field-grid">
               <label>
-                <div class="field-label">目标表名</div>
-                <input id="sqlTranslationTableInput" class="field-input" type="text" placeholder="t_ba_menu_v2">
+                <input id="sqlTranslationTableInput" class="field-input" type="text" placeholder="请输入目标表名" aria-label="目标表名">
               </label>
               <label>
-                <div class="field-label">主键字段名</div>
-                <input id="sqlTranslationPrimaryKeyInput" class="field-input" type="text" placeholder="id">
-              </label>
-            </div>
-            <div class="translation-grid two">
-              <label>
-                <div class="field-label">中文文案字段名</div>
-                <input id="sqlTranslationSourceFieldInput" class="field-input" type="text" placeholder="name_zh">
+                <input id="sqlTranslationPrimaryKeyInput" class="field-input" type="text" placeholder="请输入主键字段名，默认 id" aria-label="主键字段名">
               </label>
               <label>
-                <div class="field-label">英文文案字段名</div>
-                <input id="sqlTranslationTargetFieldInput" class="field-input" type="text" placeholder="name_en">
+                <input id="sqlTranslationSourceFieldInput" class="field-input" type="text" placeholder="请输入中文文案字段名" aria-label="中文文案字段名">
+              </label>
+              <label>
+                <input id="sqlTranslationTargetFieldInput" class="field-input" type="text" placeholder="请输入英文文案字段名" aria-label="英文文案字段名">
               </label>
             </div>
-            <div class="btn-row">
-              <button id="sqlTranslationStartBtn" class="primary-btn" type="button">开始校译</button>
-              <button id="sqlTranslationResumeBtn" class="secondary-btn" type="button">继续任务</button>
-              <button id="sqlTranslationStopBtn" class="secondary-btn" type="button">停止任务</button>
+            <div class="translation-control-row">
+              <div class="btn-row">
+                <button id="sqlTranslationStartBtn" class="primary-btn" type="button">开始校译</button>
+                <button id="sqlTranslationResumeBtn" class="secondary-btn" type="button">继续任务</button>
+                <button id="sqlTranslationStopBtn" class="secondary-btn" type="button">停止任务</button>
+              </div>
             </div>
-            <div id="sqlTranslationStatusBanner" class="status-banner">等待校译</div>
-            <div class="translation-grid two">
-              <div class="readonly-output">术语词典：<span id="sqlTerminologyPathText"></span></div>
-              <div class="readonly-output">已加载术语：<span id="sqlTerminologyCountText">0</span></div>
-            </div>
-            <div class="translation-grid two">
+            <div id="sqlTranslationStatusBanner" class="status-banner translation-status-inline" title="等待校译">等待校译</div>
+            <div id="sqlTranslationOutputRow" class="translation-inline-output hidden">
               <div class="readonly-output">输出文件：<span id="sqlTranslationOutputPathText">-</span></div>
               <div class="btn-row">
                 <button id="sqlTranslationCopyPathBtn" class="secondary-btn" type="button">复制路径</button>
@@ -772,76 +977,69 @@ def render_app_shell(bootstrap_payload, client_config):
             </div>
           </div>
 
-          <div class="panel card">
-            <div class="card-head">
-              <div>
-                <div class="muted">Live Feed</div>
-                <h2 class="card-title">实时流水</h2>
-              </div>
-            </div>
-            <div id="sqlTranslationEvents" class="translation-list"></div>
-          </div>
-        </div>
-
-        <div class="translation-column">
-          <div class="panel card">
+          <div class="panel card translation-top-card">
             <div class="card-head">
               <div>
                 <div class="muted">Progress</div>
                 <h2 class="card-title">任务进度</h2>
               </div>
             </div>
-            <div class="translation-stats">
-              <div class="translation-stat"><span class="muted">总条数</span><strong id="sqlTranslationTotalCount">0</strong></div>
-              <div class="translation-stat"><span class="muted">已处理</span><strong id="sqlTranslationProcessedCount">0</strong></div>
-              <div class="translation-stat"><span class="muted">待审批</span><strong id="sqlTranslationPendingCount">0</strong></div>
-              <div class="translation-stat"><span class="muted">已接收</span><strong id="sqlTranslationAcceptedCount">0</strong></div>
-              <div class="translation-stat"><span class="muted">已追加</span><strong id="sqlTranslationAppendedCount">0</strong></div>
-              <div class="translation-stat"><span class="muted">已跳过</span><strong id="sqlTranslationSkippedCount">0</strong></div>
+            <div class="translation-stat-row">
+              <span class="translation-stat-chip">总 <strong id="sqlTranslationTotalCount">0</strong></span>
+              <span class="translation-stat-chip">已处理 <strong id="sqlTranslationProcessedCount">0</strong></span>
+              <span class="translation-stat-chip">待审批 <strong id="sqlTranslationPendingCount">0</strong></span>
+              <span class="translation-stat-chip">已接收 <strong id="sqlTranslationAcceptedCount">0</strong></span>
+              <span class="translation-stat-chip">已追加 <strong id="sqlTranslationAppendedCount">0</strong></span>
+              <span class="translation-stat-chip">已跳过 <strong id="sqlTranslationSkippedCount">0</strong></span>
             </div>
             <div class="progress-box">
               <div class="progress-bar"><span id="sqlTranslationProgressBarInner"></span></div>
               <div class="progress-meta">
                 <div class="progress-meta-item">
-                  <span class="progress-meta-label">当前文件：</span>
-                  <span id="sqlTranslationCurrentFile" class="progress-meta-value">-</span>
-                </div>
-                <div class="progress-meta-item">
                   <span class="progress-meta-label">当前主键：</span>
                   <span id="sqlTranslationCurrentPrimaryKey" class="progress-meta-value">-</span>
-                </div>
-                <div class="progress-meta-item">
-                  <span class="progress-meta-label">当前中文：</span>
-                  <span id="sqlTranslationCurrentSource" class="progress-meta-value">-</span>
                 </div>
                 <div class="progress-meta-item">
                   <span class="progress-meta-label">当前状态：</span>
                   <span id="sqlTranslationCurrentStatus" class="progress-meta-value">-</span>
                 </div>
+                <div class="progress-meta-item">
+                  <span class="progress-meta-label">当前中文：</span>
+                  <span id="sqlTranslationCurrentSource" class="progress-meta-value">-</span>
+                </div>
               </div>
+              <details class="translation-details">
+                <summary>更多进度</summary>
+                <div class="translation-details-content">
+                  <div class="readonly-output">当前文件：<span id="sqlTranslationCurrentFile">-</span></div>
+                </div>
+              </details>
             </div>
           </div>
+        </div>
 
-          <div class="panel card">
+        <div class="translation-bottom-grid">
+          <div class="panel card translation-fill-card">
+            <div class="card-head">
+              <div>
+                <div class="muted">Processing Log</div>
+                <h2 class="card-title">处理记录</h2>
+              </div>
+            </div>
+            <div id="sqlTranslationEvents" class="translation-list"></div>
+          </div>
+
+          <div class="panel card translation-fill-card">
             <div class="card-head">
               <div>
                 <div class="muted">Review Queue</div>
                 <h2 class="card-title">待审批条目</h2>
               </div>
             </div>
-            <div id="sqlTranslationPendingEmpty" class="translation-empty">当前没有待审批条目。</div>
-            <div id="sqlTranslationPendingList" class="translation-list hidden"></div>
-          </div>
-
-          <div class="panel card">
-            <div class="card-head">
-              <div>
-                <div class="muted">Recent</div>
-                <h2 class="card-title">最近完成</h2>
-              </div>
+            <div class="translation-panel-body">
+              <div id="sqlTranslationPendingEmpty" class="translation-empty">当前没有待审批条目。</div>
+              <div id="sqlTranslationPendingList" class="translation-list hidden"></div>
             </div>
-            <div id="sqlTranslationRecentEmpty" class="translation-empty">当前还没有已完成条目。</div>
-            <div id="sqlTranslationRecentList" class="translation-list hidden"></div>
           </div>
         </div>
       </div>
@@ -940,14 +1138,14 @@ __REPORT_COMPONENT_BUNDLE__
     const resultsReportHost = document.getElementById("resultsReportHost");
     const translationStatusPill = document.getElementById("translationStatusPill");
     const translationSourceInput = document.getElementById("translationSourceInput");
+    const translationSourceClearBtn = document.getElementById("translationSourceClearBtn");
     const translationTargetInput = document.getElementById("translationTargetInput");
+    const translationTargetClearBtn = document.getElementById("translationTargetClearBtn");
     const translationAutoAccept = document.getElementById("translationAutoAccept");
     const translationStartBtn = document.getElementById("translationStartBtn");
     const translationResumeBtn = document.getElementById("translationResumeBtn");
     const translationStopBtn = document.getElementById("translationStopBtn");
     const translationStatusBanner = document.getElementById("translationStatusBanner");
-    const terminologyPathText = document.getElementById("terminologyPathText");
-    const terminologyCountText = document.getElementById("terminologyCountText");
     const translationEvents = document.getElementById("translationEvents");
     const translationTotalCount = document.getElementById("translationTotalCount");
     const translationProcessedCount = document.getElementById("translationProcessedCount");
@@ -962,10 +1160,9 @@ __REPORT_COMPONENT_BUNDLE__
     const translationBackupPath = document.getElementById("translationBackupPath");
     const translationPendingEmpty = document.getElementById("translationPendingEmpty");
     const translationPendingList = document.getElementById("translationPendingList");
-    const translationRecentEmpty = document.getElementById("translationRecentEmpty");
-    const translationRecentList = document.getElementById("translationRecentList");
     const sqlTranslationStatusPill = document.getElementById("sqlTranslationStatusPill");
     const sqlTranslationDirectoryInput = document.getElementById("sqlTranslationDirectoryInput");
+    const sqlTranslationDirectoryClearBtn = document.getElementById("sqlTranslationDirectoryClearBtn");
     const sqlTranslationTableInput = document.getElementById("sqlTranslationTableInput");
     const sqlTranslationPrimaryKeyInput = document.getElementById("sqlTranslationPrimaryKeyInput");
     const sqlTranslationSourceFieldInput = document.getElementById("sqlTranslationSourceFieldInput");
@@ -975,8 +1172,7 @@ __REPORT_COMPONENT_BUNDLE__
     const sqlTranslationStopBtn = document.getElementById("sqlTranslationStopBtn");
     const sqlTranslationCopyPathBtn = document.getElementById("sqlTranslationCopyPathBtn");
     const sqlTranslationStatusBanner = document.getElementById("sqlTranslationStatusBanner");
-    const sqlTerminologyPathText = document.getElementById("sqlTerminologyPathText");
-    const sqlTerminologyCountText = document.getElementById("sqlTerminologyCountText");
+    const sqlTranslationOutputRow = document.getElementById("sqlTranslationOutputRow");
     const sqlTranslationOutputPathText = document.getElementById("sqlTranslationOutputPathText");
     const sqlTranslationEvents = document.getElementById("sqlTranslationEvents");
     const sqlTranslationTotalCount = document.getElementById("sqlTranslationTotalCount");
@@ -992,8 +1188,6 @@ __REPORT_COMPONENT_BUNDLE__
     const sqlTranslationCurrentStatus = document.getElementById("sqlTranslationCurrentStatus");
     const sqlTranslationPendingEmpty = document.getElementById("sqlTranslationPendingEmpty");
     const sqlTranslationPendingList = document.getElementById("sqlTranslationPendingList");
-    const sqlTranslationRecentEmpty = document.getElementById("sqlTranslationRecentEmpty");
-    const sqlTranslationRecentList = document.getElementById("sqlTranslationRecentList");
     const providerValue = document.getElementById("providerValue");
     const baseUrlInput = document.getElementById("baseUrlInput");
     const apiKeyInput = document.getElementById("apiKeyInput");
@@ -1240,6 +1434,34 @@ __REPORT_COMPONENT_BUNDLE__
       maxTokensInput.value = modelConfig.max_tokens || DEFAULT_MODEL_CONFIG.max_tokens;
     }
 
+    function syncClearableInput(input, button) {
+      if (!input || !button) {
+        return;
+      }
+      const visible = !input.disabled && String(input.value || "").length > 0;
+      button.classList.toggle("hidden", !visible);
+      button.disabled = !visible;
+    }
+
+    function syncPathClearButtons() {
+      syncClearableInput(translationSourceInput, translationSourceClearBtn);
+      syncClearableInput(translationTargetInput, translationTargetClearBtn);
+      syncClearableInput(sqlTranslationDirectoryInput, sqlTranslationDirectoryClearBtn);
+    }
+
+    async function clearFieldValue(input, button, saveHandler, showError, previousValue) {
+      input.value = "";
+      syncClearableInput(input, button);
+      input.focus();
+      try {
+        await saveHandler();
+      } catch (error) {
+        input.value = previousValue;
+        syncClearableInput(input, button);
+        showError(error);
+      }
+    }
+
     function renderTranslation() {
       const translation = state.translation || defaultTranslationPayload();
       const config = translation.config || {};
@@ -1256,6 +1478,7 @@ __REPORT_COMPONENT_BUNDLE__
       translationStatusBanner.textContent = terminology.error
         ? terminology.error
         : translationBannerText(status);
+      translationStatusBanner.title = translationStatusBanner.textContent;
       translationStatusBanner.classList.toggle("is-error", Boolean(status.error || terminology.error));
       translationStatusPill.textContent =
         status.status === "running" ? "运行中" :
@@ -1269,8 +1492,7 @@ __REPORT_COMPONENT_BUNDLE__
       translationStopBtn.disabled = status.status !== "running";
       translationSourceInput.disabled = status.status === "running";
       translationTargetInput.disabled = status.status === "running";
-      terminologyPathText.textContent = terminology.path || "-";
-      terminologyCountText.textContent = String(terminology.count || 0);
+      syncPathClearButtons();
       translationTotalCount.textContent = String(total);
       translationProcessedCount.textContent = String(processed);
       translationPendingCount.textContent = String(counts.pending || 0);
@@ -1282,6 +1504,7 @@ __REPORT_COMPONENT_BUNDLE__
       translationCurrentSource.textContent = (status.current || {}).source_text || "-";
       translationCurrentStatus.textContent = (status.current || {}).status || "-";
       translationBackupPath.textContent = status.backup_path || "-";
+      translationBackupPath.title = status.backup_path || "";
 
       const events = Array.isArray(translation.events) ? translation.events : [];
       if (!events.length) {
@@ -1324,23 +1547,6 @@ __REPORT_COMPONENT_BUNDLE__
         </div>
       `).join("");
 
-      const recentItems = Array.isArray(translation.recent_items) ? translation.recent_items : [];
-      translationRecentEmpty.classList.toggle("hidden", recentItems.length > 0);
-      translationRecentList.classList.toggle("hidden", recentItems.length === 0);
-      translationRecentList.innerHTML = recentItems.map(item => `
-        <div class="translation-log-item">
-          <div class="translation-log-head">
-            <strong>${escapeHtml(item.status || "-")}</strong>
-            <span class="muted">${escapeHtml(item.updated_at || "")}</span>
-          </div>
-          <div class="translation-item-stack">
-            <strong>${escapeHtml(item.key || "-")}</strong>
-            <div><span class="muted">中文：</span>${escapeHtml(item.source_text || "-")}</div>
-            <div><span class="muted">英文：</span><code>${escapeHtml(item.target_text || item.candidate_text || "-")}</code></div>
-            <div><span class="muted">说明：</span>${escapeHtml(item.reason || item.verdict || "-")}</div>
-          </div>
-        </div>
-      `).join("");
     }
 
     function translationBannerText(status) {
@@ -1378,10 +1584,11 @@ __REPORT_COMPONENT_BUNDLE__
 
       sqlTranslationDirectoryInput.value = config.directory_path || "";
       sqlTranslationTableInput.value = config.table_name || "";
-      sqlTranslationPrimaryKeyInput.value = config.primary_key_field || "id";
+      sqlTranslationPrimaryKeyInput.value = config.primary_key_field || "";
       sqlTranslationSourceFieldInput.value = config.source_field || "";
       sqlTranslationTargetFieldInput.value = config.target_field || "";
       sqlTranslationStatusBanner.textContent = sqlTranslationBannerText(status, terminology);
+      sqlTranslationStatusBanner.title = sqlTranslationStatusBanner.textContent;
       sqlTranslationStatusBanner.classList.toggle("is-error", Boolean(status.error || terminology.error));
       sqlTranslationStatusPill.textContent =
         status.status === "running" ? "运行中" :
@@ -1399,9 +1606,10 @@ __REPORT_COMPONENT_BUNDLE__
       sqlTranslationSourceFieldInput.disabled = status.status === "running";
       sqlTranslationTargetFieldInput.disabled = status.status === "running";
       sqlTranslationCopyPathBtn.disabled = !status.output_path;
-      sqlTerminologyPathText.textContent = terminology.path || "-";
-      sqlTerminologyCountText.textContent = String(terminology.count || 0);
+      syncPathClearButtons();
       sqlTranslationOutputPathText.textContent = status.output_path || "-";
+      sqlTranslationOutputPathText.title = status.output_path || "";
+      sqlTranslationOutputRow.classList.toggle("hidden", !status.output_path);
       sqlTranslationTotalCount.textContent = String(total);
       sqlTranslationProcessedCount.textContent = String(processed);
       sqlTranslationPendingCount.textContent = String(counts.pending || 0);
@@ -1413,6 +1621,7 @@ __REPORT_COMPONENT_BUNDLE__
       sqlTranslationCurrentPrimaryKey.textContent = (status.current || {}).primary_key_value || "-";
       sqlTranslationCurrentSource.textContent = (status.current || {}).source_text || "-";
       sqlTranslationCurrentStatus.textContent = (status.current || {}).status || "-";
+      sqlTranslationCurrentFile.title = (status.current || {}).file_path || "";
 
       const events = Array.isArray(sqlTranslation.events) ? sqlTranslation.events : [];
       if (!events.length) {
@@ -1457,24 +1666,6 @@ __REPORT_COMPONENT_BUNDLE__
         </div>
       `).join("");
 
-      const recentItems = Array.isArray(sqlTranslation.recent_items) ? sqlTranslation.recent_items : [];
-      sqlTranslationRecentEmpty.classList.toggle("hidden", recentItems.length > 0);
-      sqlTranslationRecentList.classList.toggle("hidden", recentItems.length === 0);
-      sqlTranslationRecentList.innerHTML = recentItems.map(item => `
-        <div class="translation-log-item">
-          <div class="translation-log-head">
-            <strong>${escapeHtml(item.status || "-")}</strong>
-            <span class="muted">${escapeHtml(item.updated_at || "")}</span>
-          </div>
-          <div class="translation-item-stack">
-            <strong>${escapeHtml(`${item.source_path || "-"}:${item.line || "-"}`)}</strong>
-            <div><span class="muted">主键：</span>${escapeHtml(item.primary_key_value || "-")}</div>
-            <div><span class="muted">中文：</span>${escapeHtml(item.source_text || "-")}</div>
-            <div><span class="muted">英文：</span><code>${escapeHtml(item.target_text || item.candidate_text || "-")}</code></div>
-            <div><span class="muted">说明：</span>${escapeHtml(item.reason || item.verdict || "-")}</div>
-          </div>
-        </div>
-      `).join("");
     }
 
     async function copyText(value) {
@@ -1878,6 +2069,9 @@ __REPORT_COMPONENT_BUNDLE__
         translationStatusBanner.classList.add("is-error");
       }
     });
+    translationSourceInput.addEventListener("input", () => {
+      syncClearableInput(translationSourceInput, translationSourceClearBtn);
+    });
 
     translationTargetInput.addEventListener("change", async () => {
       try {
@@ -1886,6 +2080,37 @@ __REPORT_COMPONENT_BUNDLE__
         translationStatusBanner.textContent = error.message || "保存英文文件路径失败";
         translationStatusBanner.classList.add("is-error");
       }
+    });
+    translationTargetInput.addEventListener("input", () => {
+      syncClearableInput(translationTargetInput, translationTargetClearBtn);
+    });
+
+    translationSourceClearBtn.addEventListener("click", async () => {
+      const previousValue = translationSourceInput.value;
+      await clearFieldValue(
+        translationSourceInput,
+        translationSourceClearBtn,
+        saveTranslationConfig,
+        error => {
+          translationStatusBanner.textContent = error.message || "清空中文文件路径失败";
+          translationStatusBanner.classList.add("is-error");
+        },
+        previousValue,
+      );
+    });
+
+    translationTargetClearBtn.addEventListener("click", async () => {
+      const previousValue = translationTargetInput.value;
+      await clearFieldValue(
+        translationTargetInput,
+        translationTargetClearBtn,
+        saveTranslationConfig,
+        error => {
+          translationStatusBanner.textContent = error.message || "清空英文文件路径失败";
+          translationStatusBanner.classList.add("is-error");
+        },
+        previousValue,
+      );
     });
 
     [sqlTranslationDirectoryInput, sqlTranslationTableInput, sqlTranslationPrimaryKeyInput, sqlTranslationSourceFieldInput, sqlTranslationTargetFieldInput]
@@ -1899,6 +2124,23 @@ __REPORT_COMPONENT_BUNDLE__
           }
         });
       });
+    sqlTranslationDirectoryInput.addEventListener("input", () => {
+      syncClearableInput(sqlTranslationDirectoryInput, sqlTranslationDirectoryClearBtn);
+    });
+
+    sqlTranslationDirectoryClearBtn.addEventListener("click", async () => {
+      const previousValue = sqlTranslationDirectoryInput.value;
+      await clearFieldValue(
+        sqlTranslationDirectoryInput,
+        sqlTranslationDirectoryClearBtn,
+        saveSqlTranslationConfig,
+        error => {
+          sqlTranslationStatusBanner.textContent = error.message || "清空数据库脚本目录失败";
+          sqlTranslationStatusBanner.classList.add("is-error");
+        },
+        previousValue,
+      );
+    });
 
     sqlTranslationStartBtn.addEventListener("click", async () => {
       try {

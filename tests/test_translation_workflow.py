@@ -68,12 +68,12 @@ class TranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(snapshot["status"]["counts"]["glossary_applied"], 1)
             self.assertEqual(target.read_text(encoding="utf-8"), "HOST_GROUP=host group\n")
 
-    def test_translation_session_pending_regenerate_and_accept_append(self):
+    def test_translation_session_pending_regenerate_and_accept_replace_rhs_only(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "zh.properties"
             target = Path(temp_dir) / "en.properties"
             source.write_text("NETWORK_LINK_ADD=创建对等连接：{0}\n", encoding="utf-8")
-            target.write_text("", encoding="utf-8")
+            target.write_text("NETWORK_LINK_ADD=wrong value: {0}\n", encoding="utf-8")
 
             calls = []
 
@@ -87,7 +87,7 @@ class TranslationWorkflowTest(unittest.TestCase):
                     }
                 return {
                     "verdict": "needs_update",
-                    "candidate_translation": "create peer connection: {0}",
+                    "candidate_translation": "create peer connection:\n{0}",
                     "reason": "initial",
                 }
 
@@ -112,16 +112,78 @@ class TranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(regenerated["status"]["counts"]["regenerated"], 1)
             self.assertEqual(
                 regenerated["pending_items"][0]["reason"],
-                "目标英文缺失，建议补充候选英文。",
+                "现有英文翻译不够准确，建议更新为候选英文。",
             )
 
             accepted = session.accept(pending_item["id"])
             self.assertEqual(accepted["status"]["counts"]["accepted"], 1)
-            self.assertEqual(accepted["status"]["counts"]["appended"], 1)
+            self.assertEqual(accepted["status"]["counts"]["appended"], 0)
             content = target.read_text(encoding="utf-8")
-            self.assertIn("# Added by zh-audit 码值校译", content)
             self.assertIn("NETWORK_LINK_ADD=create link: {0}", content)
+            self.assertNotIn("# Added by zh-audit 码值校译", content)
+            self.assertNotIn("\n\n", content)
             self.assertGreaterEqual(len(calls), 2)
+
+    def test_translation_session_retries_when_candidate_loses_placeholder(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "zh.properties"
+            target = Path(temp_dir) / "en.properties"
+            source.write_text("NETWORK_LINK_ADD=创建对等连接：{0}\n", encoding="utf-8")
+            target.write_text("NETWORK_LINK_ADD=wrong value: {0}\n", encoding="utf-8")
+
+            calls = []
+
+            def fake_model(**kwargs):
+                calls.append(kwargs)
+                if kwargs.get("extra_prompt"):
+                    return {
+                        "verdict": "needs_update",
+                        "candidate_translation": "create link: {0}",
+                        "reason": "retry",
+                    }
+                return {
+                    "verdict": "needs_update",
+                    "candidate_translation": "create link",
+                    "reason": "initial",
+                }
+
+            session = TranslationSession(
+                source_path=source,
+                target_path=target,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=fake_model,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            snapshot = session.snapshot()
+            self.assertEqual(snapshot["status"]["counts"]["pending"], 1)
+            self.assertEqual(snapshot["pending_items"][0]["candidate_text"], "create link: {0}")
+            self.assertGreaterEqual(len(calls), 2)
+
+    def test_translation_session_skips_missing_target_key_without_append(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "zh.properties"
+            target = Path(temp_dir) / "en.properties"
+            source.write_text("NETWORK_LINK_ADD=创建对等连接：{0}\n", encoding="utf-8")
+            target.write_text("", encoding="utf-8")
+
+            session = TranslationSession(
+                source_path=source,
+                target_path=target,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: (_ for _ in ()).throw(AssertionError("model should not be called")),
+            )
+            session.start()
+            session.run(lambda: False)
+
+            snapshot = session.snapshot()
+            self.assertEqual(snapshot["status"]["counts"]["skipped"], 1)
+            self.assertEqual(snapshot["status"]["counts"]["pending"], 0)
+            self.assertEqual(snapshot["events"][0]["label"], "已跳过：英文文件缺少对应 key")
+            self.assertEqual(target.read_text(encoding="utf-8"), "")
 
     def test_translation_session_decodes_unicode_escapes_for_glossary_and_display(self):
         with tempfile.TemporaryDirectory() as temp_dir:

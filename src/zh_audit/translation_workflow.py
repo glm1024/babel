@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 
 import json
+import re
 import shutil
 import threading
 from collections import OrderedDict
@@ -12,8 +13,10 @@ from zh_audit.terminology_xlsx import exact_terminology_translation, match_locke
 from zh_audit.utils import contains_han, decode_unicode_escapes
 
 
-TRANSLATION_APPEND_COMMENT = "# Added by zh-audit 码值校译"
 TRANSLATION_SESSION_VERSION = 1
+PLACEHOLDER_PATTERN = re.compile(
+    r"\$\{[^{}\r\n]+\}|\{[^{}\r\n]*\}|%(?:\d+\$)?[#0\- +,(]*\d*(?:\.\d+)?[A-Za-z]"
+)
 
 
 def default_translation_config():
@@ -279,6 +282,13 @@ class TranslationSession(object):
             return
 
         target_entry = self.target_document.find(key)
+        if target_entry is None:
+            with self.lock:
+                self.processed += 1
+                self.skipped += 1
+                self._push_event("已跳过：英文文件缺少对应 key", key, source_text, "")
+                self._persist_locked()
+            return
         target_text = _display_text(target_entry.value) if target_entry is not None else ""
         exact_translation = exact_terminology_translation(source_text, self.glossary)
         locked_terms = match_locked_terms(source_text, self.glossary)
@@ -351,12 +361,13 @@ class TranslationSession(object):
 
     def _normalize_model_result(self, item, result, current_target):
         verdict = str(result.get("verdict", "") or "").strip().lower()
-        candidate = str(result.get("candidate_translation", "") or "").strip()
+        candidate = _sanitize_candidate_text(result.get("candidate_translation", ""))
         reason = _display_text(result.get("reason", "")).strip()
         if verdict not in ("accurate", "needs_update"):
             verdict = "needs_update"
         locked_terms = list(item.get("locked_terms", []))
         target_missing = bool(item.get("target_missing"))
+        source_text = item.get("source_text", "")
         if verdict == "accurate" and target_missing:
             verdict = "needs_update"
         if verdict == "accurate":
@@ -386,24 +397,48 @@ class TranslationSession(object):
                 extra_prompt=retry_prompt,
                 target_missing=target_missing,
             )
-            retry_candidate = str(retried.get("candidate_translation", "") or "").strip()
+            retry_candidate = _sanitize_candidate_text(retried.get("candidate_translation", ""))
             retry_reason = _display_text(retried.get("reason", "")).strip()
             if retry_candidate and _contains_locked_terms(retry_candidate, locked_terms):
-                return {
-                    "verdict": "needs_update",
-                    "candidate_text": retry_candidate,
-                    "reason": _normalize_reason(
-                        retry_reason,
-                        fallback="按术语词典重试后生成。",
-                    ),
-                }
-            return {
-                "verdict": "needs_update",
-                "candidate_text": retry_candidate or candidate,
-                "reason": "术语不符合：{}".format(
+                candidate = retry_candidate
+                reason = _normalize_reason(
+                    retry_reason,
+                    fallback="按术语词典重试后生成。",
+                )
+            else:
+                candidate = retry_candidate or candidate
+                reason = "术语不符合：{}".format(
                     ", ".join("{}={}".format(term["source"], term["target"]) for term in locked_terms)
-                ),
-            }
+                )
+        if not _has_matching_placeholders(source_text, candidate):
+            retry_prompt = "候选英文必须完整保留这些占位符且顺序不变：{}。只返回英文 RHS，不要换行，不要附加解释。".format(
+                ", ".join(_extract_placeholders(source_text))
+            )
+            retried = self.model_runner(
+                key=item["key"],
+                source_text=source_text,
+                target_text=current_target,
+                locked_terms=locked_terms,
+                model_config=self.model_config,
+                extra_prompt=retry_prompt,
+                target_missing=target_missing,
+            )
+            retry_candidate = _sanitize_candidate_text(retried.get("candidate_translation", ""))
+            retry_reason = _display_text(retried.get("reason", "")).strip()
+            if retry_candidate and _has_matching_placeholders(source_text, retry_candidate):
+                candidate = retry_candidate
+                reason = _normalize_reason(
+                    retry_reason,
+                    fallback="按占位符规则重试后生成。",
+                )
+            elif _has_matching_placeholders(source_text, current_target):
+                return {
+                    "verdict": "accurate",
+                    "candidate_text": current_target,
+                    "reason": "候选英文未保留占位符，已保留原英文。",
+                }
+            else:
+                raise ValueError("Model candidate did not preserve placeholders for key {}".format(item["key"]))
         return {
             "verdict": "needs_update",
             "candidate_text": candidate,
@@ -447,8 +482,9 @@ class TranslationSession(object):
         self._persist_locked()
 
     def _apply_item(self, item, status, reason):
-        _, appended = self._write_candidate(item["key"], item["candidate_text"])
-        item["target_text"] = item["candidate_text"]
+        entry, appended = self._write_candidate(item["key"], item["candidate_text"], item.get("source_text", ""))
+        item["candidate_text"] = entry.value
+        item["target_text"] = entry.value
         item["status"] = status
         item["updated_at"] = _timestamp()
         item["accepted_reason"] = reason
@@ -462,10 +498,15 @@ class TranslationSession(object):
         self._push_event(reason, item["key"], item["source_text"], item.get("candidate_text", ""))
         self._persist_locked()
 
-    def _write_candidate(self, key, candidate_text):
+    def _write_candidate(self, key, candidate_text, source_text):
+        normalized_candidate = _sanitize_candidate_text(candidate_text)
+        if not normalized_candidate:
+            raise ValueError("Candidate translation is empty for key {}".format(key))
+        if not _has_matching_placeholders(source_text, normalized_candidate):
+            raise ValueError("Candidate translation lost placeholders for key {}".format(key))
         if self.target_document.find(key) is None:
-            self.target_document.append_comment_once(TRANSLATION_APPEND_COMMENT)
-        entry, appended = self.target_document.set_value(key, candidate_text, separator="=")
+            raise ValueError("English properties file is missing key {}. Only RHS replacement is supported.".format(key))
+        entry, appended = self.target_document.set_value(key, normalized_candidate, separator="=")
         self.target_document.write()
         return entry, appended
 
@@ -649,6 +690,23 @@ def _contains_locked_terms(candidate, locked_terms):
         if term["target"] not in value:
             return False
     return True
+
+
+def _extract_placeholders(text):
+    value = str(text or "")
+    return [match.group(0) for match in PLACEHOLDER_PATTERN.finditer(value)]
+
+
+def _has_matching_placeholders(source_text, candidate_text):
+    return _extract_placeholders(source_text) == _extract_placeholders(candidate_text)
+
+
+def _sanitize_candidate_text(value):
+    text = _display_text(value)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"\s*\n+\s*", " ", text)
+    text = re.sub(r"[ \t\f\v]+", " ", text)
+    return text.strip()
 
 
 def _timestamp():
