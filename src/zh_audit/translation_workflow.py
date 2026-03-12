@@ -1,22 +1,27 @@
 from __future__ import absolute_import
 
 import json
-import re
 import shutil
 import threading
 from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
 
+from zh_audit.candidate_validation import (
+    MAX_MODEL_CALLS_PER_ITEM,
+    contains_locked_terms,
+    has_matching_placeholders,
+    normalize_review_result,
+    sanitize_candidate_text,
+    validate_candidate_text,
+    validation_message,
+)
 from zh_audit.properties_file import load_properties_document
 from zh_audit.terminology_xlsx import exact_terminology_translation, match_locked_terms
 from zh_audit.utils import contains_han, decode_unicode_escapes
 
 
 TRANSLATION_SESSION_VERSION = 1
-PLACEHOLDER_PATTERN = re.compile(
-    r"\$\{[^{}\r\n]+\}|\{[^{}\r\n]*\}|%(?:\d+\$)?[#0\- +,(]*\d*(?:\.\d+)?[A-Za-z]"
-)
 
 
 def default_translation_config():
@@ -28,13 +33,23 @@ def default_translation_config():
 
 
 class TranslationSession(object):
-    def __init__(self, source_path, target_path, glossary, model_config, model_runner, persist_callback=None):
+    def __init__(
+        self,
+        source_path,
+        target_path,
+        glossary,
+        model_config,
+        model_runner,
+        reviewer_runner=None,
+        persist_callback=None,
+    ):
         self.lock = threading.RLock()
         self.source_path = str(source_path)
         self.target_path = str(target_path)
         self.glossary = OrderedDict(glossary)
         self.model_config = dict(model_config)
         self.model_runner = model_runner
+        self.reviewer_runner = reviewer_runner
         self.persist_callback = persist_callback
         self.source_document = load_properties_document(source_path)
         self.target_document = load_properties_document(target_path)
@@ -73,7 +88,15 @@ class TranslationSession(object):
         self.next_index = 0
 
     @classmethod
-    def from_saved_state(cls, payload, glossary, model_config, model_runner, persist_callback=None):
+    def from_saved_state(
+        cls,
+        payload,
+        glossary,
+        model_config,
+        model_runner,
+        reviewer_runner=None,
+        persist_callback=None,
+    ):
         source_path = Path(str(payload.get("source_path", "") or "")).expanduser()
         target_path = Path(str(payload.get("target_path", "") or "")).expanduser()
         session = cls(
@@ -82,6 +105,7 @@ class TranslationSession(object):
             glossary=glossary,
             model_config=model_config,
             model_runner=model_runner,
+            reviewer_runner=reviewer_runner,
             persist_callback=persist_callback,
         )
         session._restore_saved_state(payload)
@@ -221,6 +245,8 @@ class TranslationSession(object):
     def accept(self, item_id):
         with self.lock:
             item = self._require_pending_item(item_id)
+            if not item.get("can_accept", True):
+                raise ValueError(item.get("validation_message") or "Candidate validation failed.")
             self._apply_item(item, "accepted", "人工接收")
             return self.snapshot()
 
@@ -248,25 +274,21 @@ class TranslationSession(object):
             locked_terms = list(item.get("locked_terms", []))
             target_missing = item.get("target_missing", False)
             self._persist_locked()
-        result = self.model_runner(
+        normalized = self._build_candidate_with_guardrails(
             key=key,
             source_text=source_text,
-            target_text=current_target,
+            current_target=current_target,
             locked_terms=locked_terms,
-            model_config=self.model_config,
-            extra_prompt=extra_prompt,
             target_missing=target_missing,
+            base_extra_prompt=extra_prompt,
         )
-        normalized = self._normalize_model_result(item, result, current_target)
         with self.lock:
-            item["candidate_text"] = normalized["candidate_text"]
-            item["reason"] = normalized["reason"]
-            item["verdict"] = normalized["verdict"]
+            self._update_item_validation(item, normalized)
             item["status"] = "pending"
             item["updated_at"] = _timestamp()
             item["regeneration_prompt"] = extra_prompt
             self.regenerated += 1
-            self._push_event("已重生成", item["key"], item["source_text"], item.get("candidate_text", ""))
+            self._push_event(self._pending_event_label(item, "已重生成"), item["key"], item["source_text"], item.get("candidate_text", ""))
             self._persist_locked()
             return self.snapshot()
 
@@ -282,13 +304,6 @@ class TranslationSession(object):
             return
 
         target_entry = self.target_document.find(key)
-        if target_entry is None:
-            with self.lock:
-                self.processed += 1
-                self.skipped += 1
-                self._push_event("已跳过：英文文件缺少对应 key", key, source_text, "")
-                self._persist_locked()
-            return
         target_text = _display_text(target_entry.value) if target_entry is not None else ""
         exact_translation = exact_terminology_translation(source_text, self.glossary)
         locked_terms = match_locked_terms(source_text, self.glossary)
@@ -311,34 +326,31 @@ class TranslationSession(object):
                 reason="整句命中术语词典。",
                 verdict="needs_update",
                 target_missing=target_entry is None,
+                validation_state="passed",
+                validation_message="",
+                validation_issue="",
+                can_accept=True,
+                model_calls_used=0,
             )
             with self.lock:
                 self.glossary_applied += 1
                 self._finalize_item(item, should_auto_accept=should_auto_accept(), force_accept=True, event_label="术语直出")
             return
 
-        result = self.model_runner(
+        normalized = self._build_candidate_with_guardrails(
             key=key,
             source_text=source_text,
-            target_text=target_text,
+            current_target=target_text,
             locked_terms=locked_terms,
-            model_config=self.model_config,
-            extra_prompt="",
             target_missing=target_entry is None,
-        )
-        normalized = self._normalize_model_result(
-            {
-                "key": key,
-                "source_text": source_text,
-                "target_text": target_text,
-                "target_missing": target_entry is None,
-                "locked_terms": locked_terms,
-            },
-            result,
-            target_text,
+            base_extra_prompt="",
         )
 
-        if normalized["verdict"] == "accurate" and target_entry is not None:
+        if (
+            normalized["validation_state"] == "passed"
+            and normalized["verdict"] == "accurate"
+            and target_entry is not None
+        ):
             with self.lock:
                 self.processed += 1
                 self.skipped += 1
@@ -355,90 +367,140 @@ class TranslationSession(object):
             reason=normalized["reason"],
             verdict=normalized["verdict"],
             target_missing=target_entry is None,
+            validation_state=normalized["validation_state"],
+            validation_message=normalized["validation_message"],
+            validation_issue=normalized.get("validation_issue", ""),
+            can_accept=normalized["can_accept"],
+            model_calls_used=normalized["model_calls_used"],
         )
         with self.lock:
             self._finalize_item(item, should_auto_accept=should_auto_accept(), force_accept=False, event_label="待审批")
 
+    def _build_candidate_with_guardrails(self, key, source_text, current_target, locked_terms, target_missing, base_extra_prompt):
+        model_calls_used = 0
+        retry_issue = ""
+        last_result = {
+            "verdict": "needs_update",
+            "candidate_text": sanitize_candidate_text(current_target),
+            "reason": "",
+            "validation_state": "failed",
+            "validation_message": validation_message("校验未通过"),
+            "validation_issue": "校验未通过",
+            "can_accept": False,
+            "model_calls_used": 0,
+        }
+        while model_calls_used < MAX_MODEL_CALLS_PER_ITEM:
+            raw_result = self.model_runner(
+                key=key,
+                source_text=source_text,
+                target_text=current_target,
+                locked_terms=locked_terms,
+                model_config=self.model_config,
+                extra_prompt=self._build_retry_prompt(base_extra_prompt, retry_issue),
+                target_missing=target_missing,
+            )
+            model_calls_used += 1
+            normalized = self._normalize_model_result(
+                {
+                    "key": key,
+                    "source_text": source_text,
+                    "target_text": current_target,
+                    "target_missing": target_missing,
+                    "locked_terms": locked_terms,
+                },
+                raw_result,
+                current_target,
+            )
+            candidate_text = normalized["candidate_text"]
+            validation_issue = validate_candidate_text(
+                source_text,
+                candidate_text,
+                raw_candidate_text=raw_result.get("candidate_translation", candidate_text),
+                locked_terms=locked_terms,
+                key=key,
+                enforce_placeholders=True,
+            )
+            if validation_issue:
+                retry_issue = validation_issue
+                last_result = {
+                    "verdict": "needs_update",
+                    "candidate_text": candidate_text,
+                    "reason": normalized["reason"],
+                    "validation_state": "failed",
+                    "validation_message": validation_message(validation_issue),
+                    "validation_issue": validation_issue,
+                    "can_accept": False,
+                    "model_calls_used": model_calls_used,
+                }
+                continue
+            if self.reviewer_runner is not None:
+                if model_calls_used >= MAX_MODEL_CALLS_PER_ITEM:
+                    retry_issue = "已达到最大模型调用次数，未完成AI复核"
+                    break
+                review_result = self.reviewer_runner(
+                    key=key,
+                    source_text=source_text,
+                    target_text=current_target,
+                    candidate_text=candidate_text,
+                    locked_terms=locked_terms,
+                    model_config=self.model_config,
+                    target_missing=target_missing,
+                )
+                model_calls_used += 1
+                reviewed = normalize_review_result(review_result)
+                if reviewed["decision"] != "pass":
+                    retry_issue = reviewed["issues"][0]
+                    last_result = {
+                        "verdict": "needs_update",
+                        "candidate_text": candidate_text,
+                        "reason": normalized["reason"],
+                        "validation_state": "failed",
+                        "validation_message": validation_message(retry_issue),
+                        "validation_issue": retry_issue,
+                        "can_accept": False,
+                        "model_calls_used": model_calls_used,
+                    }
+                    continue
+            return {
+                "verdict": normalized["verdict"],
+                "candidate_text": candidate_text,
+                "reason": normalized["reason"],
+                "validation_state": "passed",
+                "validation_message": "",
+                "validation_issue": "",
+                "can_accept": True,
+                "model_calls_used": model_calls_used,
+            }
+        failure_issue = retry_issue or last_result.get("validation_issue") or "已达到最大模型调用次数"
+        last_result["validation_state"] = "failed"
+        last_result["validation_message"] = validation_message(failure_issue)
+        last_result["validation_issue"] = failure_issue
+        last_result["can_accept"] = False
+        last_result["model_calls_used"] = min(model_calls_used, MAX_MODEL_CALLS_PER_ITEM)
+        return last_result
+
     def _normalize_model_result(self, item, result, current_target):
         verdict = str(result.get("verdict", "") or "").strip().lower()
-        candidate = _sanitize_candidate_text(result.get("candidate_translation", ""))
+        candidate = sanitize_candidate_text(result.get("candidate_translation", ""))
         reason = _display_text(result.get("reason", "")).strip()
         if verdict not in ("accurate", "needs_update"):
             verdict = "needs_update"
         locked_terms = list(item.get("locked_terms", []))
         target_missing = bool(item.get("target_missing"))
-        source_text = item.get("source_text", "")
         if verdict == "accurate" and target_missing:
             verdict = "needs_update"
         if verdict == "accurate":
-            if locked_terms and not _contains_locked_terms(current_target, locked_terms):
+            if locked_terms and not contains_locked_terms(current_target, locked_terms):
                 verdict = "needs_update"
                 reason = "现有英文未满足术语词典要求。"
-            return {
-                "verdict": verdict,
-                "candidate_text": current_target,
-                "reason": _normalize_reason(
-                    reason,
-                    fallback="现有英文翻译准确。",
-                ),
-            }
+            else:
+                return {
+                    "verdict": verdict,
+                    "candidate_text": sanitize_candidate_text(current_target),
+                    "reason": _normalize_reason(reason, fallback="现有英文翻译准确。"),
+                }
         if not candidate:
             raise ValueError("Model did not return candidate_translation for key {}".format(item["key"]))
-        if locked_terms and not _contains_locked_terms(candidate, locked_terms):
-            retry_prompt = "候选英文必须严格包含这些术语：{}。请只返回符合要求的英文。".format(
-                ", ".join("{}={}".format(term["source"], term["target"]) for term in locked_terms)
-            )
-            retried = self.model_runner(
-                key=item["key"],
-                source_text=item["source_text"],
-                target_text=current_target,
-                locked_terms=locked_terms,
-                model_config=self.model_config,
-                extra_prompt=retry_prompt,
-                target_missing=target_missing,
-            )
-            retry_candidate = _sanitize_candidate_text(retried.get("candidate_translation", ""))
-            retry_reason = _display_text(retried.get("reason", "")).strip()
-            if retry_candidate and _contains_locked_terms(retry_candidate, locked_terms):
-                candidate = retry_candidate
-                reason = _normalize_reason(
-                    retry_reason,
-                    fallback="按术语词典重试后生成。",
-                )
-            else:
-                candidate = retry_candidate or candidate
-                reason = "术语不符合：{}".format(
-                    ", ".join("{}={}".format(term["source"], term["target"]) for term in locked_terms)
-                )
-        if not _has_matching_placeholders(source_text, candidate):
-            retry_prompt = "候选英文必须完整保留这些占位符且顺序不变：{}。只返回英文 RHS，不要换行，不要附加解释。".format(
-                ", ".join(_extract_placeholders(source_text))
-            )
-            retried = self.model_runner(
-                key=item["key"],
-                source_text=source_text,
-                target_text=current_target,
-                locked_terms=locked_terms,
-                model_config=self.model_config,
-                extra_prompt=retry_prompt,
-                target_missing=target_missing,
-            )
-            retry_candidate = _sanitize_candidate_text(retried.get("candidate_translation", ""))
-            retry_reason = _display_text(retried.get("reason", "")).strip()
-            if retry_candidate and _has_matching_placeholders(source_text, retry_candidate):
-                candidate = retry_candidate
-                reason = _normalize_reason(
-                    retry_reason,
-                    fallback="按占位符规则重试后生成。",
-                )
-            elif _has_matching_placeholders(source_text, current_target):
-                return {
-                    "verdict": "accurate",
-                    "candidate_text": current_target,
-                    "reason": "候选英文未保留占位符，已保留原英文。",
-                }
-            else:
-                raise ValueError("Model candidate did not preserve placeholders for key {}".format(item["key"]))
         return {
             "verdict": "needs_update",
             "candidate_text": candidate,
@@ -448,7 +510,30 @@ class TranslationSession(object):
             ),
         }
 
-    def _create_item(self, key, source_text, target_text, candidate_text, locked_terms, reason, verdict, target_missing):
+    def _build_retry_prompt(self, base_extra_prompt, retry_issue):
+        parts = []
+        if retry_issue:
+            parts.append("上一版候选未通过系统校验，请严格修复这个问题：{}。".format(retry_issue))
+        if base_extra_prompt:
+            parts.append(str(base_extra_prompt).strip())
+        return "\n".join(part for part in parts if part).strip()
+
+    def _create_item(
+        self,
+        key,
+        source_text,
+        target_text,
+        candidate_text,
+        locked_terms,
+        reason,
+        verdict,
+        target_missing,
+        validation_state,
+        validation_message,
+        validation_issue,
+        can_accept,
+        model_calls_used,
+    ):
         with self.lock:
             item_id = "tx-{}".format(self.next_id)
             self.next_id += 1
@@ -462,6 +547,11 @@ class TranslationSession(object):
                 "reason": reason,
                 "verdict": verdict,
                 "target_missing": bool(target_missing),
+                "validation_state": str(validation_state or "passed"),
+                "validation_message": str(validation_message or ""),
+                "validation_issue": str(validation_issue or ""),
+                "can_accept": bool(can_accept),
+                "model_calls_used": int(model_calls_used or 0),
                 "status": "pending",
                 "updated_at": _timestamp(),
             }
@@ -469,17 +559,34 @@ class TranslationSession(object):
             self._persist_locked()
             return item
 
+    def _update_item_validation(self, item, normalized):
+        item["candidate_text"] = normalized["candidate_text"]
+        item["reason"] = normalized["reason"]
+        item["verdict"] = normalized["verdict"]
+        item["validation_state"] = normalized["validation_state"]
+        item["validation_message"] = normalized["validation_message"]
+        item["validation_issue"] = normalized.get("validation_issue", "")
+        item["can_accept"] = bool(normalized["can_accept"])
+        item["model_calls_used"] = int(normalized["model_calls_used"])
+
     def _finalize_item(self, item, should_auto_accept, force_accept, event_label):
         self.processed += 1
-        if force_accept or should_auto_accept:
+        if force_accept or (should_auto_accept and item.get("can_accept", True)):
             self._apply_item(item, "accepted", event_label)
             return
         item["status"] = "pending"
         item["updated_at"] = _timestamp()
         self.pending_ids.append(item["id"])
         self.pending += 1
-        self._push_event(event_label, item["key"], item["source_text"], item.get("candidate_text", ""))
+        if item.get("validation_state") == "failed":
+            self.failed += 1
+        self._push_event(self._pending_event_label(item, event_label), item["key"], item["source_text"], item.get("candidate_text", ""))
         self._persist_locked()
+
+    def _pending_event_label(self, item, default_label):
+        if item.get("validation_state") == "failed":
+            return "候选未通过校验：{}".format(item.get("validation_issue") or "请重生成")
+        return default_label
 
     def _apply_item(self, item, status, reason):
         entry, appended = self._write_candidate(item["key"], item["candidate_text"], item.get("source_text", ""))
@@ -499,13 +606,11 @@ class TranslationSession(object):
         self._persist_locked()
 
     def _write_candidate(self, key, candidate_text, source_text):
-        normalized_candidate = _sanitize_candidate_text(candidate_text)
+        normalized_candidate = sanitize_candidate_text(candidate_text)
         if not normalized_candidate:
             raise ValueError("Candidate translation is empty for key {}".format(key))
-        if not _has_matching_placeholders(source_text, normalized_candidate):
+        if not has_matching_placeholders(source_text, normalized_candidate):
             raise ValueError("Candidate translation lost placeholders for key {}".format(key))
-        if self.target_document.find(key) is None:
-            raise ValueError("English properties file is missing key {}. Only RHS replacement is supported.".format(key))
         entry, appended = self.target_document.set_value(key, normalized_candidate, separator="=")
         self.target_document.write()
         return entry, appended
@@ -556,6 +661,10 @@ class TranslationSession(object):
             "verdict": item.get("verdict", ""),
             "status": item.get("status", ""),
             "target_missing": bool(item.get("target_missing")),
+            "validation_state": item.get("validation_state", "passed"),
+            "validation_message": item.get("validation_message", ""),
+            "can_accept": bool(item.get("can_accept", True)),
+            "model_calls_used": int(item.get("model_calls_used", 0) or 0),
             "updated_at": item.get("updated_at", ""),
         }
 
@@ -608,6 +717,11 @@ class TranslationSession(object):
                 continue
             restored = dict(item)
             restored["id"] = item_id
+            restored.setdefault("validation_state", "passed")
+            restored.setdefault("validation_message", "")
+            restored.setdefault("validation_issue", "")
+            restored.setdefault("can_accept", True)
+            restored.setdefault("model_calls_used", 0)
             self.items[item_id] = restored
         self.pending_ids = [item_id for item_id in payload.get("pending_ids", []) if item_id in self.items]
         self.recent_ids = [item_id for item_id in payload.get("recent_ids", []) if item_id in self.items]
@@ -676,6 +790,8 @@ def build_translation_system_prompt():
         "Return JSON only with keys: verdict, candidate_translation, reason.\n"
         "verdict must be either accurate or needs_update.\n"
         "candidate_translation must contain only the translated RHS text, never include the key.\n"
+        "candidate_translation must be natural English and must not directly copy the Chinese source text.\n"
+        "candidate_translation must not include Chinese explanations, SQL, JSON, or multiple lines.\n"
         "reason must be written in Simplified Chinese.\n"
         "Do not output English in reason unless it is a required technical term quoted from the source or target text.\n"
         "Preserve placeholders exactly, including {0}, {}, %s, ${name} and similar forms.\n"
@@ -684,29 +800,30 @@ def build_translation_system_prompt():
     )
 
 
-def _contains_locked_terms(candidate, locked_terms):
-    value = str(candidate or "")
-    for term in locked_terms:
-        if term["target"] not in value:
-            return False
-    return True
+def build_translation_review_user_prompt(key, source_text, target_text, candidate_text, locked_terms, target_missing):
+    payload = {
+        "key": key,
+        "source_text": source_text,
+        "target_text": target_text,
+        "candidate_text": candidate_text,
+        "target_missing": bool(target_missing),
+        "locked_terms": [
+            {"source": term["source"], "target": term["target"]}
+            for term in locked_terms
+        ],
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
 
 
-def _extract_placeholders(text):
-    value = str(text or "")
-    return [match.group(0) for match in PLACEHOLDER_PATTERN.finditer(value)]
-
-
-def _has_matching_placeholders(source_text, candidate_text):
-    return _extract_placeholders(source_text) == _extract_placeholders(candidate_text)
-
-
-def _sanitize_candidate_text(value):
-    text = _display_text(value)
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-    text = re.sub(r"\s*\n+\s*", " ", text)
-    text = re.sub(r"[ \t\f\v]+", " ", text)
-    return text.strip()
+def build_translation_review_system_prompt():
+    return (
+        "You are a strict QA reviewer for English i18n properties translations.\n"
+        "Return JSON only with keys: decision, issues.\n"
+        "decision must be either pass or fail.\n"
+        "issues must be an array of short Simplified Chinese strings.\n"
+        "Fail when the candidate is not natural English, still contains untranslated Chinese, omits source meaning, or breaks placeholders.\n"
+        "Pass only when the candidate is a complete and accurate English translation of the source text."
+    )
 
 
 def _timestamp():

@@ -13,6 +13,13 @@ from zh_audit.terminology_xlsx import (
 from zh_audit.translation_workflow import TranslationSession, build_translation_system_prompt
 
 
+def _pass_review(**kwargs):
+    return {
+        "decision": "pass",
+        "issues": [],
+    }
+
+
 class TranslationWorkflowTest(unittest.TestCase):
     def test_terminology_xlsx_roundtrip_and_longest_match(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -58,6 +65,7 @@ class TranslationWorkflowTest(unittest.TestCase):
                 glossary={"主机组": "host group"},
                 model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
                 model_runner=lambda **kwargs: (_ for _ in ()).throw(AssertionError("model should not be called")),
+                reviewer_runner=_pass_review,
             )
             session.start()
             session.run(lambda: False)
@@ -97,6 +105,7 @@ class TranslationWorkflowTest(unittest.TestCase):
                 glossary={"对等连接": "link"},
                 model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
                 model_runner=fake_model,
+                reviewer_runner=_pass_review,
             )
             session.start()
             session.run(lambda: False)
@@ -106,7 +115,7 @@ class TranslationWorkflowTest(unittest.TestCase):
             pending_item = snapshot["pending_items"][0]
             self.assertIn("对等连接", pending_item["source_text"])
             self.assertIn("create link: {0}", pending_item["candidate_text"])
-            self.assertEqual(pending_item["reason"], "按术语词典重试后生成。")
+            self.assertEqual(pending_item["reason"], "现有英文翻译不够准确，建议更新为候选英文。")
 
             regenerated = session.regenerate(pending_item["id"], "更简洁一点")
             self.assertEqual(regenerated["status"]["counts"]["regenerated"], 1)
@@ -153,6 +162,7 @@ class TranslationWorkflowTest(unittest.TestCase):
                 glossary={},
                 model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
                 model_runner=fake_model,
+                reviewer_runner=_pass_review,
             )
             session.start()
             session.run(lambda: False)
@@ -162,7 +172,7 @@ class TranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(snapshot["pending_items"][0]["candidate_text"], "create link: {0}")
             self.assertGreaterEqual(len(calls), 2)
 
-    def test_translation_session_skips_missing_target_key_without_append(self):
+    def test_translation_session_appends_missing_target_key_after_accept(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "zh.properties"
             target = Path(temp_dir) / "en.properties"
@@ -174,16 +184,27 @@ class TranslationWorkflowTest(unittest.TestCase):
                 target_path=target,
                 glossary={},
                 model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
-                model_runner=lambda **kwargs: (_ for _ in ()).throw(AssertionError("model should not be called")),
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": "create link: {0}",
+                    "reason": "ok",
+                },
+                reviewer_runner=_pass_review,
             )
             session.start()
             session.run(lambda: False)
 
             snapshot = session.snapshot()
-            self.assertEqual(snapshot["status"]["counts"]["skipped"], 1)
-            self.assertEqual(snapshot["status"]["counts"]["pending"], 0)
-            self.assertEqual(snapshot["events"][0]["label"], "已跳过：英文文件缺少对应 key")
-            self.assertEqual(target.read_text(encoding="utf-8"), "")
+            self.assertEqual(snapshot["status"]["counts"]["skipped"], 0)
+            self.assertEqual(snapshot["status"]["counts"]["pending"], 1)
+            self.assertEqual(snapshot["pending_items"][0]["target_text"], "")
+            self.assertTrue(snapshot["pending_items"][0]["target_missing"])
+            self.assertEqual(snapshot["events"][0]["label"], "待审批")
+
+            accepted = session.accept(snapshot["pending_items"][0]["id"])
+            self.assertEqual(accepted["status"]["counts"]["accepted"], 1)
+            self.assertEqual(accepted["status"]["counts"]["appended"], 1)
+            self.assertEqual(target.read_text(encoding="utf-8"), "NETWORK_LINK_ADD=create link: {0}\n")
 
     def test_translation_session_decodes_unicode_escapes_for_glossary_and_display(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -198,6 +219,7 @@ class TranslationWorkflowTest(unittest.TestCase):
                 glossary={"主机组": "host group"},
                 model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
                 model_runner=lambda **kwargs: (_ for _ in ()).throw(AssertionError("model should not be called")),
+                reviewer_runner=_pass_review,
             )
             session.start()
             session.run(lambda: False)
@@ -229,6 +251,7 @@ class TranslationWorkflowTest(unittest.TestCase):
                     "candidate_translation": "Adapter server interface not found.",
                     "reason": "The source text is more specific than the current target text.",
                 },
+                reviewer_runner=_pass_review,
             )
             session.start()
             session.run(lambda: False)
@@ -253,6 +276,7 @@ class TranslationWorkflowTest(unittest.TestCase):
                     "candidate_translation": "Adapter server interface not found.",
                     "reason": "翻译准确。",
                 },
+                reviewer_runner=_pass_review,
             )
             session.start()
             session.run(lambda: False)
@@ -260,6 +284,38 @@ class TranslationWorkflowTest(unittest.TestCase):
             snapshot = session.snapshot()
             self.assertEqual(snapshot["status"]["counts"]["skipped"], 1)
             self.assertEqual(snapshot["events"][0]["label"], "已跳过：翻译准确，无需更新")
+
+    def test_translation_session_marks_failed_candidate_unacceptable_after_retry_budget(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "zh.properties"
+            target = Path(temp_dir) / "en.properties"
+            source.write_text("API_NOT_FOUND=适配服务接口不存在。\n", encoding="utf-8")
+            target.write_text("API_NOT_FOUND=API not found in adapter server.\n", encoding="utf-8")
+
+            session = TranslationSession(
+                source_path=source,
+                target_path=target,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": "适配服务接口不存在。",
+                    "reason": "ok",
+                },
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            snapshot = session.snapshot()
+            pending = snapshot["pending_items"][0]
+            self.assertEqual(pending["validation_state"], "failed")
+            self.assertFalse(pending["can_accept"])
+            self.assertEqual(pending["model_calls_used"], 5)
+            self.assertIn("候选仍含中文", pending["validation_message"])
+            self.assertIn("候选未通过校验：候选仍含中文", snapshot["events"][0]["label"])
+            with self.assertRaises(ValueError):
+                session.accept(pending["id"])
 
 
 if __name__ == "__main__":

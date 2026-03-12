@@ -692,7 +692,20 @@ def render_app_shell(bootstrap_payload, client_config):
     }
     .translation-item-stack code {
       font-family: "SFMono-Regular", "Menlo", monospace;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    .translation-validation-note {
       font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .translation-validation-note.is-error {
+      color: var(--danger);
+    }
+    .translation-call-budget {
+      font-size: 12px;
+      color: var(--muted);
     }
     .translation-actions {
       display: flex;
@@ -1533,13 +1546,14 @@ __REPORT_COMPONENT_BUNDLE__
             <div><span class="muted">中文：</span>${escapeHtml(item.source_text || "-")}</div>
             <div><span class="muted">当前英文：</span><code>${escapeHtml(item.target_text || "(空)")}</code></div>
             <div><span class="muted">候选英文：</span><code>${escapeHtml(item.candidate_text || "-")}</code></div>
-            <div><span class="muted">判定理由：</span>${escapeHtml(item.reason || "-")}</div>
+            ${item.validation_message ? `<div class="translation-validation-note ${item.validation_state === "failed" ? "is-error" : ""}">${escapeHtml(item.validation_message)}</div>` : ""}
+            <div class="translation-call-budget">模型调用：${escapeHtml(String(item.model_calls_used || 0))}/${escapeHtml(String(5))}</div>
             <div class="translation-tags">
               ${(item.locked_terms || []).map(term => `<span class="translation-tag">${escapeHtml(`${term.source} => ${term.target}`)}</span>`).join("")}
             </div>
           </div>
           <div class="translation-actions">
-            <button class="primary-btn" type="button" data-action="translation-accept" data-id="${escapeAttr(item.id)}">接收</button>
+            <button class="primary-btn" type="button" data-action="translation-accept" data-id="${escapeAttr(item.id)}" ${item.can_accept === false ? `disabled title="${escapeAttr(item.validation_message || "校验未通过，请重生成")}"` : ""}>接收</button>
             <input class="field-input translation-inline-input" data-prompt-id="${escapeAttr(item.id)}" value="${escapeAttr(state.translationPromptDrafts[item.id] || "")}" placeholder="可选：输入额外 prompt 后重生成">
             <button class="secondary-btn" type="button" data-action="translation-regenerate" data-id="${escapeAttr(item.id)}">重生成</button>
             <button class="danger-btn" type="button" data-action="translation-reject" data-id="${escapeAttr(item.id)}">忽略</button>
@@ -1652,13 +1666,14 @@ __REPORT_COMPONENT_BUNDLE__
             <div><span class="muted">中文：</span>${escapeHtml(item.source_text || "-")}</div>
             <div><span class="muted">当前英文：</span><code>${escapeHtml(item.target_text || "(空)")}</code></div>
             <div><span class="muted">候选英文：</span><code>${escapeHtml(item.candidate_text || "-")}</code></div>
-            <div><span class="muted">判定理由：</span>${escapeHtml(item.reason || "-")}</div>
+            ${item.validation_message ? `<div class="translation-validation-note ${item.validation_state === "failed" ? "is-error" : ""}">${escapeHtml(item.validation_message)}</div>` : ""}
+            <div class="translation-call-budget">模型调用：${escapeHtml(String(item.model_calls_used || 0))}/${escapeHtml(String(5))}</div>
             <div class="translation-tags">
               ${(item.locked_terms || []).map(term => `<span class="translation-tag">${escapeHtml(`${term.source} => ${term.target}`)}</span>`).join("")}
             </div>
           </div>
           <div class="translation-actions">
-            <button class="primary-btn" type="button" data-action="sql-translation-accept" data-id="${escapeAttr(item.id)}">接收</button>
+            <button class="primary-btn" type="button" data-action="sql-translation-accept" data-id="${escapeAttr(item.id)}" ${item.can_accept === false ? `disabled title="${escapeAttr(item.validation_message || "校验未通过，请重生成")}"` : ""}>接收</button>
             <input class="field-input translation-inline-input" data-sql-prompt-id="${escapeAttr(item.id)}" value="${escapeAttr(state.sqlTranslationPromptDrafts[item.id] || "")}" placeholder="可选：输入额外 prompt 后重生成">
             <button class="secondary-btn" type="button" data-action="sql-translation-regenerate" data-id="${escapeAttr(item.id)}">重生成</button>
             <button class="danger-btn" type="button" data-action="sql-translation-reject" data-id="${escapeAttr(item.id)}">忽略</button>

@@ -38,12 +38,16 @@ from zh_audit.report import render_report
 from zh_audit.session_store import load_json_file, write_json_atomically
 from zh_audit.sql_translation_workflow import (
     SqlTranslationSession,
+    build_sql_translation_review_system_prompt,
+    build_sql_translation_review_user_prompt,
     build_sql_translation_system_prompt,
     build_sql_translation_user_prompt,
 )
 from zh_audit.terminology_xlsx import ensure_default_terminology_xlsx, load_terminology_xlsx
 from zh_audit.translation_workflow import (
     TranslationSession,
+    build_translation_review_system_prompt,
+    build_translation_review_user_prompt,
     build_translation_system_prompt,
     build_translation_user_prompt,
 )
@@ -222,6 +226,7 @@ class AppServiceState(object):
                 glossary=self.terminology,
                 model_config=model_config,
                 model_runner=self._translation_model_runner,
+                reviewer_runner=self._translation_reviewer_runner,
                 persist_callback=self._persist_translation_session,
             )
             self.translation_session.start()
@@ -242,6 +247,7 @@ class AppServiceState(object):
             with session.lock:
                 session.model_config = dict(model_config)
                 session.glossary = self.terminology
+                session.reviewer_runner = self._translation_reviewer_runner
             session.resume()
             self._start_translation_thread_locked(session)
             return self.translation_payload_locked()
@@ -307,6 +313,7 @@ class AppServiceState(object):
                 glossary=self.terminology,
                 model_config=model_config,
                 model_runner=self._sql_translation_model_runner,
+                reviewer_runner=self._sql_translation_reviewer_runner,
                 persist_callback=self._persist_sql_translation_session,
             )
             self.sql_translation_session.start()
@@ -327,6 +334,7 @@ class AppServiceState(object):
             with session.lock:
                 session.model_config = dict(model_config)
                 session.glossary = self.terminology
+                session.reviewer_runner = self._sql_translation_reviewer_runner
             session.resume()
             self._start_sql_translation_thread_locked(session)
             return self.sql_translation_payload_locked()
@@ -581,6 +589,7 @@ class AppServiceState(object):
                 glossary=self.terminology,
                 model_config=self._effective_model_config(),
                 model_runner=self._translation_model_runner,
+                reviewer_runner=self._translation_reviewer_runner,
                 persist_callback=self._persist_translation_session,
             )
             self._persist_translation_session(self.translation_session.save_state())
@@ -646,6 +655,7 @@ class AppServiceState(object):
                 glossary=self.terminology,
                 model_config=self._effective_model_config(),
                 model_runner=self._sql_translation_model_runner,
+                reviewer_runner=self._sql_translation_reviewer_runner,
                 persist_callback=self._persist_sql_translation_session,
             )
             self._persist_sql_translation_session(self.sql_translation_session.save_state())
@@ -716,6 +726,22 @@ class AppServiceState(object):
         )
         return response
 
+    def _translation_reviewer_runner(self, key, source_text, target_text, candidate_text, locked_terms, model_config, target_missing):
+        response = call_openai_compatible_json(
+            model_config=model_config,
+            system_prompt=build_translation_review_system_prompt(),
+            user_prompt=build_translation_review_user_prompt(
+                key=key,
+                source_text=source_text,
+                target_text=target_text,
+                candidate_text=candidate_text,
+                locked_terms=locked_terms,
+                target_missing=target_missing,
+            ),
+            max_tokens=model_config.get("max_tokens"),
+        )
+        return response
+
     def _sql_translation_model_runner(
         self,
         source_path,
@@ -748,6 +774,43 @@ class AppServiceState(object):
                 target_missing=target_missing,
                 locked_terms=locked_terms,
                 extra_prompt=extra_prompt,
+            ),
+            max_tokens=model_config.get("max_tokens"),
+        )
+        return response
+
+    def _sql_translation_reviewer_runner(
+        self,
+        source_path,
+        line,
+        table_name,
+        primary_key_field,
+        primary_key_value,
+        source_field,
+        source_text,
+        target_field,
+        target_text,
+        candidate_text,
+        target_missing,
+        locked_terms,
+        model_config,
+    ):
+        response = call_openai_compatible_json(
+            model_config=model_config,
+            system_prompt=build_sql_translation_review_system_prompt(),
+            user_prompt=build_sql_translation_review_user_prompt(
+                source_path=source_path,
+                line=line,
+                table_name=table_name,
+                primary_key_field=primary_key_field,
+                primary_key_value=primary_key_value,
+                source_field=source_field,
+                source_text=source_text,
+                target_field=target_field,
+                target_text=target_text,
+                candidate_text=candidate_text,
+                target_missing=target_missing,
+                locked_terms=locked_terms,
             ),
             max_tokens=model_config.get("max_tokens"),
         )

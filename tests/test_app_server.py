@@ -9,6 +9,20 @@ from unittest.mock import patch
 from zh_audit.app_server import AppServiceState
 
 
+def _model_and_review_response(**kwargs):
+    system_prompt = str(kwargs.get("system_prompt", "") or "")
+    if "strict QA reviewer" in system_prompt:
+        return {
+            "decision": "pass",
+            "issues": [],
+        }
+    return {
+        "verdict": "needs_update",
+        "candidate_translation": "create link: {0}",
+        "reason": "ok",
+    }
+
+
 class AppServerSmokeTest(unittest.TestCase):
     def _wait_for_scan_done(self, state, timeout=10):
         deadline = time.time() + timeout
@@ -205,6 +219,9 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn(".translation-top-card {", html)
             self.assertIn(".translation-stat-row {", html)
             self.assertIn(".translation-details {", html)
+            self.assertIn(".translation-validation-note {", html)
+            self.assertIn(".translation-call-budget {", html)
+            self.assertIn("line-height: 1.55;", html)
             self.assertNotIn("已加载术语", html)
             self.assertNotIn("更多信息", html)
             self.assertIn("更多进度", html)
@@ -426,11 +443,7 @@ class AppServerSmokeTest(unittest.TestCase):
             state = AppServiceState(out_dir=out_dir, project_config_path=config_path)
 
             with patch("zh_audit.app_server.call_openai_compatible_json") as mocked:
-                mocked.return_value = {
-                    "verdict": "needs_update",
-                    "candidate_translation": "create link: {0}",
-                    "reason": "ok",
-                }
+                mocked.side_effect = _model_and_review_response
                 payload = state.start_translation(
                     {
                         "source_path": str(source),
@@ -453,6 +466,8 @@ class AppServerSmokeTest(unittest.TestCase):
                 self.assertEqual(latest["status"]["counts"]["pending"], 1)
                 pending = latest["pending_items"][0]
                 self.assertEqual(pending["candidate_text"], "create link: {0}")
+                self.assertTrue(pending["can_accept"])
+                self.assertGreaterEqual(pending["model_calls_used"], 2)
 
                 accepted = state.translation_accept(pending["id"])
                 self.assertEqual(accepted["status"]["counts"]["accepted"], 2)
@@ -515,11 +530,7 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("任务已中断，可继续执行", reloaded.render_home())
 
             with patch("zh_audit.app_server.call_openai_compatible_json") as mocked:
-                mocked.return_value = {
-                    "verdict": "needs_update",
-                    "candidate_translation": "create link: {0}",
-                    "reason": "ok",
-                }
+                mocked.side_effect = _model_and_review_response
                 resumed = reloaded.resume_translation()
                 self.assertEqual(resumed["status"]["status"], "running")
 
@@ -598,11 +609,7 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("任务已中断，可继续执行", reloaded.render_home())
 
             with patch("zh_audit.app_server.call_openai_compatible_json") as mocked:
-                mocked.return_value = {
-                    "verdict": "needs_update",
-                    "candidate_translation": "create link: {0}",
-                    "reason": "ok",
-                }
+                mocked.side_effect = _model_and_review_response
                 resumed = reloaded.resume_sql_translation()
                 self.assertEqual(resumed["status"]["status"], "running")
 

@@ -9,6 +9,13 @@ from zh_audit.sql_translation_workflow import (
 )
 
 
+def _pass_review(**kwargs):
+    return {
+        "decision": "pass",
+        "issues": [],
+    }
+
+
 class SqlTranslationWorkflowTest(unittest.TestCase):
     def test_parse_sql_translation_file_handles_schema_multiline_and_escaped_strings(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -109,7 +116,7 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
                     }
                 return {
                     "verdict": "needs_update",
-                    "candidate_translation": "create peer connection: {0}",
+                    "candidate_translation": "create peer connection",
                     "reason": "initial",
                 }
 
@@ -122,6 +129,7 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
                 glossary={"资源池": "resource pool", "对等连接": "link"},
                 model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
                 model_runner=fake_model,
+                reviewer_runner=_pass_review,
             )
             session.start()
             output_path = Path(session.output_path)
@@ -133,6 +141,8 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(snapshot["status"]["counts"]["pending"], 2)
             by_source = dict((item["source_text"], item) for item in snapshot["pending_items"])
             self.assertEqual(by_source["创建对等连接：{0}"]["candidate_text"], "create link: {0}")
+            self.assertEqual(by_source["创建对等连接：{0}"]["validation_state"], "passed")
+            self.assertTrue(by_source["创建对等连接：{0}"]["can_accept"])
 
             session.accept(by_source["资源池"]["id"])
             session.reject(by_source["创建对等连接：{0}"]["id"])
@@ -142,6 +152,43 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             self.assertIn("UPDATE t_demo SET name_en = 'resource pool' WHERE id = '1';", content)
             self.assertNotIn("create link: {0}", content)
             self.assertGreaterEqual(len(calls), 2)
+
+    def test_sql_translation_session_marks_failed_candidate_unacceptable_after_retry_budget(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sql_dir = root / "sql"
+            sql_dir.mkdir()
+            (sql_dir / "demo.sql").write_text(
+                "INSERT INTO t_demo (id, name_zh, name_en) VALUES ('1', '适配服务接口不存在。', 'API not found in adapter server.');\n",
+                encoding="utf-8",
+            )
+
+            session = SqlTranslationSession(
+                directory_path=sql_dir,
+                table_name="t_demo",
+                primary_key_field="id",
+                source_field="name_zh",
+                target_field="name_en",
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": "适配服务接口不存在。",
+                    "reason": "ok",
+                },
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run()
+
+            snapshot = session.snapshot()
+            pending = snapshot["pending_items"][0]
+            self.assertEqual(pending["validation_state"], "failed")
+            self.assertFalse(pending["can_accept"])
+            self.assertEqual(pending["model_calls_used"], 5)
+            self.assertIn("候选仍含中文", pending["validation_message"])
+            with self.assertRaises(ValueError):
+                session.accept(pending["id"])
 
 
 if __name__ == "__main__":

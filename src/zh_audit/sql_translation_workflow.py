@@ -7,7 +7,16 @@ from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
 
+from zh_audit.candidate_validation import (
+    MAX_MODEL_CALLS_PER_ITEM,
+    contains_locked_terms,
+    normalize_review_result,
+    sanitize_candidate_text,
+    validate_candidate_text,
+    validation_message,
+)
 from zh_audit.terminology_xlsx import exact_terminology_translation, match_locked_terms
+from zh_audit.utils import contains_han, decode_unicode_escapes
 
 
 SQL_TRANSLATION_SESSION_VERSION = 1
@@ -35,6 +44,7 @@ class SqlTranslationSession(object):
         glossary,
         model_config,
         model_runner,
+        reviewer_runner=None,
         persist_callback=None,
         rows=None,
         scan_events=None,
@@ -48,6 +58,7 @@ class SqlTranslationSession(object):
         self.glossary = OrderedDict(glossary)
         self.model_config = dict(model_config)
         self.model_runner = model_runner
+        self.reviewer_runner = reviewer_runner
         self.persist_callback = persist_callback
         if rows is None:
             discovered = scan_sql_translation_directory(
@@ -92,7 +103,15 @@ class SqlTranslationSession(object):
         self.written_item_ids = set()
 
     @classmethod
-    def from_saved_state(cls, payload, glossary, model_config, model_runner, persist_callback=None):
+    def from_saved_state(
+        cls,
+        payload,
+        glossary,
+        model_config,
+        model_runner,
+        reviewer_runner=None,
+        persist_callback=None,
+    ):
         session = cls(
             directory_path=str(payload.get("directory_path", "") or ""),
             table_name=str(payload.get("table_name", "") or ""),
@@ -102,6 +121,7 @@ class SqlTranslationSession(object):
             glossary=glossary,
             model_config=model_config,
             model_runner=model_runner,
+            reviewer_runner=reviewer_runner,
             persist_callback=persist_callback,
             rows=list(payload.get("rows", [])),
             scan_events=[],
@@ -255,6 +275,8 @@ class SqlTranslationSession(object):
     def accept(self, item_id):
         with self.lock:
             item = self._require_pending_item(item_id)
+            if not item.get("can_accept", True):
+                raise ValueError(item.get("validation_message") or "Candidate validation failed.")
             appended = self._append_update_sql_once(item)
             item["status"] = "accepted"
             item["target_text"] = item.get("candidate_text", "")
@@ -292,31 +314,29 @@ class SqlTranslationSession(object):
             source_text = item.get("source_text", "")
             target_text = item.get("target_text", "")
             locked_terms = list(item.get("locked_terms", []))
-        result = self.model_runner(
-            source_path=item.get("source_path", ""),
-            line=item.get("line", 0),
-            table_name=item.get("table_name", self.table_name),
-            primary_key_field=item.get("primary_key_field", self.primary_key_field),
-            primary_key_value=item.get("primary_key_display", ""),
-            source_field=item.get("source_field", self.source_field),
-            source_text=source_text,
-            target_field=item.get("target_field", self.target_field),
-            target_text=target_text,
-            target_missing=item.get("target_missing", False),
-            locked_terms=locked_terms,
-            model_config=self.model_config,
-            extra_prompt=extra_prompt,
+        normalized = self._build_candidate_with_guardrails(
+            item={
+                "source_path": item.get("source_path", ""),
+                "line": item.get("line", 0),
+                "table_name": item.get("table_name", self.table_name),
+                "primary_key_field": item.get("primary_key_field", self.primary_key_field),
+                "primary_key_display": item.get("primary_key_display", ""),
+                "source_field": item.get("source_field", self.source_field),
+                "source_text": source_text,
+                "target_field": item.get("target_field", self.target_field),
+                "target_text": target_text,
+                "target_missing": item.get("target_missing", False),
+                "locked_terms": locked_terms,
+            },
+            base_extra_prompt=extra_prompt,
         )
-        normalized = self._normalize_model_result(item, result, target_text)
         with self.lock:
-            item["candidate_text"] = normalized["candidate_text"]
-            item["reason"] = normalized["reason"]
-            item["verdict"] = normalized["verdict"]
+            self._update_item_validation(item, normalized)
             item["status"] = "pending"
             item["updated_at"] = _timestamp()
             item["regeneration_prompt"] = extra_prompt
             self.regenerated += 1
-            self._push_event("已重生成", item, item.get("candidate_text", ""))
+            self._push_event(self._pending_event_label(item, "已重生成"), item, item.get("candidate_text", ""))
             self._persist_locked()
             return self.snapshot()
 
@@ -359,29 +379,19 @@ class SqlTranslationSession(object):
                 reason="整句命中术语词典。",
                 verdict="needs_update",
                 target_missing=not target_text.strip(),
+                validation_state="passed",
+                validation_message="",
+                validation_issue="",
+                can_accept=True,
+                model_calls_used=0,
             )
             with self.lock:
                 self.glossary_applied += 1
                 self._finalize_item(item, "术语命中")
             return
 
-        result = self.model_runner(
-            source_path=row.get("source_path", ""),
-            line=row.get("line", 0),
-            table_name=row.get("table_name", self.table_name),
-            primary_key_field=row.get("primary_key_field", self.primary_key_field),
-            primary_key_value=row.get("primary_key_display", ""),
-            source_field=row.get("source_field", self.source_field),
-            source_text=source_text,
-            target_field=row.get("target_field", self.target_field),
-            target_text=target_text,
-            target_missing=not target_text.strip(),
-            locked_terms=locked_terms,
-            model_config=self.model_config,
-            extra_prompt="",
-        )
-        normalized = self._normalize_model_result(
-            {
+        normalized = self._build_candidate_with_guardrails(
+            item={
                 "source_path": row.get("source_path", ""),
                 "line": row.get("line", 0),
                 "table_name": row.get("table_name", self.table_name),
@@ -394,10 +404,9 @@ class SqlTranslationSession(object):
                 "target_missing": not target_text.strip(),
                 "locked_terms": locked_terms,
             },
-            result,
-            target_text,
+            base_extra_prompt="",
         )
-        if normalized["verdict"] == "accurate" and target_text.strip():
+        if normalized["validation_state"] == "passed" and normalized["verdict"] == "accurate" and target_text.strip():
             with self.lock:
                 self.processed += 1
                 self.skipped += 1
@@ -412,38 +421,30 @@ class SqlTranslationSession(object):
             reason=normalized["reason"],
             verdict=normalized["verdict"],
             target_missing=not target_text.strip(),
+            validation_state=normalized["validation_state"],
+            validation_message=normalized["validation_message"],
+            validation_issue=normalized.get("validation_issue", ""),
+            can_accept=normalized["can_accept"],
+            model_calls_used=normalized["model_calls_used"],
         )
         with self.lock:
             self._finalize_item(item, "待审批")
 
-    def _normalize_model_result(self, item, result, current_target):
-        verdict = str(result.get("verdict", "") or "").strip().lower()
-        candidate = str(result.get("candidate_translation", "") or "").strip()
-        reason = str(result.get("reason", "") or "").strip()
-        if verdict not in ("accurate", "needs_update"):
-            verdict = "needs_update"
-        locked_terms = list(item.get("locked_terms", []))
-        target_missing = bool(item.get("target_missing", not str(current_target or "").strip()))
-        if verdict == "accurate" and target_missing:
-            verdict = "needs_update"
-        if verdict == "accurate":
-            if locked_terms and not _contains_locked_terms(current_target, locked_terms):
-                verdict = "needs_update"
-                reason = "现有英文未满足术语词典要求。"
-            return {
-                "verdict": verdict,
-                "candidate_text": current_target,
-                "reason": reason or "现有英文准确。",
-            }
-        if not candidate:
-            raise ValueError(
-                "Model did not return candidate_translation for SQL item {}".format(item.get("primary_key_display", ""))
-            )
-        if locked_terms and not _contains_locked_terms(candidate, locked_terms):
-            retry_prompt = "候选英文必须严格包含这些术语：{}。请只返回符合要求的英文。".format(
-                ", ".join("{}={}".format(term["source"], term["target"]) for term in locked_terms)
-            )
-            retried = self.model_runner(
+    def _build_candidate_with_guardrails(self, item, base_extra_prompt):
+        model_calls_used = 0
+        retry_issue = ""
+        last_result = {
+            "verdict": "needs_update",
+            "candidate_text": sanitize_candidate_text(item.get("target_text", "")),
+            "reason": "",
+            "validation_state": "failed",
+            "validation_message": validation_message("校验未通过"),
+            "validation_issue": "校验未通过",
+            "can_accept": False,
+            "model_calls_used": 0,
+        }
+        while model_calls_used < MAX_MODEL_CALLS_PER_ITEM:
+            raw_result = self.model_runner(
                 source_path=item.get("source_path", ""),
                 line=item.get("line", 0),
                 table_name=item.get("table_name", self.table_name),
@@ -452,34 +453,144 @@ class SqlTranslationSession(object):
                 source_field=item.get("source_field", self.source_field),
                 source_text=item.get("source_text", ""),
                 target_field=item.get("target_field", self.target_field),
-                target_text=current_target,
-                target_missing=target_missing,
-                locked_terms=locked_terms,
+                target_text=item.get("target_text", ""),
+                target_missing=item.get("target_missing", False),
+                locked_terms=list(item.get("locked_terms", [])),
                 model_config=self.model_config,
-                extra_prompt=retry_prompt,
+                extra_prompt=self._build_retry_prompt(base_extra_prompt, retry_issue),
             )
-            retry_candidate = str(retried.get("candidate_translation", "") or "").strip()
-            retry_reason = str(retried.get("reason", "") or "").strip()
-            if retry_candidate and _contains_locked_terms(retry_candidate, locked_terms):
-                return {
+            model_calls_used += 1
+            normalized = self._normalize_model_result(item, raw_result, item.get("target_text", ""))
+            candidate_text = normalized["candidate_text"]
+            validation_issue = validate_candidate_text(
+                item.get("source_text", ""),
+                candidate_text,
+                raw_candidate_text=raw_result.get("candidate_translation", candidate_text),
+                locked_terms=list(item.get("locked_terms", [])),
+                check_sql_pollution=True,
+                enforce_placeholders=True,
+            )
+            if validation_issue:
+                retry_issue = validation_issue
+                last_result = {
                     "verdict": "needs_update",
-                    "candidate_text": retry_candidate,
-                    "reason": retry_reason or "按术语词典重试后生成。",
+                    "candidate_text": candidate_text,
+                    "reason": normalized["reason"],
+                    "validation_state": "failed",
+                    "validation_message": validation_message(validation_issue),
+                    "validation_issue": validation_issue,
+                    "can_accept": False,
+                    "model_calls_used": model_calls_used,
                 }
+                continue
+            if self.reviewer_runner is not None:
+                if model_calls_used >= MAX_MODEL_CALLS_PER_ITEM:
+                    retry_issue = "已达到最大模型调用次数，未完成AI复核"
+                    break
+                review_result = self.reviewer_runner(
+                    source_path=item.get("source_path", ""),
+                    line=item.get("line", 0),
+                    table_name=item.get("table_name", self.table_name),
+                    primary_key_field=item.get("primary_key_field", self.primary_key_field),
+                    primary_key_value=item.get("primary_key_display", ""),
+                    source_field=item.get("source_field", self.source_field),
+                    source_text=item.get("source_text", ""),
+                    target_field=item.get("target_field", self.target_field),
+                    target_text=item.get("target_text", ""),
+                    candidate_text=candidate_text,
+                    target_missing=item.get("target_missing", False),
+                    locked_terms=list(item.get("locked_terms", [])),
+                    model_config=self.model_config,
+                )
+                model_calls_used += 1
+                reviewed = normalize_review_result(review_result)
+                if reviewed["decision"] != "pass":
+                    retry_issue = reviewed["issues"][0]
+                    last_result = {
+                        "verdict": "needs_update",
+                        "candidate_text": candidate_text,
+                        "reason": normalized["reason"],
+                        "validation_state": "failed",
+                        "validation_message": validation_message(retry_issue),
+                        "validation_issue": retry_issue,
+                        "can_accept": False,
+                        "model_calls_used": model_calls_used,
+                    }
+                    continue
             return {
-                "verdict": "needs_update",
-                "candidate_text": retry_candidate or candidate,
-                "reason": "术语不符合：{}".format(
-                    ", ".join("{}={}".format(term["source"], term["target"]) for term in locked_terms)
-                ),
+                "verdict": normalized["verdict"],
+                "candidate_text": candidate_text,
+                "reason": normalized["reason"],
+                "validation_state": "passed",
+                "validation_message": "",
+                "validation_issue": "",
+                "can_accept": True,
+                "model_calls_used": model_calls_used,
             }
+        failure_issue = retry_issue or last_result.get("validation_issue") or "已达到最大模型调用次数"
+        last_result["validation_state"] = "failed"
+        last_result["validation_message"] = validation_message(failure_issue)
+        last_result["validation_issue"] = failure_issue
+        last_result["can_accept"] = False
+        last_result["model_calls_used"] = min(model_calls_used, MAX_MODEL_CALLS_PER_ITEM)
+        return last_result
+
+    def _normalize_model_result(self, item, result, current_target):
+        verdict = str(result.get("verdict", "") or "").strip().lower()
+        candidate = sanitize_candidate_text(result.get("candidate_translation", ""))
+        reason = _display_text(result.get("reason", "")).strip()
+        if verdict not in ("accurate", "needs_update"):
+            verdict = "needs_update"
+        locked_terms = list(item.get("locked_terms", []))
+        target_missing = bool(item.get("target_missing", not str(current_target or "").strip()))
+        if verdict == "accurate" and target_missing:
+            verdict = "needs_update"
+        if verdict == "accurate":
+            if locked_terms and not contains_locked_terms(current_target, locked_terms):
+                verdict = "needs_update"
+                reason = "现有英文未满足术语词典要求。"
+            else:
+                return {
+                    "verdict": verdict,
+                    "candidate_text": sanitize_candidate_text(current_target),
+                    "reason": _normalize_reason(reason, fallback="现有英文准确。"),
+                }
+        if not candidate:
+            raise ValueError(
+                "Model did not return candidate_translation for SQL item {}".format(item.get("primary_key_display", ""))
+            )
         return {
             "verdict": "needs_update",
             "candidate_text": candidate,
-            "reason": reason or "模型建议更新英文翻译。",
+            "reason": _normalize_reason(
+                reason,
+                fallback="目标英文缺失，建议补充候选英文。" if target_missing else "模型建议更新英文翻译。",
+            ),
         }
 
-    def _create_item(self, row, target_text, candidate_text, locked_terms, reason, verdict, target_missing):
+    def _build_retry_prompt(self, base_extra_prompt, retry_issue):
+        parts = []
+        if retry_issue:
+            parts.append("上一版候选未通过系统校验，请严格修复这个问题：{}。".format(retry_issue))
+        if base_extra_prompt:
+            parts.append(str(base_extra_prompt).strip())
+        return "\n".join(part for part in parts if part).strip()
+
+    def _create_item(
+        self,
+        row,
+        target_text,
+        candidate_text,
+        locked_terms,
+        reason,
+        verdict,
+        target_missing,
+        validation_state,
+        validation_message,
+        validation_issue,
+        can_accept,
+        model_calls_used,
+    ):
         with self.lock:
             item_id = "sql-{}".format(self.next_id)
             self.next_id += 1
@@ -503,6 +614,11 @@ class SqlTranslationSession(object):
                 "reason": reason,
                 "verdict": verdict,
                 "target_missing": bool(target_missing),
+                "validation_state": str(validation_state or "passed"),
+                "validation_message": str(validation_message or ""),
+                "validation_issue": str(validation_issue or ""),
+                "can_accept": bool(can_accept),
+                "model_calls_used": int(model_calls_used or 0),
                 "status": "pending",
                 "updated_at": _timestamp(),
             }
@@ -510,14 +626,31 @@ class SqlTranslationSession(object):
             self._persist_locked()
             return item
 
+    def _update_item_validation(self, item, normalized):
+        item["candidate_text"] = normalized["candidate_text"]
+        item["reason"] = normalized["reason"]
+        item["verdict"] = normalized["verdict"]
+        item["validation_state"] = normalized["validation_state"]
+        item["validation_message"] = normalized["validation_message"]
+        item["validation_issue"] = normalized.get("validation_issue", "")
+        item["can_accept"] = bool(normalized["can_accept"])
+        item["model_calls_used"] = int(normalized["model_calls_used"])
+
     def _finalize_item(self, item, event_label):
         self.processed += 1
         item["status"] = "pending"
         item["updated_at"] = _timestamp()
         self.pending_ids.append(item["id"])
         self.pending += 1
-        self._push_event(event_label, item, item.get("candidate_text", ""))
+        if item.get("validation_state") == "failed":
+            self.failed += 1
+        self._push_event(self._pending_event_label(item, event_label), item, item.get("candidate_text", ""))
         self._persist_locked()
+
+    def _pending_event_label(self, item, default_label):
+        if item.get("validation_state") == "failed":
+            return "候选未通过校验：{}".format(item.get("validation_issue") or "请重生成")
+        return default_label
 
     def _append_update_sql_once(self, item):
         item_id = item["id"]
@@ -596,6 +729,11 @@ class SqlTranslationSession(object):
             "reason": item.get("reason", ""),
             "verdict": item.get("verdict", ""),
             "status": item.get("status", ""),
+            "target_missing": bool(item.get("target_missing", False)),
+            "validation_state": item.get("validation_state", "passed"),
+            "validation_message": item.get("validation_message", ""),
+            "can_accept": bool(item.get("can_accept", True)),
+            "model_calls_used": int(item.get("model_calls_used", 0) or 0),
             "updated_at": item.get("updated_at", ""),
         }
 
@@ -659,6 +797,11 @@ class SqlTranslationSession(object):
                 continue
             restored = dict(item)
             restored["id"] = item_id
+            restored.setdefault("validation_state", "passed")
+            restored.setdefault("validation_message", "")
+            restored.setdefault("validation_issue", "")
+            restored.setdefault("can_accept", True)
+            restored.setdefault("model_calls_used", 0)
             self.items[item_id] = restored
         self.pending_ids = [item_id for item_id in payload.get("pending_ids", []) if item_id in self.items]
         self.recent_ids = [item_id for item_id in payload.get("recent_ids", []) if item_id in self.items]
@@ -887,9 +1030,56 @@ def build_sql_translation_system_prompt():
         "Return JSON only with keys: verdict, candidate_translation, reason.\n"
         "verdict must be either accurate or needs_update.\n"
         "candidate_translation must contain only the translated English field text, never return SQL.\n"
+        "candidate_translation must be natural English and must not directly copy the Chinese source text.\n"
+        "candidate_translation must not include Chinese explanations, SQL, JSON, or multiple lines.\n"
         "Preserve placeholders exactly, including {0}, {}, %s, ${name} and similar forms.\n"
         "If locked_terms are provided, candidate_translation must use the target terms exactly as given.\n"
         "If target_text is already accurate, set verdict=accurate and candidate_translation to the unchanged target_text."
+    )
+
+
+def build_sql_translation_review_user_prompt(
+    source_path,
+    line,
+    table_name,
+    primary_key_field,
+    primary_key_value,
+    source_field,
+    source_text,
+    target_field,
+    target_text,
+    candidate_text,
+    target_missing,
+    locked_terms,
+):
+    payload = {
+        "source_path": source_path,
+        "line": line,
+        "table_name": table_name,
+        "primary_key_field": primary_key_field,
+        "primary_key_value": primary_key_value,
+        "source_field": source_field,
+        "source_text": source_text,
+        "target_field": target_field,
+        "target_text": target_text,
+        "candidate_text": candidate_text,
+        "target_missing": bool(target_missing),
+        "locked_terms": [
+            {"source": term["source"], "target": term["target"]}
+            for term in locked_terms
+        ],
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+
+
+def build_sql_translation_review_system_prompt():
+    return (
+        "You are a strict QA reviewer for English SQL seed translations.\n"
+        "Return JSON only with keys: decision, issues.\n"
+        "decision must be either pass or fail.\n"
+        "issues must be an array of short Simplified Chinese strings.\n"
+        "Fail when the candidate is not natural English, still contains untranslated Chinese, omits source meaning, or breaks placeholders.\n"
+        "Pass only when the candidate is a complete and accurate English translation of the source text."
     )
 
 
@@ -1221,14 +1411,16 @@ def _safe_file_name_component(value):
     result = "".join(chars).strip("_")
     return result or "table"
 
-
-def _contains_locked_terms(candidate, locked_terms):
-    value = str(candidate or "")
-    for term in locked_terms:
-        if term["target"] not in value:
-            return False
-    return True
-
-
 def _timestamp():
     return datetime.now().astimezone().replace(microsecond=0).isoformat()
+
+
+def _display_text(value):
+    return decode_unicode_escapes(str(value or ""))
+
+
+def _normalize_reason(reason, fallback):
+    value = _display_text(reason).strip()
+    if contains_han(value):
+        return value
+    return str(fallback or "").strip()
