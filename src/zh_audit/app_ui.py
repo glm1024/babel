@@ -578,6 +578,7 @@ def render_app_shell(bootstrap_payload, client_config):
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      cursor: help;
     }
     .translation-compact-field-grid {
       display: grid;
@@ -924,7 +925,7 @@ def render_app_shell(bootstrap_payload, client_config):
             <div class="translation-control-row">
               <label class="checkbox-row">
                 <input id="translationAutoAccept" type="checkbox">
-                <span>自动接受后续建议</span>
+                <span>跳过手动审批，自动接受后续全部 AI 翻译</span>
               </label>
               <div class="btn-row">
                 <button id="translationStartBtn" class="primary-btn" type="button">开始校译</button>
@@ -1537,6 +1538,21 @@ __REPORT_COMPONENT_BUNDLE__
       syncClearableInput(sqlTranslationDirectoryInput, sqlTranslationDirectoryClearBtn);
     }
 
+    function setStatusBannerState(element, text, options = {}) {
+      if (!element) {
+        return;
+      }
+      const value = String(text || "");
+      element.textContent = value;
+      element.title = value;
+      if (Object.prototype.hasOwnProperty.call(options, "isError")) {
+        element.classList.toggle("is-error", Boolean(options.isError));
+      }
+      if (Object.prototype.hasOwnProperty.call(options, "isLoading")) {
+        element.classList.toggle("is-loading", Boolean(options.isLoading));
+      }
+    }
+
     async function clearFieldValue(input, button, saveHandler, showError, previousValue) {
       input.value = "";
       syncClearableInput(input, button);
@@ -1564,12 +1580,14 @@ __REPORT_COMPONENT_BUNDLE__
       translationSourceInput.value = config.source_path || "";
       translationTargetInput.value = config.target_path || "";
       translationAutoAccept.checked = !!config.auto_accept;
-      translationStatusBanner.textContent = terminology.error
-        ? terminology.error
-        : translationBannerText(status);
-      translationStatusBanner.title = translationStatusBanner.textContent;
-      translationStatusBanner.classList.toggle("is-error", Boolean(status.error || terminology.error));
-      translationStatusBanner.classList.toggle("is-loading", translationIsLoading);
+      setStatusBannerState(
+        translationStatusBanner,
+        terminology.error ? terminology.error : translationBannerText(status),
+        {
+          isError: Boolean(status.error || terminology.error),
+          isLoading: translationIsLoading,
+        },
+      );
       translationStatusPill.textContent =
         status.status === "running" ? "运行中" :
         status.status === "done" ? "完成" :
@@ -1686,10 +1704,14 @@ __REPORT_COMPONENT_BUNDLE__
       sqlTranslationPrimaryKeyInput.value = config.primary_key_field || "";
       sqlTranslationSourceFieldInput.value = config.source_field || "";
       sqlTranslationTargetFieldInput.value = config.target_field || "";
-      sqlTranslationStatusBanner.textContent = sqlTranslationBannerText(status, terminology);
-      sqlTranslationStatusBanner.title = sqlTranslationStatusBanner.textContent;
-      sqlTranslationStatusBanner.classList.toggle("is-error", Boolean(status.error || terminology.error));
-      sqlTranslationStatusBanner.classList.toggle("is-loading", sqlTranslationIsLoading);
+      setStatusBannerState(
+        sqlTranslationStatusBanner,
+        sqlTranslationBannerText(status, terminology),
+        {
+          isError: Boolean(status.error || terminology.error),
+          isLoading: sqlTranslationIsLoading,
+        },
+      );
       sqlTranslationStatusPill.textContent =
         status.status === "running" ? "运行中" :
         status.status === "done" ? "完成" :
@@ -2061,8 +2083,10 @@ __REPORT_COMPONENT_BUNDLE__
           }
         } catch (error) {
           stopTranslationPolling();
-          translationStatusBanner.textContent = error.message || "获取校译状态失败";
-          translationStatusBanner.classList.add("is-error");
+          setStatusBannerState(translationStatusBanner, error.message || "获取校译状态失败", {
+            isError: true,
+            isLoading: false,
+          });
         }
       }, 1000);
     }
@@ -2086,8 +2110,10 @@ __REPORT_COMPONENT_BUNDLE__
           }
         } catch (error) {
           stopSqlTranslationPolling();
-          sqlTranslationStatusBanner.textContent = error.message || "获取数据库数据状态失败";
-          sqlTranslationStatusBanner.classList.add("is-error");
+          setStatusBannerState(sqlTranslationStatusBanner, error.message || "获取数据库数据状态失败", {
+            isError: true,
+            isLoading: false,
+          });
         }
       }, 1000);
     }
@@ -2110,11 +2136,15 @@ __REPORT_COMPONENT_BUNDLE__
           await refreshBootstrap(true);
         } catch (error) {
           if (nextTab === "translation") {
-            translationStatusBanner.textContent = error.message || "刷新国际化文件状态失败";
-            translationStatusBanner.classList.add("is-error");
+            setStatusBannerState(translationStatusBanner, error.message || "刷新国际化文件状态失败", {
+              isError: true,
+              isLoading: false,
+            });
           } else if (nextTab === "sqlTranslation") {
-            sqlTranslationStatusBanner.textContent = error.message || "刷新数据库数据状态失败";
-            sqlTranslationStatusBanner.classList.add("is-error");
+            setStatusBannerState(sqlTranslationStatusBanner, error.message || "刷新数据库数据状态失败", {
+              isError: true,
+              isLoading: false,
+            });
           }
         }
       }
@@ -2172,8 +2202,10 @@ __REPORT_COMPONENT_BUNDLE__
       try {
         await startTranslation();
       } catch (error) {
-        translationStatusBanner.textContent = error.message || "启动国际化文件任务失败";
-        translationStatusBanner.classList.add("is-error");
+        setStatusBannerState(translationStatusBanner, error.message || "启动国际化文件任务失败", {
+          isError: true,
+          isLoading: false,
+        });
       }
     });
 
@@ -2181,8 +2213,10 @@ __REPORT_COMPONENT_BUNDLE__
       try {
         await resumeTranslation();
       } catch (error) {
-        translationStatusBanner.textContent = error.message || "继续国际化文件任务失败";
-        translationStatusBanner.classList.add("is-error");
+        setStatusBannerState(translationStatusBanner, error.message || "继续国际化文件任务失败", {
+          isError: true,
+          isLoading: false,
+        });
       }
     });
 
@@ -2190,8 +2224,10 @@ __REPORT_COMPONENT_BUNDLE__
       try {
         await stopTranslation();
       } catch (error) {
-        translationStatusBanner.textContent = error.message || "停止国际化文件任务失败";
-        translationStatusBanner.classList.add("is-error");
+        setStatusBannerState(translationStatusBanner, error.message || "停止国际化文件任务失败", {
+          isError: true,
+          isLoading: false,
+        });
       }
     });
 
@@ -2199,8 +2235,10 @@ __REPORT_COMPONENT_BUNDLE__
       try {
         await saveTranslationConfig();
       } catch (error) {
-        translationStatusBanner.textContent = error.message || "保存自动接受配置失败";
-        translationStatusBanner.classList.add("is-error");
+        setStatusBannerState(translationStatusBanner, error.message || "保存自动接受配置失败", {
+          isError: true,
+          isLoading: false,
+        });
       }
     });
 
@@ -2208,8 +2246,10 @@ __REPORT_COMPONENT_BUNDLE__
       try {
         await saveTranslationConfig();
       } catch (error) {
-        translationStatusBanner.textContent = error.message || "保存中文文件路径失败";
-        translationStatusBanner.classList.add("is-error");
+        setStatusBannerState(translationStatusBanner, error.message || "保存中文文件路径失败", {
+          isError: true,
+          isLoading: false,
+        });
       }
     });
     translationSourceInput.addEventListener("input", () => {
@@ -2220,8 +2260,10 @@ __REPORT_COMPONENT_BUNDLE__
       try {
         await saveTranslationConfig();
       } catch (error) {
-        translationStatusBanner.textContent = error.message || "保存英文文件路径失败";
-        translationStatusBanner.classList.add("is-error");
+        setStatusBannerState(translationStatusBanner, error.message || "保存英文文件路径失败", {
+          isError: true,
+          isLoading: false,
+        });
       }
     });
     translationTargetInput.addEventListener("input", () => {
@@ -2235,8 +2277,10 @@ __REPORT_COMPONENT_BUNDLE__
         translationSourceClearBtn,
         saveTranslationConfig,
         error => {
-          translationStatusBanner.textContent = error.message || "清空中文文件路径失败";
-          translationStatusBanner.classList.add("is-error");
+          setStatusBannerState(translationStatusBanner, error.message || "清空中文文件路径失败", {
+            isError: true,
+            isLoading: false,
+          });
         },
         previousValue,
       );
@@ -2249,8 +2293,10 @@ __REPORT_COMPONENT_BUNDLE__
         translationTargetClearBtn,
         saveTranslationConfig,
         error => {
-          translationStatusBanner.textContent = error.message || "清空英文文件路径失败";
-          translationStatusBanner.classList.add("is-error");
+          setStatusBannerState(translationStatusBanner, error.message || "清空英文文件路径失败", {
+            isError: true,
+            isLoading: false,
+          });
         },
         previousValue,
       );
@@ -2262,8 +2308,10 @@ __REPORT_COMPONENT_BUNDLE__
           try {
             await saveSqlTranslationConfig();
           } catch (error) {
-            sqlTranslationStatusBanner.textContent = error.message || "保存数据库数据配置失败";
-            sqlTranslationStatusBanner.classList.add("is-error");
+            setStatusBannerState(sqlTranslationStatusBanner, error.message || "保存数据库数据配置失败", {
+              isError: true,
+              isLoading: false,
+            });
           }
         });
       });
@@ -2278,8 +2326,10 @@ __REPORT_COMPONENT_BUNDLE__
         sqlTranslationDirectoryClearBtn,
         saveSqlTranslationConfig,
         error => {
-          sqlTranslationStatusBanner.textContent = error.message || "清空数据库脚本目录失败";
-          sqlTranslationStatusBanner.classList.add("is-error");
+          setStatusBannerState(sqlTranslationStatusBanner, error.message || "清空数据库脚本目录失败", {
+            isError: true,
+            isLoading: false,
+          });
         },
         previousValue,
       );
@@ -2289,8 +2339,10 @@ __REPORT_COMPONENT_BUNDLE__
       try {
         await startSqlTranslation();
       } catch (error) {
-        sqlTranslationStatusBanner.textContent = error.message || "启动数据库数据任务失败";
-        sqlTranslationStatusBanner.classList.add("is-error");
+        setStatusBannerState(sqlTranslationStatusBanner, error.message || "启动数据库数据任务失败", {
+          isError: true,
+          isLoading: false,
+        });
       }
     });
 
@@ -2298,8 +2350,10 @@ __REPORT_COMPONENT_BUNDLE__
       try {
         await resumeSqlTranslation();
       } catch (error) {
-        sqlTranslationStatusBanner.textContent = error.message || "继续数据库数据任务失败";
-        sqlTranslationStatusBanner.classList.add("is-error");
+        setStatusBannerState(sqlTranslationStatusBanner, error.message || "继续数据库数据任务失败", {
+          isError: true,
+          isLoading: false,
+        });
       }
     });
 
@@ -2307,19 +2361,25 @@ __REPORT_COMPONENT_BUNDLE__
       try {
         await stopSqlTranslation();
       } catch (error) {
-        sqlTranslationStatusBanner.textContent = error.message || "停止数据库数据任务失败";
-        sqlTranslationStatusBanner.classList.add("is-error");
+        setStatusBannerState(sqlTranslationStatusBanner, error.message || "停止数据库数据任务失败", {
+          isError: true,
+          isLoading: false,
+        });
       }
     });
 
     sqlTranslationCopyPathBtn.addEventListener("click", async () => {
       try {
         const copied = await copyText(sqlTranslationOutputPathText.textContent || "");
-        sqlTranslationStatusBanner.textContent = copied ? "已复制输出文件路径" : "复制输出文件路径失败";
-        sqlTranslationStatusBanner.classList.toggle("is-error", !copied);
+        setStatusBannerState(sqlTranslationStatusBanner, copied ? "已复制输出文件路径" : "复制输出文件路径失败", {
+          isError: !copied,
+          isLoading: false,
+        });
       } catch (error) {
-        sqlTranslationStatusBanner.textContent = error.message || "复制输出文件路径失败";
-        sqlTranslationStatusBanner.classList.add("is-error");
+        setStatusBannerState(sqlTranslationStatusBanner, error.message || "复制输出文件路径失败", {
+          isError: true,
+          isLoading: false,
+        });
       }
     });
 
@@ -2351,8 +2411,10 @@ __REPORT_COMPONENT_BUNDLE__
           await runTranslationItemAction(itemId, "reject", () => rejectTranslation(itemId));
         }
       } catch (error) {
-        translationStatusBanner.textContent = error.message || "处理审批条目失败";
-        translationStatusBanner.classList.add("is-error");
+        setStatusBannerState(translationStatusBanner, error.message || "处理审批条目失败", {
+          isError: true,
+          isLoading: false,
+        });
       }
     });
 
@@ -2381,8 +2443,10 @@ __REPORT_COMPONENT_BUNDLE__
           await runSqlTranslationItemAction(itemId, "reject", () => rejectSqlTranslation(itemId));
         }
       } catch (error) {
-        sqlTranslationStatusBanner.textContent = error.message || "处理数据库数据审批条目失败";
-        sqlTranslationStatusBanner.classList.add("is-error");
+        setStatusBannerState(sqlTranslationStatusBanner, error.message || "处理数据库数据审批条目失败", {
+          isError: true,
+          isLoading: false,
+        });
       }
     });
 

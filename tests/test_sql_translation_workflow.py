@@ -22,6 +22,7 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
         prompt = build_sql_translation_review_system_prompt()
         self.assertIn("current_target_text is only the existing English value", prompt)
         self.assertIn("Do not fail merely because candidate_text differs from current_target_text.", prompt)
+        self.assertIn("Judge candidate_text against source_text, placeholders, locked_terms, and extra_prompt", prompt)
 
     def test_parse_sql_translation_file_handles_schema_multiline_and_escaped_strings(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -149,6 +150,7 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(by_source["创建对等连接：{0}"]["candidate_text"], "create link: {0}")
             self.assertEqual(by_source["创建对等连接：{0}"]["validation_state"], "passed")
             self.assertTrue(by_source["创建对等连接：{0}"]["can_accept"])
+            self.assertIn("上一版候选未通过系统校验，请严格修复这个问题：", calls[-1]["extra_prompt"])
 
             session.accept(by_source["资源池"]["id"])
             session.reject(by_source["创建对等连接：{0}"]["id"])
@@ -158,6 +160,44 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             self.assertIn("UPDATE t_demo SET name_en = 'resource pool' WHERE id = '1';", content)
             self.assertNotIn("create link: {0}", content)
             self.assertGreaterEqual(len(calls), 2)
+
+    def test_sql_translation_regenerate_passes_extra_prompt_to_reviewer(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sql_dir = root / "sql"
+            sql_dir.mkdir()
+            (sql_dir / "demo.sql").write_text(
+                "INSERT INTO t_demo (id, name_zh, name_en) VALUES ('1', '适配服务接口不存在。', 'API not found in adapter server.');\n",
+                encoding="utf-8",
+            )
+
+            review_calls = []
+
+            session = SqlTranslationSession(
+                directory_path=sql_dir,
+                table_name="t_demo",
+                primary_key_field="id",
+                source_field="name_zh",
+                target_field="name_en",
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": "Cloud server API not found.",
+                    "reason": "ok",
+                },
+                reviewer_runner=lambda **kwargs: review_calls.append(kwargs) or {
+                    "decision": "pass",
+                    "issues": [],
+                },
+            )
+            session.start()
+            session.run()
+
+            pending_item = session.snapshot()["pending_items"][0]
+            session.regenerate(pending_item["id"], "把 server 统一替换为 cloud server")
+
+            self.assertEqual(review_calls[-1]["extra_prompt"], "把 server 统一替换为 cloud server")
 
     def test_sql_translation_session_marks_failed_candidate_unacceptable_after_retry_budget(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -267,6 +307,41 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(pending["validation_state"], "passed")
             self.assertTrue(pending["can_accept"])
             self.assertEqual(pending["generation_attempts_used"], 1)
+
+    def test_sql_translation_session_retries_retryable_model_format_errors_without_interrupting_task(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sql_dir = root / "sql"
+            sql_dir.mkdir()
+            (sql_dir / "demo.sql").write_text(
+                "INSERT INTO t_demo (id, name_zh, name_en) VALUES ('1', '主机组异常', 'Host group exception');\n",
+                encoding="utf-8",
+            )
+
+            session = SqlTranslationSession(
+                directory_path=sql_dir,
+                table_name="t_demo",
+                primary_key_field="id",
+                source_field="name_zh",
+                target_field="name_en",
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: (_ for _ in ()).throw(
+                    ValueError('模型响应不是合法 JSON：{"verdict": “needs_update”, "candidate_translation": "x"}')
+                ),
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run()
+
+            snapshot = session.snapshot()
+            pending = snapshot["pending_items"][0]
+            self.assertEqual(snapshot["status"]["status"], "done")
+            self.assertEqual(pending["validation_state"], "failed")
+            self.assertFalse(pending["can_accept"])
+            self.assertEqual(pending["generation_attempts_used"], 5)
+            self.assertIn("模型返回格式不规范", pending["validation_message"])
+            self.assertIn("候选未通过校验：模型返回格式不规范", snapshot["events"][0]["label"])
 
 
 if __name__ == "__main__":

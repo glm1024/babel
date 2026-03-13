@@ -16,6 +16,7 @@ from zh_audit.candidate_validation import (
     validate_candidate_text,
     validation_message,
 )
+from zh_audit.model_client import describe_retryable_model_response_error
 from zh_audit.properties_file import load_properties_document
 from zh_audit.terminology_xlsx import exact_terminology_translation, match_locked_terms
 from zh_audit.utils import contains_han, decode_unicode_escapes
@@ -394,15 +395,34 @@ class TranslationSession(object):
             "model_calls_used": 0,
         }
         while generation_attempts_used < MAX_GENERATION_ATTEMPTS_PER_ITEM:
-            raw_result = self.model_runner(
-                key=key,
-                source_text=source_text,
-                target_text=current_target,
-                locked_terms=locked_terms,
-                model_config=self.model_config,
-                extra_prompt=self._build_retry_prompt(base_extra_prompt, retry_issue),
-                target_missing=target_missing,
-            )
+            try:
+                raw_result = self.model_runner(
+                    key=key,
+                    source_text=source_text,
+                    target_text=current_target,
+                    locked_terms=locked_terms,
+                    model_config=self.model_config,
+                    extra_prompt=self._build_retry_prompt(base_extra_prompt, retry_issue),
+                    target_missing=target_missing,
+                )
+            except Exception as exc:
+                generation_attempts_used += 1
+                model_calls_used += 1
+                retry_issue = describe_retryable_model_response_error(exc, phase="模型")
+                if not retry_issue:
+                    raise
+                last_result = {
+                    "verdict": "needs_update",
+                    "candidate_text": sanitize_candidate_text(current_target),
+                    "reason": "",
+                    "validation_state": "failed",
+                    "validation_message": validation_message(retry_issue),
+                    "validation_issue": retry_issue,
+                    "can_accept": False,
+                    "generation_attempts_used": generation_attempts_used,
+                    "model_calls_used": model_calls_used,
+                }
+                continue
             generation_attempts_used += 1
             model_calls_used += 1
             normalized = self._normalize_model_result(
@@ -440,15 +460,34 @@ class TranslationSession(object):
                 }
                 continue
             if self.reviewer_runner is not None:
-                review_result = self.reviewer_runner(
-                    key=key,
-                    source_text=source_text,
-                    target_text=current_target,
-                    candidate_text=candidate_text,
-                    locked_terms=locked_terms,
-                    model_config=self.model_config,
-                    target_missing=target_missing,
-                )
+                try:
+                    review_result = self.reviewer_runner(
+                        key=key,
+                        source_text=source_text,
+                        target_text=current_target,
+                        candidate_text=candidate_text,
+                        locked_terms=locked_terms,
+                        model_config=self.model_config,
+                        target_missing=target_missing,
+                        extra_prompt=base_extra_prompt,
+                    )
+                except Exception as exc:
+                    model_calls_used += 1
+                    retry_issue = describe_retryable_model_response_error(exc, phase="AI复核")
+                    if not retry_issue:
+                        raise
+                    last_result = {
+                        "verdict": "needs_update",
+                        "candidate_text": candidate_text,
+                        "reason": normalized["reason"],
+                        "validation_state": "failed",
+                        "validation_message": validation_message(retry_issue),
+                        "validation_issue": retry_issue,
+                        "can_accept": False,
+                        "generation_attempts_used": generation_attempts_used,
+                        "model_calls_used": model_calls_used,
+                    }
+                    continue
                 model_calls_used += 1
                 reviewed = normalize_review_result(
                     review_result,
@@ -591,8 +630,11 @@ class TranslationSession(object):
 
     def _finalize_item(self, item, should_auto_accept, force_accept, event_label):
         self.processed += 1
-        if force_accept or (should_auto_accept and item.get("can_accept", True)):
+        if force_accept:
             self._apply_item(item, "accepted", event_label)
+            return
+        if should_auto_accept and item.get("can_accept", True):
+            self._apply_item(item, "accepted", "已自动审批")
             return
         item["status"] = "pending"
         item["updated_at"] = _timestamp()
@@ -799,7 +841,17 @@ def build_translation_user_prompt(key, source_text, target_text, locked_terms, e
         ],
         "extra_prompt": extra_prompt or "",
     }
-    return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    sections = []
+    extra_instruction = str(extra_prompt or "").strip()
+    if extra_instruction:
+        sections.append(
+            "High-priority additional instruction from user: {}. Follow it unless it conflicts with source_text meaning, placeholders, or locked_terms.".format(
+                extra_instruction
+            )
+        )
+    sections.append("Task payload JSON:")
+    sections.append(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    return "\n".join(sections)
 
 
 def build_translation_system_prompt():
@@ -814,11 +866,12 @@ def build_translation_system_prompt():
         "Do not output English in reason unless it is a required technical term quoted from the source or target text.\n"
         "Preserve placeholders exactly, including {0}, {}, %s, ${name} and similar forms.\n"
         "If locked_terms are provided, candidate_translation must use the target terms exactly as given, while sentence-initial capitalization is allowed.\n"
+        "If extra_prompt is provided, treat it as a high-priority additional instruction and apply it unless it conflicts with source_text meaning, placeholders, or locked_terms.\n"
         "If target_text is already accurate, set verdict=accurate and candidate_translation to the unchanged target_text."
     )
 
 
-def build_translation_review_user_prompt(key, source_text, target_text, candidate_text, locked_terms, target_missing):
+def build_translation_review_user_prompt(key, source_text, target_text, candidate_text, locked_terms, target_missing, extra_prompt):
     payload = {
         "key": key,
         "source_text": source_text,
@@ -829,8 +882,19 @@ def build_translation_review_user_prompt(key, source_text, target_text, candidat
             {"source": term["source"], "target": term["target"]}
             for term in locked_terms
         ],
+        "extra_prompt": extra_prompt or "",
     }
-    return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    sections = []
+    extra_instruction = str(extra_prompt or "").strip()
+    if extra_instruction:
+        sections.append(
+            "High-priority additional instruction from user: {}. Review whether candidate_text follows it unless the instruction conflicts with source_text meaning, placeholders, or locked_terms.".format(
+                extra_instruction
+            )
+        )
+    sections.append("Review payload JSON:")
+    sections.append(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    return "\n".join(sections)
 
 
 def build_translation_review_system_prompt():
@@ -841,7 +905,8 @@ def build_translation_review_system_prompt():
         "issues must be an array of short Simplified Chinese strings.\n"
         "current_target_text is only the existing English value and may be wrong or outdated.\n"
         "Do not fail merely because candidate_text differs from current_target_text.\n"
-        "Judge candidate_text only against source_text, placeholders, and locked_terms.\n"
+        "Judge candidate_text against source_text, placeholders, locked_terms, and extra_prompt when extra_prompt is provided.\n"
+        "extra_prompt is a high-priority additional instruction unless it conflicts with source_text meaning, placeholders, or locked_terms.\n"
         "Only report spelling or wording problems that actually appear in candidate_text.\n"
         "Fail when the candidate is not natural English, still contains untranslated Chinese, omits source meaning, or breaks placeholders.\n"
         "Pass only when the candidate is a complete and accurate English translation of the source text."

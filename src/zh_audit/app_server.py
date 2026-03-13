@@ -726,7 +726,7 @@ class AppServiceState(object):
         )
         return response
 
-    def _translation_reviewer_runner(self, key, source_text, target_text, candidate_text, locked_terms, model_config, target_missing):
+    def _translation_reviewer_runner(self, key, source_text, target_text, candidate_text, locked_terms, model_config, target_missing, extra_prompt):
         response = call_openai_compatible_json(
             model_config=model_config,
             system_prompt=build_translation_review_system_prompt(),
@@ -737,6 +737,7 @@ class AppServiceState(object):
                 candidate_text=candidate_text,
                 locked_terms=locked_terms,
                 target_missing=target_missing,
+                extra_prompt=extra_prompt,
             ),
             max_tokens=model_config.get("max_tokens"),
         )
@@ -794,6 +795,7 @@ class AppServiceState(object):
         target_missing,
         locked_terms,
         model_config,
+        extra_prompt,
     ):
         response = call_openai_compatible_json(
             model_config=model_config,
@@ -811,6 +813,7 @@ class AppServiceState(object):
                 candidate_text=candidate_text,
                 target_missing=target_missing,
                 locked_terms=locked_terms,
+                extra_prompt=extra_prompt,
             ),
             max_tokens=model_config.get("max_tokens"),
         )

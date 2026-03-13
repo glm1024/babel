@@ -16,6 +16,7 @@ from zh_audit.candidate_validation import (
     validate_candidate_text,
     validation_message,
 )
+from zh_audit.model_client import describe_retryable_model_response_error
 from zh_audit.terminology_xlsx import exact_terminology_translation, match_locked_terms
 from zh_audit.utils import contains_han, decode_unicode_escapes
 
@@ -449,21 +450,40 @@ class SqlTranslationSession(object):
             "model_calls_used": 0,
         }
         while generation_attempts_used < MAX_GENERATION_ATTEMPTS_PER_ITEM:
-            raw_result = self.model_runner(
-                source_path=item.get("source_path", ""),
-                line=item.get("line", 0),
-                table_name=item.get("table_name", self.table_name),
-                primary_key_field=item.get("primary_key_field", self.primary_key_field),
-                primary_key_value=item.get("primary_key_display", ""),
-                source_field=item.get("source_field", self.source_field),
-                source_text=item.get("source_text", ""),
-                target_field=item.get("target_field", self.target_field),
-                target_text=item.get("target_text", ""),
-                target_missing=item.get("target_missing", False),
-                locked_terms=list(item.get("locked_terms", [])),
-                model_config=self.model_config,
-                extra_prompt=self._build_retry_prompt(base_extra_prompt, retry_issue),
-            )
+            try:
+                raw_result = self.model_runner(
+                    source_path=item.get("source_path", ""),
+                    line=item.get("line", 0),
+                    table_name=item.get("table_name", self.table_name),
+                    primary_key_field=item.get("primary_key_field", self.primary_key_field),
+                    primary_key_value=item.get("primary_key_display", ""),
+                    source_field=item.get("source_field", self.source_field),
+                    source_text=item.get("source_text", ""),
+                    target_field=item.get("target_field", self.target_field),
+                    target_text=item.get("target_text", ""),
+                    target_missing=item.get("target_missing", False),
+                    locked_terms=list(item.get("locked_terms", [])),
+                    model_config=self.model_config,
+                    extra_prompt=self._build_retry_prompt(base_extra_prompt, retry_issue),
+                )
+            except Exception as exc:
+                generation_attempts_used += 1
+                model_calls_used += 1
+                retry_issue = describe_retryable_model_response_error(exc, phase="模型")
+                if not retry_issue:
+                    raise
+                last_result = {
+                    "verdict": "needs_update",
+                    "candidate_text": sanitize_candidate_text(item.get("target_text", "")),
+                    "reason": "",
+                    "validation_state": "failed",
+                    "validation_message": validation_message(retry_issue),
+                    "validation_issue": retry_issue,
+                    "can_accept": False,
+                    "generation_attempts_used": generation_attempts_used,
+                    "model_calls_used": model_calls_used,
+                }
+                continue
             generation_attempts_used += 1
             model_calls_used += 1
             normalized = self._normalize_model_result(item, raw_result, item.get("target_text", ""))
@@ -491,21 +511,40 @@ class SqlTranslationSession(object):
                 }
                 continue
             if self.reviewer_runner is not None:
-                review_result = self.reviewer_runner(
-                    source_path=item.get("source_path", ""),
-                    line=item.get("line", 0),
-                    table_name=item.get("table_name", self.table_name),
-                    primary_key_field=item.get("primary_key_field", self.primary_key_field),
-                    primary_key_value=item.get("primary_key_display", ""),
-                    source_field=item.get("source_field", self.source_field),
-                    source_text=item.get("source_text", ""),
-                    target_field=item.get("target_field", self.target_field),
-                    target_text=item.get("target_text", ""),
-                    candidate_text=candidate_text,
-                    target_missing=item.get("target_missing", False),
-                    locked_terms=list(item.get("locked_terms", [])),
-                    model_config=self.model_config,
-                )
+                try:
+                    review_result = self.reviewer_runner(
+                        source_path=item.get("source_path", ""),
+                        line=item.get("line", 0),
+                        table_name=item.get("table_name", self.table_name),
+                        primary_key_field=item.get("primary_key_field", self.primary_key_field),
+                        primary_key_value=item.get("primary_key_display", ""),
+                        source_field=item.get("source_field", self.source_field),
+                        source_text=item.get("source_text", ""),
+                        target_field=item.get("target_field", self.target_field),
+                        target_text=item.get("target_text", ""),
+                        candidate_text=candidate_text,
+                        target_missing=item.get("target_missing", False),
+                        locked_terms=list(item.get("locked_terms", [])),
+                        model_config=self.model_config,
+                        extra_prompt=base_extra_prompt,
+                    )
+                except Exception as exc:
+                    model_calls_used += 1
+                    retry_issue = describe_retryable_model_response_error(exc, phase="AI复核")
+                    if not retry_issue:
+                        raise
+                    last_result = {
+                        "verdict": "needs_update",
+                        "candidate_text": candidate_text,
+                        "reason": normalized["reason"],
+                        "validation_state": "failed",
+                        "validation_message": validation_message(retry_issue),
+                        "validation_issue": retry_issue,
+                        "can_accept": False,
+                        "generation_attempts_used": generation_attempts_used,
+                        "model_calls_used": model_calls_used,
+                    }
+                    continue
                 model_calls_used += 1
                 reviewed = normalize_review_result(
                     review_result,
@@ -1047,7 +1086,17 @@ def build_sql_translation_user_prompt(
         ],
         "extra_prompt": extra_prompt or "",
     }
-    return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    sections = []
+    extra_instruction = str(extra_prompt or "").strip()
+    if extra_instruction:
+        sections.append(
+            "High-priority additional instruction from user: {}. Follow it unless it conflicts with source_text meaning, placeholders, or locked_terms.".format(
+                extra_instruction
+            )
+        )
+    sections.append("Task payload JSON:")
+    sections.append(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    return "\n".join(sections)
 
 
 def build_sql_translation_system_prompt():
@@ -1060,6 +1109,7 @@ def build_sql_translation_system_prompt():
         "candidate_translation must not include Chinese explanations, SQL, JSON, or multiple lines.\n"
         "Preserve placeholders exactly, including {0}, {}, %s, ${name} and similar forms.\n"
         "If locked_terms are provided, candidate_translation must use the target terms exactly as given, while sentence-initial capitalization is allowed.\n"
+        "If extra_prompt is provided, treat it as a high-priority additional instruction and apply it unless it conflicts with source_text meaning, placeholders, or locked_terms.\n"
         "If target_text is already accurate, set verdict=accurate and candidate_translation to the unchanged target_text."
     )
 
@@ -1077,6 +1127,7 @@ def build_sql_translation_review_user_prompt(
     candidate_text,
     target_missing,
     locked_terms,
+    extra_prompt,
 ):
     payload = {
         "source_path": source_path,
@@ -1094,8 +1145,19 @@ def build_sql_translation_review_user_prompt(
             {"source": term["source"], "target": term["target"]}
             for term in locked_terms
         ],
+        "extra_prompt": extra_prompt or "",
     }
-    return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    sections = []
+    extra_instruction = str(extra_prompt or "").strip()
+    if extra_instruction:
+        sections.append(
+            "High-priority additional instruction from user: {}. Review whether candidate_text follows it unless the instruction conflicts with source_text meaning, placeholders, or locked_terms.".format(
+                extra_instruction
+            )
+        )
+    sections.append("Review payload JSON:")
+    sections.append(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    return "\n".join(sections)
 
 
 def build_sql_translation_review_system_prompt():
@@ -1106,7 +1168,8 @@ def build_sql_translation_review_system_prompt():
         "issues must be an array of short Simplified Chinese strings.\n"
         "current_target_text is only the existing English value and may be wrong or outdated.\n"
         "Do not fail merely because candidate_text differs from current_target_text.\n"
-        "Judge candidate_text only against source_text, placeholders, and locked_terms.\n"
+        "Judge candidate_text against source_text, placeholders, locked_terms, and extra_prompt when extra_prompt is provided.\n"
+        "extra_prompt is a high-priority additional instruction unless it conflicts with source_text meaning, placeholders, or locked_terms.\n"
         "Only report spelling or wording problems that actually appear in candidate_text.\n"
         "Fail when the candidate is not natural English, still contains untranslated Chinese, omits source meaning, or breaks placeholders.\n"
         "Pass only when the candidate is a complete and accurate English translation of the source text."

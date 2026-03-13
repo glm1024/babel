@@ -79,7 +79,8 @@ class PropertiesDocument(object):
     def write(self, path=None):
         target = Path(path) if path is not None else self.path
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(self.render(), encoding="utf-8")
+        with target.open("w", encoding="utf-8", newline="") as handle:
+            handle.write(self.render())
 
     def _ensure_trailing_newline(self):
         if not self.entries:

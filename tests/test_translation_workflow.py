@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from zh_audit.properties_file import load_properties_document
 from zh_audit.terminology_xlsx import (
@@ -55,6 +56,26 @@ class TranslationWorkflowTest(unittest.TestCase):
                 rendered = handle.read()
             self.assertIn("# comment\r\nKEY_A = new value\r\n\r\n", rendered)
             self.assertIn("# Added by zh-audit 码值校译\r\nKEY_B=new item\r\n", rendered)
+
+    def test_properties_document_write_preserves_newline_mode(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "messages.properties"
+            target.write_text("KEY_A=value\r\n", encoding="utf-8", newline="")
+            document = load_properties_document(target)
+            document.set_value("KEY_A", "updated")
+
+            original_open = Path.open
+            captured = {}
+
+            def tracking_open(path_obj, *args, **kwargs):
+                if path_obj == target and args and args[0] == "w":
+                    captured["newline"] = kwargs.get("newline")
+                return original_open(path_obj, *args, **kwargs)
+
+            with patch("pathlib.Path.open", new=tracking_open):
+                document.write()
+
+            self.assertEqual(captured.get("newline"), "")
 
     def test_translation_session_applies_exact_glossary_without_model(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -127,6 +148,7 @@ class TranslationWorkflowTest(unittest.TestCase):
                 regenerated["pending_items"][0]["reason"],
                 "现有英文翻译不够准确，建议更新为候选英文。",
             )
+            self.assertEqual(calls[-1]["extra_prompt"], "更简洁一点")
 
             accepted = session.accept(pending_item["id"])
             self.assertEqual(accepted["status"]["counts"]["accepted"], 1)
@@ -263,12 +285,73 @@ class TranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(snapshot["events"][0]["label"], "术语直出")
             self.assertEqual(target.read_text(encoding="utf-8"), "HOST_GROUP=host group\n")
 
+    def test_translation_session_auto_accept_logs_auto_approved(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "zh.properties"
+            target = Path(temp_dir) / "en.properties"
+            source.write_text("API_NOT_FOUND=适配服务接口不存在。\n", encoding="utf-8")
+            target.write_text("API_NOT_FOUND=API not found in adapter server.\n", encoding="utf-8")
+
+            session = TranslationSession(
+                source_path=source,
+                target_path=target,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": "Adapter service API not found.",
+                    "reason": "ok",
+                },
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: True)
+
+            snapshot = session.snapshot()
+            self.assertEqual(snapshot["status"]["counts"]["accepted"], 1)
+            self.assertEqual(snapshot["status"]["counts"]["pending"], 0)
+            self.assertEqual(snapshot["events"][0]["label"], "已自动审批")
+
+    def test_translation_regenerate_passes_extra_prompt_to_reviewer(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "zh.properties"
+            target = Path(temp_dir) / "en.properties"
+            source.write_text("API_NOT_FOUND=适配服务接口不存在。\n", encoding="utf-8")
+            target.write_text("API_NOT_FOUND=API not found in adapter server.\n", encoding="utf-8")
+
+            review_calls = []
+
+            session = TranslationSession(
+                source_path=source,
+                target_path=target,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": "Cloud server API not found.",
+                    "reason": "ok",
+                },
+                reviewer_runner=lambda **kwargs: review_calls.append(kwargs) or {
+                    "decision": "pass",
+                    "issues": [],
+                },
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending_item = session.snapshot()["pending_items"][0]
+            session.regenerate(pending_item["id"], "把 server 统一替换为 cloud server")
+
+            self.assertEqual(review_calls[-1]["extra_prompt"], "把 server 统一替换为 cloud server")
+
     def test_translation_system_prompt_and_reason_fallback_are_chinese(self):
         prompt = build_translation_system_prompt()
         self.assertIn("reason must be written in Simplified Chinese.", prompt)
+        self.assertIn("If extra_prompt is provided, treat it as a high-priority additional instruction", prompt)
         review_prompt = build_translation_review_system_prompt()
         self.assertIn("current_target_text is only the existing English value", review_prompt)
         self.assertIn("Do not fail merely because candidate_text differs from current_target_text.", review_prompt)
+        self.assertIn("Judge candidate_text against source_text, placeholders, locked_terms, and extra_prompt", review_prompt)
 
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "zh.properties"
@@ -415,6 +498,35 @@ class TranslationWorkflowTest(unittest.TestCase):
             self.assertIn("候选未通过校验：候选仍含中文", snapshot["events"][0]["label"])
             with self.assertRaises(ValueError):
                 session.accept(pending["id"])
+
+    def test_translation_session_retries_retryable_model_format_errors_without_interrupting_task(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "zh.properties"
+            target = Path(temp_dir) / "en.properties"
+            source.write_text("AUTH_RETRY=适配服务器无法处理请求站点连接需要更新认证信息，请重试。\n", encoding="utf-8")
+            target.write_text("AUTH_RETRY=Adapter server is not ready for request.\n", encoding="utf-8")
+
+            session = TranslationSession(
+                source_path=source,
+                target_path=target,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: (_ for _ in ()).throw(
+                    ValueError('Model response does not contain a valid JSON object: {"verdict": “needs_update”}')
+                ),
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            snapshot = session.snapshot()
+            pending = snapshot["pending_items"][0]
+            self.assertEqual(snapshot["status"]["status"], "done")
+            self.assertEqual(pending["validation_state"], "failed")
+            self.assertFalse(pending["can_accept"])
+            self.assertEqual(pending["generation_attempts_used"], 5)
+            self.assertIn("模型返回格式不规范", pending["validation_message"])
+            self.assertIn("候选未通过校验：模型返回格式不规范", snapshot["events"][0]["label"])
 
 
 if __name__ == "__main__":

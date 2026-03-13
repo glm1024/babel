@@ -191,6 +191,7 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("开始校译", html)
             self.assertIn("继续任务", html)
             self.assertIn("处理记录", html)
+            self.assertIn("跳过手动审批，自动接受后续全部 AI 翻译", html)
             self.assertIn("主键字段名", html)
             self.assertIn('placeholder="请输入数据库脚本目录绝对路径"', html)
             self.assertIn('placeholder="请输入目标表名"', html)
@@ -492,6 +493,58 @@ class AppServerSmokeTest(unittest.TestCase):
                 self.assertIn("NETWORK_LINK_ADD=create link: {0}", target_text)
                 self.assertNotIn("# Added by zh-audit 码值校译", target_text)
                 self.assertFalse(any(path.name.startswith("messages_en.properties.bak.") for path in root.iterdir()))
+
+    def test_translation_task_does_not_interrupt_on_retryable_model_format_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            out_dir = root / "results"
+            source = root / "messages_zh.properties"
+            target = root / "messages_en.properties"
+            source.write_text("AUTH_RETRY=适配服务器无法处理请求站点连接需要更新认证信息，请重试。\n", encoding="utf-8")
+            target.write_text("AUTH_RETRY=Adapter server is not ready for request.\n", encoding="utf-8")
+
+            config_path = root / "zh-audit.config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "model_config": {
+                            "base_url": "http://127.0.0.1:8000/v1",
+                            "api_key": "sk-local",
+                            "model": "demo",
+                            "max_tokens": 120,
+                        }
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            state = AppServiceState(out_dir=out_dir, project_config_path=config_path)
+            with patch(
+                "zh_audit.app_server.call_openai_compatible_json",
+                side_effect=ValueError('Model response does not contain a valid JSON object: {"verdict": “needs_update”}'),
+            ):
+                state.start_translation(
+                    {
+                        "source_path": str(source),
+                        "target_path": str(target),
+                        "auto_accept": False,
+                    }
+                )
+                deadline = time.time() + 10
+                latest = state.translation_payload()
+                while time.time() < deadline:
+                    latest = state.translation_payload()
+                    if latest["status"]["status"] in {"done", "failed", "stopped", "interrupted"}:
+                        break
+                    time.sleep(0.1)
+
+            self.assertEqual(latest["status"]["status"], "done")
+            pending = latest["pending_items"][0]
+            self.assertEqual(pending["validation_state"], "failed")
+            self.assertFalse(pending["can_accept"])
+            self.assertEqual(pending["generation_attempts_used"], 5)
+            self.assertIn("模型返回格式不规范", pending["validation_message"])
 
     def test_translation_session_restores_and_resumes_after_model_error(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
