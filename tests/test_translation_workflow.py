@@ -176,6 +176,34 @@ class TranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(snapshot["pending_items"][0]["candidate_text"], "create link: {0}")
             self.assertGreaterEqual(len(calls), 2)
 
+    def test_translation_session_allows_sentence_initial_capitalization_for_locked_terms(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "zh.properties"
+            target = Path(temp_dir) / "en.properties"
+            source.write_text("HOST_GROUP_EXCEPTION=主机组异常\n", encoding="utf-8")
+            target.write_text("", encoding="utf-8")
+
+            session = TranslationSession(
+                source_path=source,
+                target_path=target,
+                glossary={"主机组": "host group"},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": "Host group exception",
+                    "reason": "ok",
+                },
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            snapshot = session.snapshot()
+            pending = snapshot["pending_items"][0]
+            self.assertEqual(pending["validation_state"], "passed")
+            self.assertTrue(pending["can_accept"])
+            self.assertEqual(pending["candidate_text"], "Host group exception")
+
     def test_translation_session_appends_missing_target_key_after_accept(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "zh.properties"

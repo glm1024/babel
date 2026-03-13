@@ -197,6 +197,40 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 session.accept(pending["id"])
 
+    def test_sql_translation_session_allows_sentence_initial_capitalization_for_locked_terms(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sql_dir = root / "sql"
+            sql_dir.mkdir()
+            (sql_dir / "demo.sql").write_text(
+                "INSERT INTO t_demo (id, name_zh, name_en) VALUES ('1', '主机组异常', '');\n",
+                encoding="utf-8",
+            )
+
+            session = SqlTranslationSession(
+                directory_path=sql_dir,
+                table_name="t_demo",
+                primary_key_field="id",
+                source_field="name_zh",
+                target_field="name_en",
+                glossary={"主机组": "host group"},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": "Host group exception",
+                    "reason": "ok",
+                },
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run()
+
+            snapshot = session.snapshot()
+            pending = snapshot["pending_items"][0]
+            self.assertEqual(pending["validation_state"], "passed")
+            self.assertTrue(pending["can_accept"])
+            self.assertEqual(pending["candidate_text"], "Host group exception")
+
     def test_sql_translation_session_ignores_reviewer_issue_about_target_mismatch(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

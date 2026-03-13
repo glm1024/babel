@@ -36,9 +36,11 @@ def has_matching_placeholders(source_text, candidate_text):
 
 
 def contains_locked_terms(candidate, locked_terms):
-    value = str(candidate or "")
+    value = decode_unicode_escapes(str(candidate or ""))
+    lowered_value = value.casefold()
     for term in locked_terms or []:
-        if term["target"] not in value:
+        target = decode_unicode_escapes(str(term.get("target", "") or "")).strip()
+        if target and target.casefold() not in lowered_value:
             return False
     return True
 

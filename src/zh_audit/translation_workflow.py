@@ -813,7 +813,7 @@ def build_translation_system_prompt():
         "reason must be written in Simplified Chinese.\n"
         "Do not output English in reason unless it is a required technical term quoted from the source or target text.\n"
         "Preserve placeholders exactly, including {0}, {}, %s, ${name} and similar forms.\n"
-        "If locked_terms are provided, candidate_translation must use the target terms exactly as given.\n"
+        "If locked_terms are provided, candidate_translation must use the target terms exactly as given, while sentence-initial capitalization is allowed.\n"
         "If target_text is already accurate, set verdict=accurate and candidate_translation to the unchanged target_text."
     )
 

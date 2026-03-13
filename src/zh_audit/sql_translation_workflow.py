@@ -1059,7 +1059,7 @@ def build_sql_translation_system_prompt():
         "candidate_translation must be natural English and must not directly copy the Chinese source text.\n"
         "candidate_translation must not include Chinese explanations, SQL, JSON, or multiple lines.\n"
         "Preserve placeholders exactly, including {0}, {}, %s, ${name} and similar forms.\n"
-        "If locked_terms are provided, candidate_translation must use the target terms exactly as given.\n"
+        "If locked_terms are provided, candidate_translation must use the target terms exactly as given, while sentence-initial capitalization is allowed.\n"
         "If target_text is already accurate, set verdict=accurate and candidate_translation to the unchanged target_text."
     )
 
