@@ -26,6 +26,7 @@ from zh_audit.utils import (
     is_named_keep_file,
     looks_like_assert_api_literal,
     looks_like_condition_expression_literal,
+    matches_any_glob,
 )
 
 
@@ -66,9 +67,41 @@ PROTOCOL_CONTEXT_RES = [
     re.compile(r"\boperator_type\b"),
     re.compile(r"\brequest_method\b"),
 ]
+CUSTOM_KEEP_REASON = "Custom keep category rule matched."
 
 
-def classify_rule(raw: RawFinding) -> ClassifiedFinding:
+def prepare_custom_keep_categories(custom_keep_categories):
+    prepared = []
+    for category in custom_keep_categories or []:
+        if not isinstance(category, dict) or not category.get("enabled", True):
+            continue
+        prepared_rules = []
+        for rule in category.get("rules", []) or []:
+            if not isinstance(rule, dict):
+                continue
+            rule_type = str(rule.get("type", "") or "").strip().lower()
+            pattern = str(rule.get("pattern", "") or "")
+            if rule_type not in ("keyword", "regex") or not pattern:
+                continue
+            prepared_rule = {
+                "type": rule_type,
+                "pattern": pattern,
+                "path_globs": list(rule.get("path_globs", []) or []),
+            }
+            if rule_type == "regex":
+                prepared_rule["compiled_pattern"] = re.compile(pattern)
+            prepared_rules.append(prepared_rule)
+        if prepared_rules:
+            prepared.append(
+                {
+                    "name": str(category.get("name", "") or ""),
+                    "rules": prepared_rules,
+                }
+            )
+    return prepared
+
+
+def classify_rule(raw: RawFinding, custom_keep_categories=None) -> ClassifiedFinding:
     path = raw.path.lower().replace("\\", "/")
     ext = Path(path).suffix.lower()
     text = raw.normalized_text or raw.text
@@ -87,6 +120,42 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
     high_risk = False
     end_user_visible = False
     reason = "No strong rule matched."
+    metadata = dict(raw.metadata)
+
+    custom_match = _match_custom_keep_category(raw, custom_keep_categories)
+    if custom_match is not None:
+        metadata.update(
+            {
+                "custom_keep_category": custom_match["category"],
+                "custom_keep_rule_type": custom_match["rule_type"],
+                "custom_keep_rule_pattern": custom_match["rule_pattern"],
+                "custom_keep_matched_field": custom_match["matched_field"],
+            }
+        )
+        return ClassifiedFinding(
+            id=raw.id,
+            sequence=0,
+            project=raw.project,
+            path=raw.path,
+            lang=raw.lang,
+            line=raw.line,
+            column=raw.column,
+            surface_kind=raw.surface_kind,
+            symbol=raw.symbol,
+            text=raw.text,
+            normalized_text=raw.normalized_text,
+            hit_text=raw.hit_text,
+            snippet=raw.snippet,
+            category=custom_match["category"],
+            action="keep",
+            confidence=0.99,
+            high_risk=False,
+            end_user_visible=False,
+            reason=CUSTOM_KEEP_REASON,
+            file_role=raw.file_role,
+            candidate_roles=list(raw.candidate_roles),
+            metadata=metadata,
+        )
 
     if is_named_keep_file(path):
         category = CATEGORY_NAMED_FILE
@@ -234,8 +303,42 @@ def classify_rule(raw: RawFinding) -> ClassifiedFinding:
         reason=reason,
         file_role=raw.file_role,
         candidate_roles=list(raw.candidate_roles),
-        metadata=dict(raw.metadata),
+        metadata=metadata,
     )
+
+
+def _match_custom_keep_category(raw: RawFinding, custom_keep_categories):
+    if not custom_keep_categories:
+        return None
+    path = str(raw.path or "")
+    fields = [
+        ("normalized_text", str(raw.normalized_text or "")),
+        ("hit_text", str(raw.hit_text or "")),
+        ("snippet", str(raw.snippet or "")),
+    ]
+    for category in custom_keep_categories:
+        for rule in category.get("rules", []) or []:
+            path_globs = list(rule.get("path_globs", []) or [])
+            if path_globs and not matches_any_glob(path, path_globs):
+                continue
+            for field_name, field_value in fields:
+                if not field_value:
+                    continue
+                if rule["type"] == "keyword" and rule["pattern"] in field_value:
+                    return {
+                        "category": category["name"],
+                        "rule_type": rule["type"],
+                        "rule_pattern": rule["pattern"],
+                        "matched_field": field_name,
+                    }
+                if rule["type"] == "regex" and rule["compiled_pattern"].search(field_value):
+                    return {
+                        "category": category["name"],
+                        "rule_type": rule["type"],
+                        "rule_pattern": rule["pattern"],
+                        "matched_field": field_name,
+                    }
+    return None
 
 
 def _is_doc_asset(path: str) -> bool:

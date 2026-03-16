@@ -3,7 +3,7 @@ import subprocess
 from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from zh_audit.classifier import classify_rule
+from zh_audit.classifier import classify_rule, prepare_custom_keep_categories
 from zh_audit.extractor import extract_file
 from zh_audit.models import (
     CATEGORY_ORDER,
@@ -19,7 +19,7 @@ from zh_audit.utils import contains_han, decode_unicode_escapes, guess_language,
 ENCODINGS = ("utf-8", "utf-8-sig", "gb18030")
 
 
-def run_scan(repos, scan_settings, run_id, progress_callback=None):
+def run_scan(repos, scan_settings, run_id, progress_callback=None, custom_keep_categories=None):
     file_records = []
     raw_findings = []
     repo_files = []
@@ -133,7 +133,11 @@ def run_scan(repos, scan_settings, run_id, progress_callback=None):
                 extract_file(repo=repo.name, path=Path(relative), content=content, context_lines=scan_settings.context_lines)
             )
 
-    classified = [classify_rule(finding) for finding in raw_findings]
+    prepared_custom_keep_categories = prepare_custom_keep_categories(custom_keep_categories)
+    classified = [
+        classify_rule(finding, custom_keep_categories=prepared_custom_keep_categories)
+        for finding in raw_findings
+    ]
     classified = _stable_sort_findings(classified)
     _assign_sequences(classified)
     summary = _build_summary(repos, file_records, classified, run_id=run_id, scan_settings=scan_settings)

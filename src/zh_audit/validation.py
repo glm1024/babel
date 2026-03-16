@@ -560,9 +560,13 @@ def _expected_category(
     text_lower = text.lower()
     governance_in_scope = slice_name == "first_party"
     language = guess_language(Path(path))
+    metadata = finding.get("metadata", {}) if isinstance(finding.get("metadata", {}), dict) else {}
+    custom_keep_category = str(metadata.get("custom_keep_category", "") or "")
 
     if finding.get("annotated") or finding.get("category") == CATEGORY_ANNOTATED_NO_CHANGE:
         return CATEGORY_ANNOTATED_NO_CHANGE, False, "当前命中来自历史人工保留记录。"
+    if custom_keep_category:
+        return custom_keep_category, False, "当前命中命中了自定义免改规则。"
     if is_named_keep_file(path):
         return CATEGORY_NAMED_FILE, False, "排除文件中的中文统一归为排除文件。"
     if is_i18n_messages_file(path):

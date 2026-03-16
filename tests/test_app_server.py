@@ -55,6 +55,19 @@ class AppServerSmokeTest(unittest.TestCase):
                             "model": "deepseek-v3",
                             "max_tokens": 256,
                         },
+                        "custom_keep_categories": [
+                            {
+                                "name": "历史兼容文案",
+                                "enabled": True,
+                                "rules": [
+                                    {
+                                        "type": "keyword",
+                                        "pattern": "操作异常",
+                                        "path_globs": ["src/**"],
+                                    }
+                                ],
+                            }
+                        ],
                     }
                 )
 
@@ -65,6 +78,7 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertEqual(payload["config"]["model_config"]["base_url"], "http://127.0.0.1:8000/v1")
             self.assertEqual(payload["config"]["model_config"]["model"], "deepseek-v3")
             self.assertEqual(payload["config"]["model_config"]["max_tokens"], 256)
+            self.assertEqual(payload["config"]["custom_keep_categories"][0]["name"], "历史兼容文案")
             self.assertTrue((out_dir / "app_state.json").exists())
 
             reloaded = AppServiceState(out_dir=out_dir)
@@ -73,6 +87,7 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertEqual(bootstrap["config"]["scan_policy"]["max_file_size_bytes"], 1234)
             self.assertEqual(bootstrap["config"]["model_config"]["base_url"], "http://127.0.0.1:8000/v1")
             self.assertEqual(bootstrap["config"]["model_config"]["api_key"], "sk-local")
+            self.assertEqual(bootstrap["config"]["custom_keep_categories"][0]["rules"][0]["type"], "keyword")
             self.assertFalse(bootstrap["has_results"])
             self.assertEqual(bootstrap["findings"], [])
 
@@ -179,11 +194,18 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("overflow-y: scroll;", html)
             self.assertIn("扫描目录", html)
             self.assertIn("扫描结果", html)
+            self.assertIn("免改规则", html)
             self.assertIn("国际化文件", html)
             self.assertIn("数据库数据", html)
             self.assertIn("国际化文件中英文校对和翻译", html)
             self.assertIn("数据库数据中英文校对和翻译", html)
             self.assertIn("模型配置", html)
+            self.assertIn("免改规则配置", html)
+            self.assertIn("规则分组", html)
+            self.assertIn("新增分组", html)
+            self.assertIn("保存规则", html)
+            self.assertIn('.split(/\\n|,/)', html)
+            self.assertIn('.join("\\n")', html)
             self.assertIn("Base URL", html)
             self.assertIn("保存模型配置", html)
             self.assertIn("id=\"settingsStatusBanner\"", html)
@@ -218,8 +240,11 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn('aria-label="删除目录"', html)
             self.assertNotIn('>删除<', html)
             self.assertIn('data-tab="results"', html)
+            self.assertIn('data-tab="customKeep"', html)
             self.assertIn('id="viewResultsBtn"', html)
             self.assertIn('id="resultsReportHost"', html)
+            self.assertIn('id="customKeepPage"', html)
+            self.assertIn('id="customKeepCategoryList"', html)
             self.assertIn("window.ZhAuditReport", html)
             self.assertNotIn("<iframe", html)
             self.assertNotIn("标注无需修改", html)
@@ -410,6 +435,116 @@ class AppServerSmokeTest(unittest.TestCase):
             state = AppServiceState(out_dir=out_dir)
             with self.assertRaises(ValueError):
                 state.start_scan({"scan_roots": ["/path/not/exist"]})
+
+    def test_invalid_custom_keep_regex_raises_value_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out_dir = Path(temp_dir) / "results"
+            state = AppServiceState(out_dir=out_dir)
+            with self.assertRaises(ValueError):
+                state.save_config(
+                    {
+                        "custom_keep_categories": [
+                            {
+                                "name": "坏规则",
+                                "enabled": True,
+                                "rules": [
+                                    {
+                                        "type": "regex",
+                                        "pattern": "[",
+                                        "path_globs": [],
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                )
+
+    def test_custom_keep_categories_override_scan_classification(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            repo = root / "repo"
+            repo.mkdir()
+            subprocess.run(
+                ["git", "init"],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            template = repo / "templates" / "view.html"
+            template.parent.mkdir(parents=True)
+            template.write_text('<div title="noop">系统繁忙</div>\n', encoding="utf-8")
+
+            java_file = repo / "src" / "App.java"
+            java_file.parent.mkdir(parents=True)
+            java_file.write_text(
+                'class App { String fail(){ return "系统繁忙"; } }\n',
+                encoding="utf-8",
+            )
+
+            subprocess.run(
+                ["git", "add", "."],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            out_dir = root / "results"
+            state = AppServiceState(out_dir=out_dir)
+            state.save_config(
+                {
+                    "custom_keep_categories": [
+                        {
+                            "name": "模板白名单",
+                            "enabled": True,
+                            "rules": [
+                                {
+                                    "type": "regex",
+                                    "pattern": "系统繁忙",
+                                    "path_globs": ["templates/**"],
+                                }
+                            ],
+                        },
+                        {
+                            "name": "通用白名单",
+                            "enabled": True,
+                            "rules": [
+                                {
+                                    "type": "keyword",
+                                    "pattern": "系统繁忙",
+                                    "path_globs": [],
+                                }
+                            ],
+                        },
+                    ]
+                }
+            )
+
+            state.start_scan(
+                {
+                    "scan_roots": [str(repo)],
+                    "scan_policy": {
+                        "max_file_size_bytes": 5 * 1024 * 1024,
+                        "context_lines": 1,
+                        "exclude_globs": ["**/static/ajax/libs/**"],
+                    },
+                }
+            )
+            self._wait_for_scan_done(state)
+
+            template_finding = next(item for item in state.findings if item["path"] == "templates/view.html")
+            java_finding = next(item for item in state.findings if item["path"] == "src/App.java")
+
+            self.assertEqual(template_finding["category"], "模板白名单")
+            self.assertEqual(template_finding["action"], "keep")
+            self.assertEqual(template_finding["reason"], "Custom keep category rule matched.")
+            self.assertEqual(template_finding["metadata"]["custom_keep_matched_field"], "normalized_text")
+
+            self.assertEqual(java_finding["category"], "通用白名单")
+            self.assertEqual(java_finding["action"], "keep")
+            self.assertEqual(java_finding["metadata"]["custom_keep_rule_type"], "keyword")
 
     def test_scan_progress_keeps_latest_repo_context_for_multi_repo_scan(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

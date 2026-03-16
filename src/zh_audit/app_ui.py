@@ -98,7 +98,7 @@ def render_app_shell(bootstrap_payload, client_config):
       align-self: center;
       position: sticky;
       top: 16px;
-      z-index: 30;
+      z-index: 120;
       gap: 4px;
       align-items: center;
       min-height: 0;
@@ -107,6 +107,7 @@ def render_app_shell(bootstrap_payload, client_config):
       border-radius: 14px;
       border: 1px solid var(--line);
       width: auto;
+      pointer-events: auto;
     }
     .tab-btn {
       display: inline-flex;
@@ -122,6 +123,8 @@ def render_app_shell(bootstrap_payload, client_config):
       color: var(--muted);
       cursor: pointer;
       white-space: nowrap;
+      position: relative;
+      z-index: 1;
     }
     .tab-btn.is-active {
       background: var(--panel);
@@ -149,6 +152,88 @@ def render_app_shell(bootstrap_payload, client_config):
       margin: 0 auto;
       display: grid;
       gap: 20px;
+    }
+    .custom-keep-workspace {
+      width: min(1180px, 100%);
+      margin: 0 auto;
+      display: grid;
+      gap: 20px;
+    }
+    .custom-keep-grid {
+      display: grid;
+      gap: 20px;
+      grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+      align-items: start;
+    }
+    .custom-keep-list {
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+    .custom-keep-category-item {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(255,255,255,0.72);
+      display: grid;
+      gap: 12px;
+    }
+    .custom-keep-category-item.is-active {
+      border-color: rgba(159,61,42,0.32);
+      box-shadow: 0 10px 24px rgba(159,61,42,0.10);
+      background: rgba(255,250,245,0.92);
+    }
+    .custom-keep-category-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .custom-keep-category-actions,
+    .custom-keep-rule-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .custom-keep-help {
+      line-height: 1.65;
+    }
+    .custom-keep-rules-shell {
+      display: grid;
+      gap: 14px;
+      align-content: start;
+    }
+    .custom-keep-rule-list {
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+    .custom-keep-rule-card {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(255,255,255,0.76);
+      display: grid;
+      gap: 12px;
+    }
+    .custom-keep-rule-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+      align-items: start;
+    }
+    .custom-keep-rule-card .field-textarea {
+      min-height: 108px;
+    }
+    .custom-keep-empty {
+      padding: 18px;
+      border-radius: 16px;
+      border: 1px dashed var(--line);
+      background: rgba(255,255,255,0.58);
+      color: var(--muted);
+      line-height: 1.7;
     }
     .results-tab-shell {
       display: grid;
@@ -805,13 +890,18 @@ def render_app_shell(bootstrap_payload, client_config):
         padding-left: 20px;
         padding-right: 20px;
       }
+      .custom-keep-grid,
       .results-tab-shell {
         height: auto;
         overflow: visible;
       }
+      .custom-keep-grid,
       .results-report-host {
         height: auto;
         overflow: visible;
+      }
+      .custom-keep-grid {
+        grid-template-columns: 1fr;
       }
       .translation-page-shell {
         height: auto;
@@ -819,6 +909,7 @@ def render_app_shell(bootstrap_payload, client_config):
       }
       .translation-top-grid,
       .translation-bottom-grid,
+      .custom-keep-rule-grid,
       .translation-grid.two,
       .translation-compact-field-grid {
         grid-template-columns: 1fr;
@@ -834,6 +925,7 @@ def render_app_shell(bootstrap_payload, client_config):
     <div class="tab-bar" id="tabBar">
       <button class="tab-btn is-active" type="button" data-tab="home">首页</button>
       <button class="tab-btn" type="button" data-tab="results">扫描结果</button>
+      <button class="tab-btn" type="button" data-tab="customKeep">免改规则</button>
       <button class="tab-btn" type="button" data-tab="translation">国际化文件</button>
       <button class="tab-btn" type="button" data-tab="sqlTranslation">数据库数据</button>
       <button class="tab-btn" type="button" data-tab="settings">模型配置</button>
@@ -896,6 +988,53 @@ def render_app_shell(bootstrap_payload, client_config):
           当前还没有扫描结果，请先到首页配置扫描目录并点击“开始扫描”。
         </div>
         <div id="resultsReportHost" class="results-report-host hidden"></div>
+      </div>
+    </section>
+
+    <section class="page" id="customKeepPage">
+      <div class="custom-keep-workspace">
+        <div class="panel card">
+          <div class="card-head">
+            <div>
+              <div class="muted">Keep Rules</div>
+              <h2 class="card-title">免改规则配置</h2>
+            </div>
+          </div>
+          <div class="custom-keep-help muted">
+            免改规则优先于内置分类，默认匹配命中文本与代码片段，可选附加路径 glob 限制。保存后仅对后续重新扫描生效，不会回溯改写当前已有结果。
+          </div>
+        </div>
+
+        <div class="custom-keep-grid">
+          <div class="panel card">
+            <div class="card-head">
+              <div>
+                <div class="muted">Rule Groups</div>
+                <h2 class="card-title">规则分组</h2>
+              </div>
+              <button id="addCustomKeepCategoryBtn" class="secondary-btn" type="button">新增分组</button>
+            </div>
+            <div id="customKeepCategoryList" class="custom-keep-list"></div>
+          </div>
+
+          <div class="panel card">
+            <div class="card-head">
+              <div>
+                <div class="muted">Rules</div>
+                <h2 id="customKeepEditorTitle" class="card-title">规则编辑</h2>
+              </div>
+              <button id="addCustomKeepRuleBtn" class="secondary-btn" type="button">新增规则</button>
+            </div>
+            <div id="customKeepEmpty" class="custom-keep-empty">当前还没有规则分组，请先新增分组，再为该分组配置规则。</div>
+            <div id="customKeepRulesHost" class="custom-keep-rules-shell hidden">
+              <div id="customKeepRuleList" class="custom-keep-rule-list"></div>
+            </div>
+            <div class="btn-row">
+              <button id="saveCustomKeepRulesBtn" class="primary-btn" type="button">保存规则</button>
+            </div>
+            <div id="customKeepStatusBanner" class="status-banner">免改规则优先于内置分类，保存后对后续重新扫描生效，不会回溯改写当前结果。</div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -1170,7 +1309,7 @@ __REPORT_COMPONENT_BUNDLE__
     };
     const state = {
       activeTab: "home",
-      config: BOOTSTRAP.config || { scan_roots: [], scan_policy: {}, model_config: DEFAULT_MODEL_CONFIG, out_dir: "" },
+      config: BOOTSTRAP.config || { scan_roots: [], scan_policy: {}, model_config: DEFAULT_MODEL_CONFIG, custom_keep_categories: [], out_dir: "" },
       draftConfig: null,
       scanStatus: BOOTSTRAP.scan_status || {},
       summary: BOOTSTRAP.summary || {},
@@ -1183,12 +1322,16 @@ __REPORT_COMPONENT_BUNDLE__
       sqlTranslationPromptDrafts: {},
       translationItemOps: {},
       sqlTranslationItemOps: {},
+      customKeepSelectedIndex: 0,
+      customKeepDirty: false,
+      customKeepStatus: defaultCustomKeepStatus(),
     };
     state.draftConfig = cloneConfig(state.config);
 
     const tabBar = document.getElementById("tabBar");
     const homePage = document.getElementById("homePage");
     const resultsPage = document.getElementById("resultsPage");
+    const customKeepPage = document.getElementById("customKeepPage");
     const translationPage = document.getElementById("translationPage");
     const sqlTranslationPage = document.getElementById("sqlTranslationPage");
     const settingsPage = document.getElementById("settingsPage");
@@ -1206,6 +1349,15 @@ __REPORT_COMPONENT_BUNDLE__
     const viewResultsBtn = document.getElementById("viewResultsBtn");
     const resultsPageEmpty = document.getElementById("resultsPageEmpty");
     const resultsReportHost = document.getElementById("resultsReportHost");
+    const customKeepCategoryList = document.getElementById("customKeepCategoryList");
+    const addCustomKeepCategoryBtn = document.getElementById("addCustomKeepCategoryBtn");
+    const customKeepEditorTitle = document.getElementById("customKeepEditorTitle");
+    const customKeepEmpty = document.getElementById("customKeepEmpty");
+    const customKeepRulesHost = document.getElementById("customKeepRulesHost");
+    const customKeepRuleList = document.getElementById("customKeepRuleList");
+    const addCustomKeepRuleBtn = document.getElementById("addCustomKeepRuleBtn");
+    const saveCustomKeepRulesBtn = document.getElementById("saveCustomKeepRulesBtn");
+    const customKeepStatusBanner = document.getElementById("customKeepStatusBanner");
     const translationStatusPill = document.getElementById("translationStatusPill");
     const translationSourceInput = document.getElementById("translationSourceInput");
     const translationSourceClearBtn = document.getElementById("translationSourceClearBtn");
@@ -1349,8 +1501,37 @@ __REPORT_COMPONENT_BUNDLE__
       };
     }
 
+    function defaultCustomKeepStatus() {
+      return {
+        text: "免改规则优先于内置分类，保存后对后续重新扫描生效，不会回溯改写当前结果。",
+        isError: false,
+      };
+    }
+
+    function defaultCustomKeepRule() {
+      return {
+        type: "keyword",
+        pattern: "",
+        path_globs: [],
+      };
+    }
+
+    function defaultCustomKeepCategory(name) {
+      return {
+        name: name || "",
+        enabled: true,
+        rules: [defaultCustomKeepRule()],
+      };
+    }
+
     function cloneConfig(config) {
-      return JSON.parse(JSON.stringify(config || { scan_roots: [], scan_policy: {}, model_config: DEFAULT_MODEL_CONFIG, out_dir: "" }));
+      return JSON.parse(JSON.stringify(config || {
+        scan_roots: [],
+        scan_policy: {},
+        model_config: DEFAULT_MODEL_CONFIG,
+        custom_keep_categories: [],
+        out_dir: "",
+      }));
     }
 
     function parseInteger(value, fallback, minValue) {
@@ -1408,6 +1589,79 @@ __REPORT_COMPONENT_BUNDLE__
       };
     }
 
+    function parsePathGlobs(value) {
+      return String(value || "")
+        .split(/\\n|,/)
+        .map(item => item.trim())
+        .filter(Boolean);
+    }
+
+    function generateCustomKeepCategoryName() {
+      const categories = Array.isArray(state.draftConfig.custom_keep_categories)
+        ? state.draftConfig.custom_keep_categories
+        : [];
+      const names = new Set(categories.map(item => String((item && item.name) || "")));
+      let index = categories.length + 1;
+      let candidate = `规则分组 ${index}`;
+      while (names.has(candidate)) {
+        index += 1;
+        candidate = `规则分组 ${index}`;
+      }
+      return candidate;
+    }
+
+    function setCustomKeepStatus(text, options = {}) {
+      state.customKeepStatus = {
+        text: String(text || ""),
+        isError: Boolean(options.isError),
+      };
+    }
+
+    function markCustomKeepDirty() {
+      state.customKeepDirty = true;
+      setCustomKeepStatus("规则已修改，点击“保存规则”后对后续重新扫描生效，不会回溯改写当前结果。");
+      setStatusBannerState(customKeepStatusBanner, state.customKeepStatus.text, {
+        isError: state.customKeepStatus.isError,
+        isLoading: false,
+      });
+    }
+
+    function ensureCustomKeepSelectedIndex() {
+      const categories = Array.isArray(state.draftConfig.custom_keep_categories)
+        ? state.draftConfig.custom_keep_categories
+        : [];
+      if (!categories.length) {
+        state.customKeepSelectedIndex = 0;
+        return -1;
+      }
+      if (state.customKeepSelectedIndex < 0) {
+        state.customKeepSelectedIndex = 0;
+      }
+      if (state.customKeepSelectedIndex >= categories.length) {
+        state.customKeepSelectedIndex = categories.length - 1;
+      }
+      return state.customKeepSelectedIndex;
+    }
+
+    function buildCustomKeepPayload() {
+      const categories = Array.isArray(state.draftConfig.custom_keep_categories)
+        ? state.draftConfig.custom_keep_categories
+        : [];
+      return {
+        custom_keep_categories: categories.map(category => ({
+          name: String((category && category.name) || "").trim(),
+          enabled: !!(category && category.enabled),
+          rules: (Array.isArray(category && category.rules) ? category.rules : []).map(rule => ({
+            type: String((rule && rule.type) || "keyword").trim().toLowerCase() || "keyword",
+            pattern: String((rule && rule.pattern) || "").trim(),
+            path_globs: Array.isArray(rule && rule.path_globs)
+              ? rule.path_globs.map(item => String(item || "").trim()).filter(Boolean)
+              : [],
+          })),
+        })),
+      };
+    }
+
     function applyBootstrap(data, keepDraft = false) {
       state.config = data.config || state.config;
       if (!keepDraft) {
@@ -1420,6 +1674,11 @@ __REPORT_COMPONENT_BUNDLE__
       state.resultsRevision = Number(data.results_revision || 0);
       state.translation = data.translation || state.translation;
       state.sqlTranslation = data.sql_translation || state.sqlTranslation;
+      if (!keepDraft) {
+        state.customKeepDirty = false;
+        setCustomKeepStatus(defaultCustomKeepStatus().text);
+      }
+      ensureCustomKeepSelectedIndex();
       renderAll();
     }
 
@@ -1450,6 +1709,7 @@ __REPORT_COMPONENT_BUNDLE__
       });
       homePage.classList.toggle("is-active", state.activeTab === "home");
       resultsPage.classList.toggle("is-active", state.activeTab === "results");
+      customKeepPage.classList.toggle("is-active", state.activeTab === "customKeep");
       translationPage.classList.toggle("is-active", state.activeTab === "translation");
       sqlTranslationPage.classList.toggle("is-active", state.activeTab === "sqlTranslation");
       settingsPage.classList.toggle("is-active", state.activeTab === "settings");
@@ -1512,6 +1772,89 @@ __REPORT_COMPONENT_BUNDLE__
           embedded: true,
         });
       }
+    }
+
+    function renderCustomKeep() {
+      const categories = Array.isArray(state.draftConfig.custom_keep_categories)
+        ? state.draftConfig.custom_keep_categories
+        : [];
+      const selectedIndex = ensureCustomKeepSelectedIndex();
+      const selectedCategory = selectedIndex >= 0 ? categories[selectedIndex] : null;
+
+      if (!categories.length) {
+        customKeepCategoryList.innerHTML = '<div class="custom-keep-empty">暂无规则分组，点击右上角“新增分组”开始配置。</div>';
+      } else {
+        customKeepCategoryList.innerHTML = categories.map((category, index) => `
+          <div class="custom-keep-category-item${index === selectedIndex ? " is-active" : ""}">
+            <div class="custom-keep-category-meta">
+              <span class="pill ${category.enabled ? "keep" : "fix"}">${category.enabled ? "已启用" : "已停用"}</span>
+              <div class="custom-keep-category-actions">
+                <button class="secondary-btn" type="button" data-action="select-custom-keep-category" data-index="${index}">编辑规则</button>
+                <button class="secondary-btn" type="button" data-action="move-custom-keep-category-up" data-index="${index}" ${index === 0 ? "disabled" : ""}>上移</button>
+                <button class="secondary-btn" type="button" data-action="move-custom-keep-category-down" data-index="${index}" ${index === categories.length - 1 ? "disabled" : ""}>下移</button>
+                <button class="danger-btn" type="button" data-action="remove-custom-keep-category" data-index="${index}" aria-label="删除分类" title="删除分类">×</button>
+              </div>
+            </div>
+            <label>
+              <div class="field-label">分类名称</div>
+              <input class="field-input" type="text" data-custom-keep-field="name" data-index="${index}" value="${escapeAttr(category.name || "")}" placeholder="例如：历史兼容文案">
+            </label>
+            <label class="checkbox-row">
+              <input type="checkbox" data-custom-keep-field="enabled" data-index="${index}" ${category.enabled ? "checked" : ""}>
+              <span>启用该分类</span>
+            </label>
+          </div>
+        `).join("");
+      }
+
+      customKeepEditorTitle.textContent = selectedCategory ? `${selectedCategory.name || "未命名分类"} 的规则` : "规则编辑";
+      customKeepEmpty.classList.toggle("hidden", Boolean(selectedCategory));
+      customKeepRulesHost.classList.toggle("hidden", !selectedCategory);
+      addCustomKeepRuleBtn.disabled = !selectedCategory;
+      saveCustomKeepRulesBtn.disabled = !categories.length;
+
+      if (!selectedCategory) {
+        customKeepRuleList.innerHTML = "";
+      } else {
+        const rules = Array.isArray(selectedCategory.rules) ? selectedCategory.rules : [];
+        customKeepRuleList.innerHTML = rules.map((rule, ruleIndex) => `
+          <div class="custom-keep-rule-card">
+            <div class="custom-keep-category-meta">
+              <div>
+                <div class="field-label">规则 ${ruleIndex + 1}</div>
+                <div class="muted">默认匹配命中文本和代码片段，可选附加路径 glob 限制。</div>
+              </div>
+              <div class="custom-keep-rule-actions">
+                <button class="secondary-btn" type="button" data-action="move-custom-keep-rule-up" data-index="${ruleIndex}" ${ruleIndex === 0 ? "disabled" : ""}>上移</button>
+                <button class="secondary-btn" type="button" data-action="move-custom-keep-rule-down" data-index="${ruleIndex}" ${ruleIndex === rules.length - 1 ? "disabled" : ""}>下移</button>
+                <button class="danger-btn" type="button" data-action="remove-custom-keep-rule" data-index="${ruleIndex}" aria-label="删除规则" title="删除规则">×</button>
+              </div>
+            </div>
+            <div class="custom-keep-rule-grid">
+              <label>
+                <div class="field-label">规则类型</div>
+                <select class="filter-select" data-custom-keep-rule-field="type" data-index="${ruleIndex}">
+                  <option value="keyword" ${rule.type === "keyword" ? "selected" : ""}>关键字</option>
+                  <option value="regex" ${rule.type === "regex" ? "selected" : ""}>正则</option>
+                </select>
+              </label>
+              <label>
+                <div class="field-label">${rule.type === "regex" ? "正则表达式" : "关键字"}</div>
+                <input class="field-input" type="text" data-custom-keep-rule-field="pattern" data-index="${ruleIndex}" value="${escapeAttr(rule.pattern || "")}" placeholder="${escapeAttr(rule.type === "regex" ? "例如：^系统(繁忙|超时)$" : "例如：系统繁忙")}">
+              </label>
+            </div>
+            <label>
+              <div class="field-label">路径限制（可选，支持 glob；一行一个，也支持逗号分隔）</div>
+              <textarea class="field-textarea" data-custom-keep-rule-field="path-globs" data-index="${ruleIndex}" placeholder="例如：**/templates/**&#10;**/legacy/**">${escapeHtml((rule.path_globs || []).join("\\n"))}</textarea>
+            </label>
+          </div>
+        `).join("");
+      }
+
+      setStatusBannerState(customKeepStatusBanner, state.customKeepStatus.text, {
+        isError: state.customKeepStatus.isError,
+        isLoading: false,
+      });
     }
 
     function renderSettings() {
@@ -1827,6 +2170,7 @@ __REPORT_COMPONENT_BUNDLE__
       renderRoots();
       renderStatus();
       renderResultsPage();
+      renderCustomKeep();
       renderTranslation();
       renderSqlTranslation();
       renderSettings();
@@ -1884,6 +2228,25 @@ __REPORT_COMPONENT_BUNDLE__
       saveModelConfigBtn.textContent = "保存模型配置";
       saveModelConfigBtn.classList.remove("is-loading");
       saveModelConfigBtn.disabled = false;
+    }
+
+    async function saveCustomKeepRules() {
+      const payload = buildCustomKeepPayload();
+      setStatusBannerState(customKeepStatusBanner, "正在保存免改规则...", {
+        isError: false,
+        isLoading: true,
+      });
+      saveCustomKeepRulesBtn.disabled = true;
+      saveCustomKeepRulesBtn.classList.add("is-loading");
+      saveCustomKeepRulesBtn.textContent = "保存中...";
+      const data = await requestJson(CLIENT_CONFIG.config_api_path, payload);
+      applyBootstrap(data);
+      state.customKeepDirty = false;
+      setCustomKeepStatus("规则已保存，后续重新扫描会按新的免改规则归入对应分组。");
+      renderCustomKeep();
+      saveCustomKeepRulesBtn.textContent = "保存规则";
+      saveCustomKeepRulesBtn.classList.remove("is-loading");
+      saveCustomKeepRulesBtn.disabled = false;
     }
 
     function buildTranslationPayload() {
@@ -2125,10 +2488,7 @@ __REPORT_COMPONENT_BUNDLE__
       }
     }
 
-    tabBar.addEventListener("click", async event => {
-      const target = event.target instanceof Element ? event.target.closest(".tab-btn") : null;
-      if (!target) return;
-      const nextTab = target.dataset.tab || "home";
+    async function switchTab(nextTab) {
       state.activeTab = nextTab;
       renderTabs();
       if (nextTab === "translation" || nextTab === "sqlTranslation") {
@@ -2148,6 +2508,12 @@ __REPORT_COMPONENT_BUNDLE__
           }
         }
       }
+    }
+
+    tabBar.querySelectorAll(".tab-btn").forEach(button => {
+      button.addEventListener("click", async () => {
+        await switchTab(button.dataset.tab || "home");
+      });
     });
 
     rootsList.addEventListener("input", event => {
@@ -2170,10 +2536,159 @@ __REPORT_COMPONENT_BUNDLE__
       renderRoots();
     });
 
+    addCustomKeepCategoryBtn.addEventListener("click", () => {
+      if (!Array.isArray(state.draftConfig.custom_keep_categories)) {
+        state.draftConfig.custom_keep_categories = [];
+      }
+      state.draftConfig.custom_keep_categories.push(defaultCustomKeepCategory(generateCustomKeepCategoryName()));
+      state.customKeepSelectedIndex = state.draftConfig.custom_keep_categories.length - 1;
+      markCustomKeepDirty();
+      renderCustomKeep();
+    });
+
+    addCustomKeepRuleBtn.addEventListener("click", () => {
+      const selectedIndex = ensureCustomKeepSelectedIndex();
+      if (selectedIndex < 0) {
+        return;
+      }
+      const category = state.draftConfig.custom_keep_categories[selectedIndex];
+      if (!Array.isArray(category.rules)) {
+        category.rules = [];
+      }
+      category.rules.push(defaultCustomKeepRule());
+      markCustomKeepDirty();
+      renderCustomKeep();
+    });
+
+    customKeepCategoryList.addEventListener("input", event => {
+      const target = event.target instanceof Element ? event.target.closest("[data-custom-keep-field='name']") : null;
+      if (!target) return;
+      const index = Number.parseInt(target.dataset.index, 10);
+      const category = (state.draftConfig.custom_keep_categories || [])[index];
+      if (!category) return;
+      category.name = target.value;
+      markCustomKeepDirty();
+    });
+
+    customKeepCategoryList.addEventListener("change", event => {
+      const target = event.target instanceof Element ? event.target.closest("[data-custom-keep-field='enabled']") : null;
+      if (!target) return;
+      const index = Number.parseInt(target.dataset.index, 10);
+      const category = (state.draftConfig.custom_keep_categories || [])[index];
+      if (!category) return;
+      category.enabled = !!target.checked;
+      markCustomKeepDirty();
+      renderCustomKeep();
+    });
+
+    customKeepCategoryList.addEventListener("click", event => {
+      const target = event.target instanceof Element ? event.target.closest("[data-action]") : null;
+      if (!target) return;
+      const index = Number.parseInt(target.dataset.index, 10);
+      const categories = state.draftConfig.custom_keep_categories || [];
+      if (Number.isNaN(index) || !categories[index]) return;
+      if (target.dataset.action === "select-custom-keep-category") {
+        state.customKeepSelectedIndex = index;
+        renderCustomKeep();
+        return;
+      }
+      if (target.dataset.action === "move-custom-keep-category-up" && index > 0) {
+        const current = categories[index];
+        categories[index] = categories[index - 1];
+        categories[index - 1] = current;
+        state.customKeepSelectedIndex = index - 1;
+        markCustomKeepDirty();
+        renderCustomKeep();
+        return;
+      }
+      if (target.dataset.action === "move-custom-keep-category-down" && index < categories.length - 1) {
+        const current = categories[index];
+        categories[index] = categories[index + 1];
+        categories[index + 1] = current;
+        state.customKeepSelectedIndex = index + 1;
+        markCustomKeepDirty();
+        renderCustomKeep();
+        return;
+      }
+      if (target.dataset.action === "remove-custom-keep-category") {
+        categories.splice(index, 1);
+        if (state.customKeepSelectedIndex >= categories.length) {
+          state.customKeepSelectedIndex = Math.max(0, categories.length - 1);
+        }
+        markCustomKeepDirty();
+        renderCustomKeep();
+      }
+    });
+
+    customKeepRuleList.addEventListener("input", event => {
+      const target = event.target instanceof Element ? event.target.closest("[data-custom-keep-rule-field]") : null;
+      if (!target) return;
+      const selectedIndex = ensureCustomKeepSelectedIndex();
+      if (selectedIndex < 0) return;
+      const category = state.draftConfig.custom_keep_categories[selectedIndex];
+      const ruleIndex = Number.parseInt(target.dataset.index, 10);
+      const rule = (category.rules || [])[ruleIndex];
+      if (!rule) return;
+      if (target.dataset.customKeepRuleField === "pattern") {
+        rule.pattern = target.value;
+        markCustomKeepDirty();
+        return;
+      }
+      if (target.dataset.customKeepRuleField === "path-globs") {
+        rule.path_globs = parsePathGlobs(target.value);
+        markCustomKeepDirty();
+      }
+    });
+
+    customKeepRuleList.addEventListener("change", event => {
+      const target = event.target instanceof Element ? event.target.closest("[data-custom-keep-rule-field='type']") : null;
+      if (!target) return;
+      const selectedIndex = ensureCustomKeepSelectedIndex();
+      if (selectedIndex < 0) return;
+      const category = state.draftConfig.custom_keep_categories[selectedIndex];
+      const ruleIndex = Number.parseInt(target.dataset.index, 10);
+      const rule = (category.rules || [])[ruleIndex];
+      if (!rule) return;
+      rule.type = target.value || "keyword";
+      markCustomKeepDirty();
+      renderCustomKeep();
+    });
+
+    customKeepRuleList.addEventListener("click", event => {
+      const target = event.target instanceof Element ? event.target.closest("[data-action]") : null;
+      if (!target) return;
+      const selectedIndex = ensureCustomKeepSelectedIndex();
+      if (selectedIndex < 0) return;
+      const category = state.draftConfig.custom_keep_categories[selectedIndex];
+      const rules = Array.isArray(category.rules) ? category.rules : [];
+      const ruleIndex = Number.parseInt(target.dataset.index, 10);
+      if (Number.isNaN(ruleIndex) || !rules[ruleIndex]) return;
+      if (target.dataset.action === "move-custom-keep-rule-up" && ruleIndex > 0) {
+        const current = rules[ruleIndex];
+        rules[ruleIndex] = rules[ruleIndex - 1];
+        rules[ruleIndex - 1] = current;
+        markCustomKeepDirty();
+        renderCustomKeep();
+        return;
+      }
+      if (target.dataset.action === "move-custom-keep-rule-down" && ruleIndex < rules.length - 1) {
+        const current = rules[ruleIndex];
+        rules[ruleIndex] = rules[ruleIndex + 1];
+        rules[ruleIndex + 1] = current;
+        markCustomKeepDirty();
+        renderCustomKeep();
+        return;
+      }
+      if (target.dataset.action === "remove-custom-keep-rule") {
+        rules.splice(ruleIndex, 1);
+        markCustomKeepDirty();
+        renderCustomKeep();
+      }
+    });
+
     viewResultsBtn.addEventListener("click", () => {
       if (!state.hasResults) return;
-      state.activeTab = "results";
-      renderTabs();
+      switchTab("results");
     });
 
     saveRootsBtn.addEventListener("click", async () => {
@@ -2195,6 +2710,19 @@ __REPORT_COMPONENT_BUNDLE__
         saveModelConfigBtn.textContent = "保存模型配置";
         saveModelConfigBtn.classList.remove("is-loading");
         saveModelConfigBtn.disabled = false;
+      }
+    });
+
+    saveCustomKeepRulesBtn.addEventListener("click", async () => {
+      try {
+        await saveCustomKeepRules();
+      } catch (error) {
+        setCustomKeepStatus(error.message || "保存免改规则失败", { isError: true });
+        renderCustomKeep();
+      } finally {
+        saveCustomKeepRulesBtn.textContent = "保存规则";
+        saveCustomKeepRulesBtn.classList.remove("is-loading");
+        saveCustomKeepRulesBtn.disabled = !(state.draftConfig.custom_keep_categories || []).length;
       }
     });
 

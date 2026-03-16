@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -32,6 +33,7 @@ def default_app_state():
             "exclude_globs": list(defaults.exclude_globs),
         },
         "model_config_overrides": {},
+        "custom_keep_categories": default_custom_keep_categories(),
         "translation_config": default_translation_config(),
         "sql_translation_config": default_sql_translation_config(),
     }
@@ -71,6 +73,10 @@ def normalize_app_state(payload, path=None):
         path=path,
         field_name="model_config_overrides",
     )
+    custom_keep_categories = normalize_custom_keep_categories(
+        payload.get("custom_keep_categories", []),
+        path=path,
+    )
     translation_config = normalize_translation_config(payload.get("translation_config", {}), path=path)
     sql_translation_config = normalize_sql_translation_config(payload.get("sql_translation_config", {}), path=path)
     return {
@@ -78,6 +84,7 @@ def normalize_app_state(payload, path=None):
         "scan_roots": roots,
         "scan_policy": scan_policy,
         "model_config_overrides": model_config_overrides,
+        "custom_keep_categories": custom_keep_categories,
         "translation_config": translation_config,
         "sql_translation_config": sql_translation_config,
     }
@@ -158,6 +165,131 @@ def default_translation_config():
         "target_path": "",
         "auto_accept": False,
     }
+
+
+def default_custom_keep_categories():
+    return []
+
+
+def normalize_custom_keep_categories(raw_categories, path=None):
+    if raw_categories is None:
+        return []
+    if not isinstance(raw_categories, list):
+        raise ValueError(_format_error(path, "custom_keep_categories must be a list."))
+    normalized = []
+    seen_names = set()
+    for index, raw_category in enumerate(raw_categories):
+        if not isinstance(raw_category, dict):
+            raise ValueError(
+                _format_error(path, "custom_keep_categories[{}] must be an object.".format(index))
+            )
+        name = _normalize_model_text(raw_category.get("name"))
+        if not name:
+            raise ValueError(
+                _format_error(path, "custom_keep_categories[{}].name must be a non-empty string.".format(index))
+            )
+        if name in seen_names:
+            raise ValueError(_format_error(path, "custom_keep_categories names must be unique."))
+        rules = normalize_custom_keep_rules(raw_category.get("rules"), path=path, category_index=index)
+        normalized.append(
+            {
+                "name": name,
+                "enabled": bool(raw_category.get("enabled", True)),
+                "rules": rules,
+            }
+        )
+        seen_names.add(name)
+    return normalized
+
+
+def normalize_custom_keep_rules(raw_rules, path=None, category_index=0):
+    if not isinstance(raw_rules, list) or not raw_rules:
+        raise ValueError(
+            _format_error(
+                path,
+                "custom_keep_categories[{}].rules must be a non-empty list.".format(category_index),
+            )
+        )
+    normalized = []
+    for rule_index, raw_rule in enumerate(raw_rules):
+        if not isinstance(raw_rule, dict):
+            raise ValueError(
+                _format_error(
+                    path,
+                    "custom_keep_categories[{}].rules[{}] must be an object.".format(category_index, rule_index),
+                )
+            )
+        rule_type = _normalize_model_text(raw_rule.get("type")).lower()
+        if rule_type not in ("keyword", "regex"):
+            raise ValueError(
+                _format_error(
+                    path,
+                    "custom_keep_categories[{}].rules[{}].type must be keyword or regex.".format(
+                        category_index,
+                        rule_index,
+                    ),
+                )
+            )
+        pattern = _normalize_model_text(raw_rule.get("pattern"))
+        if not pattern:
+            raise ValueError(
+                _format_error(
+                    path,
+                    "custom_keep_categories[{}].rules[{}].pattern must be a non-empty string.".format(
+                        category_index,
+                        rule_index,
+                    ),
+                )
+            )
+        if rule_type == "regex":
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise ValueError(
+                    _format_error(
+                        path,
+                        "custom_keep_categories[{}].rules[{}].pattern is not a valid regex: {}.".format(
+                            category_index,
+                            rule_index,
+                            exc,
+                        ),
+                    )
+                )
+        path_globs = normalize_custom_keep_path_globs(
+            raw_rule.get("path_globs", []),
+            path=path,
+            category_index=category_index,
+            rule_index=rule_index,
+        )
+        normalized.append(
+            {
+                "type": rule_type,
+                "pattern": pattern,
+                "path_globs": path_globs,
+            }
+        )
+    return normalized
+
+
+def normalize_custom_keep_path_globs(raw_path_globs, path=None, category_index=0, rule_index=0):
+    if raw_path_globs is None:
+        return []
+    if not isinstance(raw_path_globs, list):
+        raise ValueError(
+            _format_error(
+                path,
+                "custom_keep_categories[{}].rules[{}].path_globs must be a list.".format(
+                    category_index,
+                    rule_index,
+                ),
+            )
+        )
+    normalized = []
+    for item in raw_path_globs:
+        value = _normalize_model_text(item)
+        if value:
+            normalized.append(value)
+    return normalized
 
 
 def normalize_translation_config(raw_config, path=None):

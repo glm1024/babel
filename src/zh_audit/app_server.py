@@ -7,12 +7,14 @@ from socketserver import ThreadingMixIn
 from urllib.parse import urlparse
 
 from zh_audit.app_state import (
+    default_custom_keep_categories,
     default_app_state,
     default_sql_translation_config,
     default_translation_config,
     diff_model_config_overrides,
     load_app_state,
     merge_model_config,
+    normalize_custom_keep_categories,
     normalize_scan_policy,
     normalize_scan_roots,
     normalize_sql_translation_config,
@@ -190,9 +192,10 @@ class AppServiceState(object):
                 "error": "",
             }
             scan_settings = scan_settings_from_state(self.app_state)
+            custom_keep_categories = list(self.app_state.get("custom_keep_categories", default_custom_keep_categories()))
             self.scan_thread = threading.Thread(
                 target=self._run_scan_job,
-                args=(repos, scan_settings),
+                args=(repos, scan_settings, custom_keep_categories),
                 name="zh-audit-scan",
                 daemon=True,
             )
@@ -367,11 +370,12 @@ class AppServiceState(object):
         with self.lock:
             return self.sql_translation_payload_locked()
 
-    def _run_scan_job(self, repos, scan_settings):
+    def _run_scan_job(self, repos, scan_settings, custom_keep_categories):
         try:
             artifacts = run_scan(
                 repos,
                 scan_settings=scan_settings,
+                custom_keep_categories=custom_keep_categories,
                 run_id=datetime.now().strftime("%Y%m%d-%H%M%S"),
                 progress_callback=self._scan_progress,
             )
@@ -460,6 +464,10 @@ class AppServiceState(object):
         payload = payload or {}
         roots = payload.get("scan_roots", self.app_state.get("scan_roots", []))
         scan_policy = payload.get("scan_policy", self.app_state.get("scan_policy", {}))
+        custom_keep_categories = payload.get(
+            "custom_keep_categories",
+            self.app_state.get("custom_keep_categories", default_custom_keep_categories()),
+        )
         translation_config = payload.get("translation_config", self.app_state.get("translation_config", {}))
         sql_translation_config = payload.get("sql_translation_config", self.app_state.get("sql_translation_config", {}))
         model_config_overrides = dict(self.app_state.get("model_config_overrides", {}))
@@ -475,6 +483,7 @@ class AppServiceState(object):
             "scan_roots": normalize_scan_roots(roots),
             "scan_policy": normalize_scan_policy(scan_policy),
             "model_config_overrides": model_config_overrides,
+            "custom_keep_categories": normalize_custom_keep_categories(custom_keep_categories),
             "translation_config": normalize_translation_config(translation_config),
             "sql_translation_config": normalize_sql_translation_config(sql_translation_config),
         }
@@ -534,6 +543,9 @@ class AppServiceState(object):
             "scan_roots": list(self.app_state.get("scan_roots", [])),
             "scan_policy": dict(self.app_state.get("scan_policy", default_app_state()["scan_policy"])),
             "model_config": self._effective_model_config(),
+            "custom_keep_categories": list(
+                self.app_state.get("custom_keep_categories", default_custom_keep_categories())
+            ),
             "translation_config": dict(self.app_state.get("translation_config", default_translation_config())),
             "sql_translation_config": dict(
                 self.app_state.get("sql_translation_config", default_sql_translation_config())

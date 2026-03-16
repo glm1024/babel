@@ -7,6 +7,7 @@ from pathlib import Path
 
 from zh_audit.pipeline import _iter_git_paths as iter_scan_git_paths
 from zh_audit.validation import validate_report
+from zh_audit.validation import _expected_category
 from zh_audit.validation import _iter_git_paths as iter_validation_git_paths
 
 
@@ -126,6 +127,31 @@ class ValidationSmokeTest(unittest.TestCase):
                     for row in review_rows
                 )
             )
+
+    def test_expected_category_respects_custom_keep_metadata(self) -> None:
+        category, governance_in_scope, reason = _expected_category(
+            {
+                "path": "src/App.java",
+                "normalized_text": "系统繁忙",
+                "text": "系统繁忙",
+                "surface_kind": "string_literal",
+                "candidate_roles": [],
+                "metadata": {
+                    "custom_keep_category": "历史兼容文案",
+                    "custom_keep_rule_type": "keyword",
+                    "custom_keep_rule_pattern": "系统繁忙",
+                    "custom_keep_matched_field": "normalized_text",
+                },
+            },
+            'class App { String fail(){ return "系统繁忙"; } }',
+            'class App { String fail(){ return "系统繁忙"; } }',
+            'class App { String fail(){ return "系统繁忙"; } }',
+            "first_party",
+        )
+
+        self.assertEqual(category, "历史兼容文案")
+        self.assertFalse(governance_in_scope)
+        self.assertIn("自定义免改规则", reason)
 
     def test_validate_report_matches_condition_expression_literal(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

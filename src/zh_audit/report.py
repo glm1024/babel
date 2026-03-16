@@ -95,6 +95,7 @@ DISPLAY_MAPS = {
         "Logic processing literal context.": "当前命中用于匹配条件或字符串处理。",
         "Task description annotation context.": "当前命中位于 ITask注解中。",
         "Annotated no change context.": "当前命中来自历史人工保留记录。",
+        "Custom keep category rule matched.": "当前命中命中了自定义免改规则。",
     },
 }
 
