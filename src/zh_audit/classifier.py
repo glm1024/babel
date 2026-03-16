@@ -26,7 +26,6 @@ from zh_audit.utils import (
     is_named_keep_file,
     looks_like_assert_api_literal,
     looks_like_condition_expression_literal,
-    matches_any_glob,
 )
 
 
@@ -86,7 +85,6 @@ def prepare_custom_keep_categories(custom_keep_categories):
             prepared_rule = {
                 "type": rule_type,
                 "pattern": pattern,
-                "path_globs": list(rule.get("path_globs", []) or []),
             }
             if rule_type == "regex":
                 prepared_rule["compiled_pattern"] = re.compile(pattern)
@@ -310,7 +308,6 @@ def classify_rule(raw: RawFinding, custom_keep_categories=None) -> ClassifiedFin
 def _match_custom_keep_category(raw: RawFinding, custom_keep_categories):
     if not custom_keep_categories:
         return None
-    path = str(raw.path or "")
     fields = [
         ("normalized_text", str(raw.normalized_text or "")),
         ("hit_text", str(raw.hit_text or "")),
@@ -318,9 +315,6 @@ def _match_custom_keep_category(raw: RawFinding, custom_keep_categories):
     ]
     for category in custom_keep_categories:
         for rule in category.get("rules", []) or []:
-            path_globs = list(rule.get("path_globs", []) or [])
-            if path_globs and not matches_any_glob(path, path_globs):
-                continue
             for field_name, field_value in fields:
                 if not field_value:
                     continue

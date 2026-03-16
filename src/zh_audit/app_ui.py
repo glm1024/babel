@@ -194,8 +194,19 @@ def render_app_shell(bootstrap_payload, client_config):
     .custom-keep-rule-actions {
       display: flex;
       gap: 8px;
-      flex-wrap: wrap;
       align-items: center;
+    }
+    .custom-keep-category-actions {
+      gap: 6px;
+      flex-wrap: nowrap;
+      margin-left: auto;
+    }
+    .custom-keep-category-actions .secondary-btn,
+    .custom-keep-category-actions .danger-btn {
+      padding: 8px 12px;
+    }
+    .custom-keep-rule-actions {
+      flex-wrap: wrap;
     }
     .custom-keep-help {
       line-height: 1.65;
@@ -1001,7 +1012,7 @@ def render_app_shell(bootstrap_payload, client_config):
             </div>
           </div>
           <div class="custom-keep-help muted">
-            免改规则优先于内置分类，默认匹配命中文本与代码片段，可选附加路径 glob 限制。保存后仅对后续重新扫描生效，不会回溯改写当前已有结果。
+            免改规则用于在“无需整改”下新增自定义子分类，系统会将匹配规则的条目归入对应子分类。保存后仅对后续重新扫描生效，不会回溯改写当前已有结果。
           </div>
         </div>
 
@@ -1032,7 +1043,7 @@ def render_app_shell(bootstrap_payload, client_config):
             <div class="btn-row">
               <button id="saveCustomKeepRulesBtn" class="primary-btn" type="button">保存规则</button>
             </div>
-            <div id="customKeepStatusBanner" class="status-banner">免改规则优先于内置分类，保存后对后续重新扫描生效，不会回溯改写当前结果。</div>
+            <div id="customKeepStatusBanner" class="status-banner hidden"></div>
           </div>
         </div>
       </div>
@@ -1307,8 +1318,27 @@ __REPORT_COMPONENT_BUNDLE__
       model: "",
       max_tokens: 100,
     };
+    const TAB_IDS = ["home", "results", "customKeep", "translation", "sqlTranslation", "settings"];
+
+    function normalizeTabId(value) {
+      const candidate = String(value || "").trim();
+      return TAB_IDS.includes(candidate) ? candidate : "home";
+    }
+
+    function getTabFromLocation() {
+      const hash = String(window.location.hash || "").replace(/^#/, "");
+      return hash ? normalizeTabId(hash) : "home";
+    }
+
+    function updateLocationForTab(tabId) {
+      const nextTab = normalizeTabId(tabId);
+      const nextHash = nextTab === "home" ? "" : `#${nextTab}`;
+      const nextUrl = `${window.location.pathname}${window.location.search}${nextHash}`;
+      window.history.replaceState(null, "", nextUrl);
+    }
+
     const state = {
-      activeTab: "home",
+      activeTab: getTabFromLocation(),
       config: BOOTSTRAP.config || { scan_roots: [], scan_policy: {}, model_config: DEFAULT_MODEL_CONFIG, custom_keep_categories: [], out_dir: "" },
       draftConfig: null,
       scanStatus: BOOTSTRAP.scan_status || {},
@@ -1503,7 +1533,7 @@ __REPORT_COMPONENT_BUNDLE__
 
     function defaultCustomKeepStatus() {
       return {
-        text: "免改规则优先于内置分类，保存后对后续重新扫描生效，不会回溯改写当前结果。",
+        text: "",
         isError: false,
       };
     }
@@ -1512,7 +1542,6 @@ __REPORT_COMPONENT_BUNDLE__
       return {
         type: "keyword",
         pattern: "",
-        path_globs: [],
       };
     }
 
@@ -1589,13 +1618,6 @@ __REPORT_COMPONENT_BUNDLE__
       };
     }
 
-    function parsePathGlobs(value) {
-      return String(value || "")
-        .split(/\\n|,/)
-        .map(item => item.trim())
-        .filter(Boolean);
-    }
-
     function generateCustomKeepCategoryName() {
       const categories = Array.isArray(state.draftConfig.custom_keep_categories)
         ? state.draftConfig.custom_keep_categories
@@ -1619,11 +1641,7 @@ __REPORT_COMPONENT_BUNDLE__
 
     function markCustomKeepDirty() {
       state.customKeepDirty = true;
-      setCustomKeepStatus("规则已修改，点击“保存规则”后对后续重新扫描生效，不会回溯改写当前结果。");
-      setStatusBannerState(customKeepStatusBanner, state.customKeepStatus.text, {
-        isError: state.customKeepStatus.isError,
-        isLoading: false,
-      });
+      setCustomKeepStatus("", { isError: false });
     }
 
     function ensureCustomKeepSelectedIndex() {
@@ -1654,9 +1672,6 @@ __REPORT_COMPONENT_BUNDLE__
           rules: (Array.isArray(category && category.rules) ? category.rules : []).map(rule => ({
             type: String((rule && rule.type) || "keyword").trim().toLowerCase() || "keyword",
             pattern: String((rule && rule.pattern) || "").trim(),
-            path_globs: Array.isArray(rule && rule.path_globs)
-              ? rule.path_globs.map(item => String(item || "").trim()).filter(Boolean)
-              : [],
           })),
         })),
       };
@@ -1789,7 +1804,7 @@ __REPORT_COMPONENT_BUNDLE__
             <div class="custom-keep-category-meta">
               <span class="pill ${category.enabled ? "keep" : "fix"}">${category.enabled ? "已启用" : "已停用"}</span>
               <div class="custom-keep-category-actions">
-                <button class="secondary-btn" type="button" data-action="select-custom-keep-category" data-index="${index}">编辑规则</button>
+                <button class="secondary-btn" type="button" data-action="select-custom-keep-category" data-index="${index}">编辑</button>
                 <button class="secondary-btn" type="button" data-action="move-custom-keep-category-up" data-index="${index}" ${index === 0 ? "disabled" : ""}>上移</button>
                 <button class="secondary-btn" type="button" data-action="move-custom-keep-category-down" data-index="${index}" ${index === categories.length - 1 ? "disabled" : ""}>下移</button>
                 <button class="danger-btn" type="button" data-action="remove-custom-keep-category" data-index="${index}" aria-label="删除分类" title="删除分类">×</button>
@@ -1822,7 +1837,7 @@ __REPORT_COMPONENT_BUNDLE__
             <div class="custom-keep-category-meta">
               <div>
                 <div class="field-label">规则 ${ruleIndex + 1}</div>
-                <div class="muted">默认匹配命中文本和代码片段，可选附加路径 glob 限制。</div>
+                <div class="muted">默认匹配命中文本和代码片段。</div>
               </div>
               <div class="custom-keep-rule-actions">
                 <button class="secondary-btn" type="button" data-action="move-custom-keep-rule-up" data-index="${ruleIndex}" ${ruleIndex === 0 ? "disabled" : ""}>上移</button>
@@ -1843,14 +1858,12 @@ __REPORT_COMPONENT_BUNDLE__
                 <input class="field-input" type="text" data-custom-keep-rule-field="pattern" data-index="${ruleIndex}" value="${escapeAttr(rule.pattern || "")}" placeholder="${escapeAttr(rule.type === "regex" ? "例如：^系统(繁忙|超时)$" : "例如：系统繁忙")}">
               </label>
             </div>
-            <label>
-              <div class="field-label">路径限制（可选，支持 glob；一行一个，也支持逗号分隔）</div>
-              <textarea class="field-textarea" data-custom-keep-rule-field="path-globs" data-index="${ruleIndex}" placeholder="例如：**/templates/**&#10;**/legacy/**">${escapeHtml((rule.path_globs || []).join("\\n"))}</textarea>
-            </label>
           </div>
         `).join("");
       }
 
+      const showCustomKeepStatus = Boolean(state.customKeepStatus.isError);
+      customKeepStatusBanner.classList.toggle("hidden", !showCustomKeepStatus);
       setStatusBannerState(customKeepStatusBanner, state.customKeepStatus.text, {
         isError: state.customKeepStatus.isError,
         isLoading: false,
@@ -2176,14 +2189,32 @@ __REPORT_COMPONENT_BUNDLE__
       renderSettings();
     }
 
+    function formatRequestError(error) {
+      const message = String((error && error.message) || "").trim();
+      if (message === "Failed to fetch") {
+        return "无法连接本地服务，请确认服务仍在运行，然后刷新页面重试。";
+      }
+      return message || "请求失败";
+    }
+
     async function requestJson(path, payload, method = "POST") {
       const options = { method };
       if (method !== "GET") {
         options.headers = { "Content-Type": "application/json" };
         options.body = JSON.stringify(payload || {});
       }
-      const response = await fetch(path, options);
-      const data = await response.json();
+      let response;
+      try {
+        response = await fetch(path, options);
+      } catch (error) {
+        throw new Error(formatRequestError(error));
+      }
+      let data = {};
+      try {
+        data = await response.json();
+      } catch (error) {
+        throw new Error(response.ok ? "服务返回了无法解析的响应，请刷新页面后重试。" : "服务返回了异常响应，请稍后重试。");
+      }
       if (!response.ok) {
         throw new Error(data.error || "请求失败");
       }
@@ -2232,21 +2263,20 @@ __REPORT_COMPONENT_BUNDLE__
 
     async function saveCustomKeepRules() {
       const payload = buildCustomKeepPayload();
-      setStatusBannerState(customKeepStatusBanner, "正在保存免改规则...", {
-        isError: false,
-        isLoading: true,
-      });
       saveCustomKeepRulesBtn.disabled = true;
       saveCustomKeepRulesBtn.classList.add("is-loading");
       saveCustomKeepRulesBtn.textContent = "保存中...";
-      const data = await requestJson(CLIENT_CONFIG.config_api_path, payload);
-      applyBootstrap(data);
-      state.customKeepDirty = false;
-      setCustomKeepStatus("规则已保存，后续重新扫描会按新的免改规则归入对应分组。");
-      renderCustomKeep();
-      saveCustomKeepRulesBtn.textContent = "保存规则";
-      saveCustomKeepRulesBtn.classList.remove("is-loading");
-      saveCustomKeepRulesBtn.disabled = false;
+      try {
+        const data = await requestJson(CLIENT_CONFIG.config_api_path, payload);
+        applyBootstrap(data);
+        state.customKeepDirty = false;
+        setCustomKeepStatus("", { isError: false });
+        renderCustomKeep();
+      } finally {
+        saveCustomKeepRulesBtn.textContent = "保存规则";
+        saveCustomKeepRulesBtn.classList.remove("is-loading");
+        saveCustomKeepRulesBtn.disabled = !(state.draftConfig.custom_keep_categories || []).length;
+      }
     }
 
     function buildTranslationPayload() {
@@ -2488,19 +2518,23 @@ __REPORT_COMPONENT_BUNDLE__
       }
     }
 
-    async function switchTab(nextTab) {
-      state.activeTab = nextTab;
+    async function switchTab(nextTab, options = {}) {
+      const resolvedTab = normalizeTabId(nextTab);
+      state.activeTab = resolvedTab;
+      if (!options.skipLocationUpdate) {
+        updateLocationForTab(resolvedTab);
+      }
       renderTabs();
-      if (nextTab === "translation" || nextTab === "sqlTranslation") {
+      if (resolvedTab === "translation" || resolvedTab === "sqlTranslation") {
         try {
           await refreshBootstrap(true);
         } catch (error) {
-          if (nextTab === "translation") {
+          if (resolvedTab === "translation") {
             setStatusBannerState(translationStatusBanner, error.message || "刷新国际化文件状态失败", {
               isError: true,
               isLoading: false,
             });
-          } else if (nextTab === "sqlTranslation") {
+          } else if (resolvedTab === "sqlTranslation") {
             setStatusBannerState(sqlTranslationStatusBanner, error.message || "刷新数据库数据状态失败", {
               isError: true,
               isLoading: false,
@@ -2514,6 +2548,14 @@ __REPORT_COMPONENT_BUNDLE__
       button.addEventListener("click", async () => {
         await switchTab(button.dataset.tab || "home");
       });
+    });
+
+    window.addEventListener("hashchange", async () => {
+      const nextTab = getTabFromLocation();
+      if (nextTab === state.activeTab) {
+        return;
+      }
+      await switchTab(nextTab, { skipLocationUpdate: true });
     });
 
     rootsList.addEventListener("input", event => {
@@ -2581,7 +2623,7 @@ __REPORT_COMPONENT_BUNDLE__
       renderCustomKeep();
     });
 
-    customKeepCategoryList.addEventListener("click", event => {
+    customKeepCategoryList.addEventListener("click", async event => {
       const target = event.target instanceof Element ? event.target.closest("[data-action]") : null;
       if (!target) return;
       const index = Number.parseInt(target.dataset.index, 10);
@@ -2611,12 +2653,29 @@ __REPORT_COMPONENT_BUNDLE__
         return;
       }
       if (target.dataset.action === "remove-custom-keep-category") {
+        const previousCategories = JSON.parse(JSON.stringify(categories));
+        const previousSelectedIndex = state.customKeepSelectedIndex;
         categories.splice(index, 1);
         if (state.customKeepSelectedIndex >= categories.length) {
           state.customKeepSelectedIndex = Math.max(0, categories.length - 1);
         }
         markCustomKeepDirty();
         renderCustomKeep();
+        try {
+          await saveCustomKeepRules();
+        } catch (error) {
+          state.draftConfig.custom_keep_categories = previousCategories;
+          if (previousCategories.length) {
+            state.customKeepSelectedIndex = Math.max(
+              0,
+              Math.min(previousSelectedIndex, previousCategories.length - 1),
+            );
+          } else {
+            state.customKeepSelectedIndex = 0;
+          }
+          setCustomKeepStatus(error.message || "删除分组失败", { isError: true });
+          renderCustomKeep();
+        }
       }
     });
 
@@ -2633,10 +2692,6 @@ __REPORT_COMPONENT_BUNDLE__
         rule.pattern = target.value;
         markCustomKeepDirty();
         return;
-      }
-      if (target.dataset.customKeepRuleField === "path-globs") {
-        rule.path_globs = parsePathGlobs(target.value);
-        markCustomKeepDirty();
       }
     });
 
@@ -2719,10 +2774,6 @@ __REPORT_COMPONENT_BUNDLE__
       } catch (error) {
         setCustomKeepStatus(error.message || "保存免改规则失败", { isError: true });
         renderCustomKeep();
-      } finally {
-        saveCustomKeepRulesBtn.textContent = "保存规则";
-        saveCustomKeepRulesBtn.classList.remove("is-loading");
-        saveCustomKeepRulesBtn.disabled = !(state.draftConfig.custom_keep_categories || []).length;
       }
     });
 
@@ -2994,6 +3045,7 @@ __REPORT_COMPONENT_BUNDLE__
       renderStatus();
     });
 
+    updateLocationForTab(state.activeTab);
     renderAll();
     if (state.scanStatus.status === "running") {
       startPolling();

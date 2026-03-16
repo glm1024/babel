@@ -63,7 +63,6 @@ class AppServerSmokeTest(unittest.TestCase):
                                     {
                                         "type": "keyword",
                                         "pattern": "操作异常",
-                                        "path_globs": ["src/**"],
                                     }
                                 ],
                             }
@@ -204,8 +203,11 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("规则分组", html)
             self.assertIn("新增分组", html)
             self.assertIn("保存规则", html)
-            self.assertIn('.split(/\\n|,/)', html)
-            self.assertIn('.join("\\n")', html)
+            self.assertIn("默认匹配命中文本和代码片段。", html)
+            self.assertNotIn("data-custom-keep-rule-field=\"path-globs\"", html)
+            self.assertIn("无法连接本地服务，请确认服务仍在运行，然后刷新页面重试。", html)
+            self.assertIn("window.history.replaceState", html)
+            self.assertIn("window.addEventListener(\"hashchange\"", html)
             self.assertIn("Base URL", html)
             self.assertIn("保存模型配置", html)
             self.assertIn("id=\"settingsStatusBanner\"", html)
@@ -451,13 +453,39 @@ class AppServerSmokeTest(unittest.TestCase):
                                     {
                                         "type": "regex",
                                         "pattern": "[",
-                                        "path_globs": [],
                                     }
                                 ],
                             }
                         ]
                     }
                 )
+
+    def test_empty_custom_keep_pattern_error_message_is_localized(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out_dir = Path(temp_dir) / "results"
+            state = AppServiceState(out_dir=out_dir)
+            with self.assertRaises(ValueError) as context:
+                state.save_config(
+                    {
+                        "custom_keep_categories": [
+                            {
+                                "name": "坏规则",
+                                "enabled": True,
+                                "rules": [
+                                    {
+                                        "type": "keyword",
+                                        "pattern": "   ",
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                )
+
+            self.assertEqual(
+                str(context.exception),
+                "免改规则配置无效：规则分组 1 的规则 1 的关键字或正则不能为空。",
+            )
 
     def test_custom_keep_categories_override_scan_classification(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -479,7 +507,7 @@ class AppServerSmokeTest(unittest.TestCase):
             java_file = repo / "src" / "App.java"
             java_file.parent.mkdir(parents=True)
             java_file.write_text(
-                'class App { String fail(){ return "系统繁忙"; } }\n',
+                'class App { String fail(){ return "系统超时"; } }\n',
                 encoding="utf-8",
             )
 
@@ -503,7 +531,6 @@ class AppServerSmokeTest(unittest.TestCase):
                                 {
                                     "type": "regex",
                                     "pattern": "系统繁忙",
-                                    "path_globs": ["templates/**"],
                                 }
                             ],
                         },
@@ -513,8 +540,7 @@ class AppServerSmokeTest(unittest.TestCase):
                             "rules": [
                                 {
                                     "type": "keyword",
-                                    "pattern": "系统繁忙",
-                                    "path_globs": [],
+                                    "pattern": "系统超时",
                                 }
                             ],
                         },

@@ -175,21 +175,27 @@ def normalize_custom_keep_categories(raw_categories, path=None):
     if raw_categories is None:
         return []
     if not isinstance(raw_categories, list):
-        raise ValueError(_format_error(path, "custom_keep_categories must be a list."))
+        raise ValueError(_format_custom_keep_error(path, "免改规则配置必须是数组。"))
     normalized = []
     seen_names = set()
     for index, raw_category in enumerate(raw_categories):
         if not isinstance(raw_category, dict):
             raise ValueError(
-                _format_error(path, "custom_keep_categories[{}] must be an object.".format(index))
+                _format_custom_keep_error(
+                    path,
+                    "{} 的配置格式不正确。".format(_custom_keep_category_label(index)),
+                )
             )
         name = _normalize_model_text(raw_category.get("name"))
         if not name:
             raise ValueError(
-                _format_error(path, "custom_keep_categories[{}].name must be a non-empty string.".format(index))
+                _format_custom_keep_error(
+                    path,
+                    "{} 的分类名称不能为空。".format(_custom_keep_category_label(index)),
+                )
             )
         if name in seen_names:
-            raise ValueError(_format_error(path, "custom_keep_categories names must be unique."))
+            raise ValueError(_format_custom_keep_error(path, '规则分组名称“{}”重复，请保持唯一。'.format(name)))
         rules = normalize_custom_keep_rules(raw_category.get("rules"), path=path, category_index=index)
         normalized.append(
             {
@@ -205,90 +211,56 @@ def normalize_custom_keep_categories(raw_categories, path=None):
 def normalize_custom_keep_rules(raw_rules, path=None, category_index=0):
     if not isinstance(raw_rules, list) or not raw_rules:
         raise ValueError(
-            _format_error(
+            _format_custom_keep_error(
                 path,
-                "custom_keep_categories[{}].rules must be a non-empty list.".format(category_index),
+                "{} 至少需要一条规则。".format(_custom_keep_category_label(category_index)),
             )
         )
     normalized = []
     for rule_index, raw_rule in enumerate(raw_rules):
         if not isinstance(raw_rule, dict):
             raise ValueError(
-                _format_error(
+                _format_custom_keep_error(
                     path,
-                    "custom_keep_categories[{}].rules[{}] must be an object.".format(category_index, rule_index),
+                    "{} 的配置格式不正确。".format(_custom_keep_rule_label(category_index, rule_index)),
                 )
             )
         rule_type = _normalize_model_text(raw_rule.get("type")).lower()
         if rule_type not in ("keyword", "regex"):
             raise ValueError(
-                _format_error(
+                _format_custom_keep_error(
                     path,
-                    "custom_keep_categories[{}].rules[{}].type must be keyword or regex.".format(
-                        category_index,
-                        rule_index,
+                    "{} 的规则类型只能是“关键字”或“正则”。".format(
+                        _custom_keep_rule_label(category_index, rule_index),
                     ),
                 )
             )
         pattern = _normalize_model_text(raw_rule.get("pattern"))
         if not pattern:
             raise ValueError(
-                _format_error(
+                _format_custom_keep_error(
                     path,
-                    "custom_keep_categories[{}].rules[{}].pattern must be a non-empty string.".format(
-                        category_index,
-                        rule_index,
+                    "{} 的关键字或正则不能为空。".format(
+                        _custom_keep_rule_label(category_index, rule_index),
                     ),
                 )
             )
         if rule_type == "regex":
             try:
                 re.compile(pattern)
-            except re.error as exc:
+            except re.error:
                 raise ValueError(
-                    _format_error(
+                    _format_custom_keep_error(
                         path,
-                        "custom_keep_categories[{}].rules[{}].pattern is not a valid regex: {}.".format(
-                            category_index,
-                            rule_index,
-                            exc,
-                        ),
+                        "{} 的正则表达式格式不正确。".format(_custom_keep_rule_label(category_index, rule_index)),
                     )
                 )
-        path_globs = normalize_custom_keep_path_globs(
-            raw_rule.get("path_globs", []),
-            path=path,
-            category_index=category_index,
-            rule_index=rule_index,
-        )
         normalized.append(
             {
                 "type": rule_type,
                 "pattern": pattern,
-                "path_globs": path_globs,
             }
         )
-    return normalized
-
-
-def normalize_custom_keep_path_globs(raw_path_globs, path=None, category_index=0, rule_index=0):
-    if raw_path_globs is None:
-        return []
-    if not isinstance(raw_path_globs, list):
-        raise ValueError(
-            _format_error(
-                path,
-                "custom_keep_categories[{}].rules[{}].path_globs must be a list.".format(
-                    category_index,
-                    rule_index,
-                ),
-            )
-        )
-    normalized = []
-    for item in raw_path_globs:
-        value = _normalize_model_text(item)
-        if value:
-            normalized.append(value)
     return normalized
 
 
@@ -372,6 +344,23 @@ def _format_error(path, message):
     if path is None:
         return "Invalid app state: {}".format(message)
     return "Invalid app state file {}: {}".format(path, message)
+
+
+def _format_custom_keep_error(path, message):
+    if path is None:
+        return "免改规则配置无效：{}".format(message)
+    return "应用状态文件 {} 中的免改规则配置无效：{}".format(path, message)
+
+
+def _custom_keep_category_label(index):
+    return "规则分组 {}".format(int(index) + 1)
+
+
+def _custom_keep_rule_label(category_index, rule_index):
+    return "{} 的规则 {}".format(
+        _custom_keep_category_label(category_index),
+        int(rule_index) + 1,
+    )
 
 
 def _normalize_model_text(value):

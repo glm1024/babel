@@ -29,6 +29,14 @@ class AppStateSmokeTest(unittest.TestCase):
                 }
             )
 
+            self.assertEqual(
+                state["custom_keep_categories"][0]["rules"][0],
+                {
+                    "type": "keyword",
+                    "pattern": "系统繁忙",
+                },
+            )
+
             write_app_state(target, state)
             reloaded = load_app_state(target)
 
@@ -47,12 +55,12 @@ class AppStateSmokeTest(unittest.TestCase):
                         {
                             "name": "重复分类",
                             "enabled": True,
-                            "rules": [{"type": "keyword", "pattern": "系统繁忙", "path_globs": []}],
+                            "rules": [{"type": "keyword", "pattern": "系统繁忙"}],
                         },
                         {
                             "name": "重复分类",
                             "enabled": True,
-                            "rules": [{"type": "keyword", "pattern": "系统超时", "path_globs": []}],
+                            "rules": [{"type": "keyword", "pattern": "系统超时"}],
                         },
                     ],
                 }
@@ -67,11 +75,31 @@ class AppStateSmokeTest(unittest.TestCase):
                         {
                             "name": "坏规则",
                             "enabled": True,
-                            "rules": [{"type": "regex", "pattern": "[", "path_globs": []}],
+                            "rules": [{"type": "regex", "pattern": "["}],
                         }
                     ],
                 }
             )
+
+    def test_invalid_custom_keep_regex_error_message_is_localized(self) -> None:
+        with self.assertRaises(ValueError) as context:
+            normalize_app_state(
+                {
+                    "version": 1,
+                    "custom_keep_categories": [
+                        {
+                            "name": "坏规则",
+                            "enabled": True,
+                            "rules": [{"type": "regex", "pattern": "["}],
+                        }
+                    ],
+                }
+            )
+
+        self.assertEqual(
+            str(context.exception),
+            "免改规则配置无效：规则分组 1 的规则 1 的正则表达式格式不正确。",
+        )
 
     def test_empty_custom_keep_category_name_and_rules_rejected(self) -> None:
         with self.assertRaises(ValueError):
