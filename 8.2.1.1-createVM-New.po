@@ -1,0 +1,228 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) $${COPYRIGHT}
+# This file is distributed under the same license as the $${PRODUCTNAME}
+# $${DISPLAY_VERSION} 用户手册 package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2025.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: $${PRODUCTNAME} $${DISPLAY_VERSION} 用户手册 $${DISPLAY_VERSION}\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2025-01-08 18:12+0800\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.11.0\n"
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:4
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:17
+msgid "创建全新虚拟机"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:10
+msgid "创建全新虚拟机，操作步骤如下："
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:10
+msgid "创建全新虚拟机，操作步骤如下："
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:12
+msgid "单击主页导航栏或者菜单栏中的【虚拟机】->【创建虚拟机】->【全新虚拟机】。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:19
+msgid "在【基本信息】页面："
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:21
+msgid "【名称】：编辑待创建虚拟机的名称。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:22
+msgid "【描述】：编辑待创建虚拟机的描述信息。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:23
+msgid "【类型】：选择待创建虚拟机的类型（全新虚拟机、MES虚拟机、Oracle虚拟机、高性能虚拟机）。"
+msgstr ""
+
+msgid "系统根据选择的虚拟机类型，自动默认最佳配置。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:24
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:35
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:73
+msgid "单击【下一步】。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:29
+msgid "基本信息"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:31
+msgid "在【选择主机】页面："
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:33
+msgid "在“集群列表”模块，选择待使用的集群。"
+msgstr """
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:34
+msgid "在“主机列表”模块，选择待使用的主机。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:39
+msgid "通过主机IP选择主机，来作为虚拟机的宿主机。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:40
+msgid "如果选择了一个集群，iCenter会自动选择集群的一个主机作为虚拟机的宿主机。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:41
+msgid "在当前页面，单击【刷新】按钮，可实时刷新主机列表。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:42
+msgid "在当前页面，单击【增加主机】按钮，可进入增加主机页面，详见本文档 :ref:`增加主机<5.2.1-addHost>` 章节。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:43
+msgid "在当前页面，选中待使用的主机，单击“操作”栏中的【|view2|】按钮，可查看本地存储池详情。"
+msgstr """
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:48
+msgid "选择主机"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:50
+msgid "在【选择存储】页面：选择待使用的存储池，单击【下一步】。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:54
+msgid "在当前页面，单击【刷新】按钮，可实时刷新存储列表信息。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:60
+msgid "选择存储"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:62
+msgid "在【配置兼容性和操作系统】页面："
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:64
+msgid "【虚拟机版本】：选择待创建虚拟机的版本（默认版本为2.0版本）。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:68
+msgid "V2.0版本默认使用raw格式提供更高磁盘性能，且兼容qcow2格式。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:69
+msgid "支持模板快速部署、快速克隆以及裸设备存储池等高级功能。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:71
+msgid "【体系架构】：选择体系架构。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:72
+msgid "【客户机操作系统】：选择待创建虚拟机的操作系统。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:78
+msgid "配置兼容性和操作系统"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:80
+msgid "在【自定义硬件】页面："
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:82
+msgid "在【CPU】选项卡页面：编辑CPU相关信息，详情可查看 :ref:`CPU配置<8.3.2-vmCPU>` 章节。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:83
+msgid "在【内存】选项卡页面：编辑内存相关信息，详情可查看 :ref:`内存配置<8.3.3-vmMemory>` 章节。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:84
+msgid "在【网卡】选项卡页面：编辑网卡相关信息，详情可查看 :ref:`网卡配置<8.3.4-vmNetworkCard>` 章节。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:85
+msgid "在【磁盘】选项卡页面：编辑磁盘相关信息，详情可查看 :ref:`磁盘配置<8.3.5-vmDisk>` 章节。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:86
+msgid "在【光驱】选项卡页面：编辑光驱相关信息，详情可查看 :ref:`光驱配置<8.3.6-vmOpticalDrive>` 章节。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:87
+msgid "在【软驱】选项卡页面：编辑软驱相关信息，详情可查看 :ref:`软驱配置<8.3.8-vmFloppyDriveDevice>` 章节。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:88
+msgid "在【显卡】选项卡页面：编辑磁盘相关信息，详情可查看 :ref:`显卡配置<8.3.11-vmGraphicsCardDevice>` 章节。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:89
+msgid "在【其他】选项卡页面：编辑当前虚拟机的其他相关信息，详情可查看 :ref:`虚拟机其他配置<8.3.1.2-vmOther>` 章节。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:90
+msgid ""
+"单击当前页面左下角【添加硬件】->【看门狗】，在【看门狗】选项卡页面：编辑看门狗相关信息，详情可查看 "
+":ref:`看门狗配置<8.3.13-vmDogDevice>` 章节。"
+msgstr ""
+
+msgid ""
+"单击当前页面左下角【添加硬件】->【TPM】，在【TPM】选项卡页面：编辑TPM相关信息，详情可查看 "
+":ref:`TPM配置<8.3.15-vmTpmDevice>` 章节。"
+msgstr ""
+
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:91
+msgid ""
+"单击当前页面左下角【添加硬件】->【USB】，在【USB】选项卡页面：编辑USB相关信息，详情可查看 "
+":ref:`USB配置<8.3.7-vmUSBDevice>` 章节。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:92
+msgid ""
+"单击当前页面左下角【添加硬件】->【GPU】，在【GPU】选项卡页面：编辑GPU相关信息，详情可查看 "
+":ref:`GPU配置<8.3.9-vmGPUDevice>` 章节。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:93
+msgid ""
+"单击当前页面左下角【添加硬件】->【PCI】，在【PCI】选项卡页面：编辑PCI相关信息，详情可查看 "
+":ref:`PCI配置<8.3.12-vmPCIDevice>` 章节。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:94
+msgid ""
+"单击当前页面左下角【添加硬件】->【串口】，在【串口】选项卡页面：编辑串口相关信息，详情可查看 "
+":ref:`串口配置<8.3.14-vmSerialPort>` 章节。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:95
+msgid ""
+"单击当前页面左下角【添加硬件】->【FPGA】，在【FPGA】选项卡页面：编辑FPGA相关信息，详情可查看 "
+":ref:`FPGA配置<8.3.10-vmFPGADevice>` 章节。"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:100
+msgid "自定义硬件"
+msgstr ""
+
+#: ../../source/8-vmManagerConfig/8.2-vmCreation/8.2.1-createVM/8.2.1.1-createVM-New.rst:102
+msgid "单击【完成】即可。"
+msgstr ""
+
