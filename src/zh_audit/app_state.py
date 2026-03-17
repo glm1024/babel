@@ -9,7 +9,7 @@ from zh_audit.models import ScanSettings
 APP_STATE_VERSION = 1
 MODEL_PROVIDER = "openai compatible"
 MODEL_CONFIG_FIELDS = ("base_url", "api_key", "model", "max_tokens")
-DEFAULT_MODEL_MAX_TOKENS = 100
+DEFAULT_MODEL_MAX_TOKENS = 4096
 
 
 def default_model_config():

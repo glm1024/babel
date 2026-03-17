@@ -1518,7 +1518,7 @@ def render_app_shell(bootstrap_payload, client_config):
             </label>
             <label>
               <div class="field-label">Max Tokens</div>
-              <input id="maxTokensInput" class="field-input" type="number" min="1" placeholder="100">
+              <input id="maxTokensInput" class="field-input" type="number" min="1" placeholder="4096">
             </label>
           </div>
           <div class="btn-row">
@@ -1542,7 +1542,7 @@ __REPORT_COMPONENT_BUNDLE__
       base_url: "",
       api_key: "",
       model: "",
-      max_tokens: 100,
+      max_tokens: 4096,
     };
     const TAB_IDS = ["home", "results", "customKeep", "poTranslation", "translation", "sqlTranslation", "settings"];
     const CUSTOM_KEEP_DRAFT_STORAGE_KEY = `zh-audit:custom-keep-draft:${window.location.pathname}`;
