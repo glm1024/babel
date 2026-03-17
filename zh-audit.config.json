@@ -3,6 +3,6 @@
     "base_url": "http://100.7.69.249:7777/v1",
     "api_key": "",
     "model": "deepseek-v3",
-    "max_tokens": 100
+    "max_tokens": 4096
   }
 }
