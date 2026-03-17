@@ -1577,8 +1577,11 @@ __REPORT_COMPONENT_BUNDLE__
       poTranslation: BOOTSTRAP.po_translation || defaultPoTranslationPayload(),
       sqlTranslation: BOOTSTRAP.sql_translation || defaultSqlTranslationPayload(),
       translationPromptDrafts: {},
+      translationCandidateDrafts: {},
       poTranslationPromptDrafts: {},
+      poTranslationCandidateDrafts: {},
       sqlTranslationPromptDrafts: {},
+      sqlTranslationCandidateDrafts: {},
       translationItemOps: {},
       poTranslationItemOps: {},
       sqlTranslationItemOps: {},
@@ -2106,6 +2109,22 @@ __REPORT_COMPONENT_BUNDLE__
       });
     }
 
+    function pruneDrafts(drafts, items) {
+      const activeIds = new Set((Array.isArray(items) ? items : []).map(item => item.id));
+      Object.keys(drafts || {}).forEach(itemId => {
+        if (!activeIds.has(itemId)) {
+          delete drafts[itemId];
+        }
+      });
+    }
+
+    function draftValue(drafts, itemId, fallbackValue) {
+      if (Object.prototype.hasOwnProperty.call(drafts || {}, itemId)) {
+        return String(drafts[itemId] || "");
+      }
+      return String(fallbackValue || "");
+    }
+
     function setItemOp(itemOps, itemId, action, message) {
       itemOps[itemId] = {
         action: String(action || ""),
@@ -2389,6 +2408,7 @@ __REPORT_COMPONENT_BUNDLE__
 
       const pendingItems = Array.isArray(translation.pending_items) ? translation.pending_items : [];
       pruneItemOps(state.translationItemOps, pendingItems);
+      pruneDrafts(state.translationCandidateDrafts, pendingItems);
       translationPendingEmpty.classList.toggle("hidden", pendingItems.length > 0);
       translationPendingList.classList.toggle("hidden", pendingItems.length === 0);
       translationPendingList.innerHTML = pendingItems.map(item => {
@@ -2396,7 +2416,7 @@ __REPORT_COMPONENT_BUNDLE__
         const isBusy = Boolean(itemOp);
         const acceptTitle = isBusy
           ? (itemOp.message || "正在处理当前条目")
-          : (item.validation_message || "校验未通过，请重新生成");
+          : (item.validation_message ? `校验未通过，但你仍可直接接受或手动修改后接受：${item.validation_message}` : "接受当前候选英文");
         return `
         <div class="translation-log-item${isBusy ? " is-busy" : ""}">
           <div class="translation-item-stack">
@@ -2404,16 +2424,18 @@ __REPORT_COMPONENT_BUNDLE__
             <div><span class="muted">中文：</span>${escapeHtml(item.source_text || "-")}</div>
             <div><span class="muted">当前英文：</span><code>${escapeHtml(item.target_text || "(空)")}</code></div>
             <div><span class="muted">候选英文：</span><code>${escapeHtml(item.candidate_text || "-")}</code></div>
+            <div><span class="muted">手动英文：</span></div>
+            <input class="field-input translation-inline-input" data-candidate-id="${escapeAttr(item.id)}" value="${escapeAttr(draftValue(state.translationCandidateDrafts, item.id, item.candidate_text || ""))}" placeholder="可直接修改候选英文，点击接受后写入" ${isBusy ? "disabled" : ""}>
             ${renderModelDebugInfo(item)}
             ${item.validation_message ? `<div class="translation-validation-note ${item.validation_state === "failed" ? "is-error" : ""}">${escapeHtml(item.validation_message)}</div>` : ""}
             ${itemOp ? `<div class="translation-validation-note is-progress">${escapeHtml(itemOp.message || "正在处理当前条目...")}</div>` : ""}
-            <div class="translation-call-budget">重试轮次：${escapeHtml(String(item.generation_attempts_used || 0))}/${escapeHtml(String(5))}</div>
+            <div class="translation-call-budget">本次生成重试：${escapeHtml(String(item.generation_attempts_used || 0))}/${escapeHtml(String(5))}</div>
             <div class="translation-tags">
               ${(item.locked_terms || []).map(term => `<span class="translation-tag">${escapeHtml(`${term.source} => ${term.target}`)}</span>`).join("")}
             </div>
           </div>
           <div class="translation-actions">
-            <button class="primary-btn${itemOp && itemOp.action === "accept" ? " is-loading" : ""}" type="button" data-action="translation-accept" data-id="${escapeAttr(item.id)}" ${isBusy || item.can_accept === false ? `disabled title="${escapeAttr(acceptTitle)}"` : ""}>${escapeHtml(itemOp && itemOp.action === "accept" ? "接受中..." : "接受")}</button>
+            <button class="primary-btn${itemOp && itemOp.action === "accept" ? " is-loading" : ""}" type="button" data-action="translation-accept" data-id="${escapeAttr(item.id)}" ${isBusy ? `disabled title="${escapeAttr(acceptTitle)}"` : `title="${escapeAttr(acceptTitle)}"`}>${escapeHtml(itemOp && itemOp.action === "accept" ? "接受中..." : (item.validation_state === "failed" ? "强制接受" : "接受"))}</button>
             <input class="field-input translation-inline-input" data-prompt-id="${escapeAttr(item.id)}" value="${escapeAttr(state.translationPromptDrafts[item.id] || "")}" placeholder="可选：输入额外 prompt 后重新生成" ${isBusy ? "disabled" : ""}>
             <button class="secondary-btn${itemOp && itemOp.action === "regenerate" ? " is-loading" : ""}" type="button" data-action="translation-regenerate" data-id="${escapeAttr(item.id)}" ${isBusy ? `disabled title="${escapeAttr(itemOp.message || "正在处理当前条目")}"` : ""}>${escapeHtml(itemOp && itemOp.action === "regenerate" ? "重新生成中..." : "重新生成")}</button>
             <button class="danger-btn${itemOp && itemOp.action === "reject" ? " is-loading" : ""}" type="button" data-action="translation-reject" data-id="${escapeAttr(item.id)}" ${isBusy ? `disabled title="${escapeAttr(itemOp.message || "正在处理当前条目")}"` : ""}>${escapeHtml(itemOp && itemOp.action === "reject" ? "忽略中..." : "忽略")}</button>
@@ -2511,6 +2533,7 @@ __REPORT_COMPONENT_BUNDLE__
 
       const pendingItems = Array.isArray(poTranslation.pending_items) ? poTranslation.pending_items : [];
       pruneItemOps(state.poTranslationItemOps, pendingItems);
+      pruneDrafts(state.poTranslationCandidateDrafts, pendingItems);
       poTranslationPendingEmpty.classList.toggle("hidden", pendingItems.length > 0);
       poTranslationPendingList.classList.toggle("hidden", pendingItems.length === 0);
       poTranslationPendingList.innerHTML = pendingItems.map(item => {
@@ -2518,7 +2541,7 @@ __REPORT_COMPONENT_BUNDLE__
         const isBusy = Boolean(itemOp);
         const acceptTitle = isBusy
           ? (itemOp.message || "正在处理当前条目")
-          : (item.validation_message || "校验未通过，请重新生成");
+          : (item.validation_message ? `校验未通过，但你仍可直接接受或手动修改后接受：${item.validation_message}` : "接受当前候选英文");
         return `
         <div class="translation-log-item${isBusy ? " is-busy" : ""}">
           <div class="translation-item-stack">
@@ -2527,19 +2550,21 @@ __REPORT_COMPONENT_BUNDLE__
             <div><span class="muted">msgid：</span>${escapeHtml(item.source_text || "-")}</div>
             <div><span class="muted">当前 msgstr：</span><code>${escapeHtml(item.target_text || "(空)")}</code></div>
             <div><span class="muted">候选 msgstr：</span><code>${escapeHtml(item.candidate_text || "-")}</code></div>
+            <div><span class="muted">手动 msgstr：</span></div>
+            <input class="field-input translation-inline-input" data-po-candidate-id="${escapeAttr(item.id)}" value="${escapeAttr(draftValue(state.poTranslationCandidateDrafts, item.id, item.candidate_text || ""))}" placeholder="可直接修改候选 msgstr，点击接受后写入" ${isBusy ? "disabled" : ""}>
             ${renderModelDebugInfo(item)}
             <div><span class="muted">RST 保护：</span>${escapeHtml(item.protected_summary || "-")}</div>
             <div><span class="muted">前端术语：</span>${escapeHtml(item.frontend_glossary_enabled ? `已启用（${((item.frontend_ui_slots || []).join(", ")) || "slot"}）` : "未启用")}</div>
             ${item.validation_message ? `<div class="translation-validation-note ${item.validation_state === "failed" ? "is-error" : ""}">${escapeHtml(item.validation_message)}</div>` : ""}
             ${itemOp ? `<div class="translation-validation-note is-progress">${escapeHtml(itemOp.message || "正在处理当前条目...")}</div>` : ""}
-            <div class="translation-call-budget">重试轮次：${escapeHtml(String(item.generation_attempts_used || 0))}/${escapeHtml(String(5))}</div>
+            <div class="translation-call-budget">本次生成重试：${escapeHtml(String(item.generation_attempts_used || 0))}/${escapeHtml(String(5))}</div>
             <div class="translation-tags">
               ${(item.locked_terms || []).map(term => `<span class="translation-tag">${escapeHtml(`${term.source} => ${term.target}`)}</span>`).join("")}
             </div>
             ${(item.active_frontend_terms || []).length ? `<div class="translation-tags">${(item.active_frontend_terms || []).map(term => `<span class="translation-tag">${escapeHtml(`前端：${term.source} => ${term.target}`)}</span>`).join("")}</div>` : ""}
           </div>
           <div class="translation-actions">
-            <button class="primary-btn${itemOp && itemOp.action === "accept" ? " is-loading" : ""}" type="button" data-action="po-translation-accept" data-id="${escapeAttr(item.id)}" ${isBusy || item.can_accept === false ? `disabled title="${escapeAttr(acceptTitle)}"` : ""}>${escapeHtml(itemOp && itemOp.action === "accept" ? "接受中..." : "接受")}</button>
+            <button class="primary-btn${itemOp && itemOp.action === "accept" ? " is-loading" : ""}" type="button" data-action="po-translation-accept" data-id="${escapeAttr(item.id)}" ${isBusy ? `disabled title="${escapeAttr(acceptTitle)}"` : `title="${escapeAttr(acceptTitle)}"`}>${escapeHtml(itemOp && itemOp.action === "accept" ? "接受中..." : (item.validation_state === "failed" ? "强制接受" : "接受"))}</button>
             <input class="field-input translation-inline-input" data-po-prompt-id="${escapeAttr(item.id)}" value="${escapeAttr(state.poTranslationPromptDrafts[item.id] || "")}" placeholder="可选：输入额外 prompt 后重新生成" ${isBusy ? "disabled" : ""}>
             <button class="secondary-btn${itemOp && itemOp.action === "regenerate" ? " is-loading" : ""}" type="button" data-action="po-translation-regenerate" data-id="${escapeAttr(item.id)}" ${isBusy ? `disabled title="${escapeAttr(itemOp.message || "正在处理当前条目")}"` : ""}>${escapeHtml(itemOp && itemOp.action === "regenerate" ? "重新生成中..." : "重新生成")}</button>
             <button class="danger-btn${itemOp && itemOp.action === "reject" ? " is-loading" : ""}" type="button" data-action="po-translation-reject" data-id="${escapeAttr(item.id)}" ${isBusy ? `disabled title="${escapeAttr(itemOp.message || "正在处理当前条目")}"` : ""}>${escapeHtml(itemOp && itemOp.action === "reject" ? "忽略中..." : "忽略")}</button>
@@ -2643,6 +2668,7 @@ __REPORT_COMPONENT_BUNDLE__
 
       const pendingItems = Array.isArray(sqlTranslation.pending_items) ? sqlTranslation.pending_items : [];
       pruneItemOps(state.sqlTranslationItemOps, pendingItems);
+      pruneDrafts(state.sqlTranslationCandidateDrafts, pendingItems);
       sqlTranslationPendingEmpty.classList.toggle("hidden", pendingItems.length > 0);
       sqlTranslationPendingList.classList.toggle("hidden", pendingItems.length === 0);
       sqlTranslationPendingList.innerHTML = pendingItems.map(item => {
@@ -2650,7 +2676,7 @@ __REPORT_COMPONENT_BUNDLE__
         const isBusy = Boolean(itemOp);
         const acceptTitle = isBusy
           ? (itemOp.message || "正在处理当前条目")
-          : (item.validation_message || "校验未通过，请重新生成");
+          : (item.validation_message ? `校验未通过，但你仍可直接接受或手动修改后接受：${item.validation_message}` : "接受当前候选英文");
         return `
         <div class="translation-log-item${isBusy ? " is-busy" : ""}">
           <div class="translation-item-stack">
@@ -2659,16 +2685,18 @@ __REPORT_COMPONENT_BUNDLE__
             <div><span class="muted">中文：</span>${escapeHtml(item.source_text || "-")}</div>
             <div><span class="muted">当前英文：</span><code>${escapeHtml(item.target_text || "(空)")}</code></div>
             <div><span class="muted">候选英文：</span><code>${escapeHtml(item.candidate_text || "-")}</code></div>
+            <div><span class="muted">手动英文：</span></div>
+            <input class="field-input translation-inline-input" data-sql-candidate-id="${escapeAttr(item.id)}" value="${escapeAttr(draftValue(state.sqlTranslationCandidateDrafts, item.id, item.candidate_text || ""))}" placeholder="可直接修改候选英文，点击接受后写入" ${isBusy ? "disabled" : ""}>
             ${renderModelDebugInfo(item)}
             ${item.validation_message ? `<div class="translation-validation-note ${item.validation_state === "failed" ? "is-error" : ""}">${escapeHtml(item.validation_message)}</div>` : ""}
             ${itemOp ? `<div class="translation-validation-note is-progress">${escapeHtml(itemOp.message || "正在处理当前条目...")}</div>` : ""}
-            <div class="translation-call-budget">重试轮次：${escapeHtml(String(item.generation_attempts_used || 0))}/${escapeHtml(String(5))}</div>
+            <div class="translation-call-budget">本次生成重试：${escapeHtml(String(item.generation_attempts_used || 0))}/${escapeHtml(String(5))}</div>
             <div class="translation-tags">
               ${(item.locked_terms || []).map(term => `<span class="translation-tag">${escapeHtml(`${term.source} => ${term.target}`)}</span>`).join("")}
             </div>
           </div>
           <div class="translation-actions">
-            <button class="primary-btn${itemOp && itemOp.action === "accept" ? " is-loading" : ""}" type="button" data-action="sql-translation-accept" data-id="${escapeAttr(item.id)}" ${isBusy || item.can_accept === false ? `disabled title="${escapeAttr(acceptTitle)}"` : ""}>${escapeHtml(itemOp && itemOp.action === "accept" ? "接受中..." : "接受")}</button>
+            <button class="primary-btn${itemOp && itemOp.action === "accept" ? " is-loading" : ""}" type="button" data-action="sql-translation-accept" data-id="${escapeAttr(item.id)}" ${isBusy ? `disabled title="${escapeAttr(acceptTitle)}"` : `title="${escapeAttr(acceptTitle)}"`}>${escapeHtml(itemOp && itemOp.action === "accept" ? "接受中..." : (item.validation_state === "failed" ? "强制接受" : "接受"))}</button>
             <input class="field-input translation-inline-input" data-sql-prompt-id="${escapeAttr(item.id)}" value="${escapeAttr(state.sqlTranslationPromptDrafts[item.id] || "")}" placeholder="可选：输入额外 prompt 后重新生成" ${isBusy ? "disabled" : ""}>
             <button class="secondary-btn${itemOp && itemOp.action === "regenerate" ? " is-loading" : ""}" type="button" data-action="sql-translation-regenerate" data-id="${escapeAttr(item.id)}" ${isBusy ? `disabled title="${escapeAttr(itemOp.message || "正在处理当前条目")}"` : ""}>${escapeHtml(itemOp && itemOp.action === "regenerate" ? "重新生成中..." : "重新生成")}</button>
             <button class="danger-btn${itemOp && itemOp.action === "reject" ? " is-loading" : ""}" type="button" data-action="sql-translation-reject" data-id="${escapeAttr(item.id)}" ${isBusy ? `disabled title="${escapeAttr(itemOp.message || "正在处理当前条目")}"` : ""}>${escapeHtml(itemOp && itemOp.action === "reject" ? "忽略中..." : "忽略")}</button>
@@ -2838,9 +2866,13 @@ __REPORT_COMPONENT_BUNDLE__
       renderTranslation();
     }
 
-    async function acceptTranslation(itemId) {
-      const data = await requestJson(CLIENT_CONFIG.translation_accept_api_path, { item_id: itemId });
+    async function acceptTranslation(itemId, candidateText) {
+      const data = await requestJson(CLIENT_CONFIG.translation_accept_api_path, {
+        item_id: itemId,
+        candidate_text: candidateText,
+      });
       delete state.translationPromptDrafts[itemId];
+      delete state.translationCandidateDrafts[itemId];
       state.translation = data;
       renderTranslation();
     }
@@ -2850,6 +2882,7 @@ __REPORT_COMPONENT_BUNDLE__
         item_id: itemId,
         prompt: prompt,
       });
+      delete state.translationCandidateDrafts[itemId];
       state.translation = data;
       renderTranslation();
     }
@@ -2857,6 +2890,7 @@ __REPORT_COMPONENT_BUNDLE__
     async function rejectTranslation(itemId) {
       const data = await requestJson(CLIENT_CONFIG.translation_reject_api_path, { item_id: itemId });
       delete state.translationPromptDrafts[itemId];
+      delete state.translationCandidateDrafts[itemId];
       state.translation = data;
       renderTranslation();
     }
@@ -2895,9 +2929,13 @@ __REPORT_COMPONENT_BUNDLE__
       renderPoTranslation();
     }
 
-    async function acceptPoTranslation(itemId) {
-      const data = await requestJson(CLIENT_CONFIG.po_translation_accept_api_path, { item_id: itemId });
+    async function acceptPoTranslation(itemId, candidateText) {
+      const data = await requestJson(CLIENT_CONFIG.po_translation_accept_api_path, {
+        item_id: itemId,
+        candidate_text: candidateText,
+      });
       delete state.poTranslationPromptDrafts[itemId];
+      delete state.poTranslationCandidateDrafts[itemId];
       state.poTranslation = data;
       renderPoTranslation();
     }
@@ -2907,6 +2945,7 @@ __REPORT_COMPONENT_BUNDLE__
         item_id: itemId,
         prompt: prompt,
       });
+      delete state.poTranslationCandidateDrafts[itemId];
       state.poTranslation = data;
       renderPoTranslation();
     }
@@ -2914,6 +2953,7 @@ __REPORT_COMPONENT_BUNDLE__
     async function rejectPoTranslation(itemId) {
       const data = await requestJson(CLIENT_CONFIG.po_translation_reject_api_path, { item_id: itemId });
       delete state.poTranslationPromptDrafts[itemId];
+      delete state.poTranslationCandidateDrafts[itemId];
       state.poTranslation = data;
       renderPoTranslation();
     }
@@ -2955,9 +2995,13 @@ __REPORT_COMPONENT_BUNDLE__
       renderSqlTranslation();
     }
 
-    async function acceptSqlTranslation(itemId) {
-      const data = await requestJson(CLIENT_CONFIG.sql_translation_accept_api_path, { item_id: itemId });
+    async function acceptSqlTranslation(itemId, candidateText) {
+      const data = await requestJson(CLIENT_CONFIG.sql_translation_accept_api_path, {
+        item_id: itemId,
+        candidate_text: candidateText,
+      });
       delete state.sqlTranslationPromptDrafts[itemId];
+      delete state.sqlTranslationCandidateDrafts[itemId];
       state.sqlTranslation = data;
       renderSqlTranslation();
     }
@@ -2967,6 +3011,7 @@ __REPORT_COMPONENT_BUNDLE__
         item_id: itemId,
         prompt: prompt,
       });
+      delete state.sqlTranslationCandidateDrafts[itemId];
       state.sqlTranslation = data;
       renderSqlTranslation();
     }
@@ -2974,6 +3019,7 @@ __REPORT_COMPONENT_BUNDLE__
     async function rejectSqlTranslation(itemId) {
       const data = await requestJson(CLIENT_CONFIG.sql_translation_reject_api_path, { item_id: itemId });
       delete state.sqlTranslationPromptDrafts[itemId];
+      delete state.sqlTranslationCandidateDrafts[itemId];
       state.sqlTranslation = data;
       renderSqlTranslation();
     }
@@ -3676,7 +3722,9 @@ __REPORT_COMPONENT_BUNDLE__
       const itemId = target.dataset.id || "";
       try {
         if (target.dataset.action === "translation-accept") {
-          await runTranslationItemAction(itemId, "accept", () => acceptTranslation(itemId));
+          const candidateInput = translationPendingList.querySelector(`[data-candidate-id="${itemId}"]`);
+          const candidateText = candidateInput ? candidateInput.value : "";
+          await runTranslationItemAction(itemId, "accept", () => acceptTranslation(itemId, candidateText));
           return;
         }
         if (target.dataset.action === "translation-regenerate") {
@@ -3697,6 +3745,11 @@ __REPORT_COMPONENT_BUNDLE__
     });
 
     translationPendingList.addEventListener("input", event => {
+      const candidateTarget = event.target instanceof Element ? event.target.closest("[data-candidate-id]") : null;
+      if (candidateTarget) {
+        state.translationCandidateDrafts[candidateTarget.dataset.candidateId || ""] = candidateTarget.value;
+        return;
+      }
       const target = event.target instanceof Element ? event.target.closest("[data-prompt-id]") : null;
       if (!target) return;
       state.translationPromptDrafts[target.dataset.promptId || ""] = target.value;
@@ -3708,7 +3761,9 @@ __REPORT_COMPONENT_BUNDLE__
       const itemId = target.dataset.id || "";
       try {
         if (target.dataset.action === "po-translation-accept") {
-          await runPoTranslationItemAction(itemId, "accept", () => acceptPoTranslation(itemId));
+          const candidateInput = poTranslationPendingList.querySelector(`[data-po-candidate-id="${itemId}"]`);
+          const candidateText = candidateInput ? candidateInput.value : "";
+          await runPoTranslationItemAction(itemId, "accept", () => acceptPoTranslation(itemId, candidateText));
           return;
         }
         if (target.dataset.action === "po-translation-regenerate") {
@@ -3729,6 +3784,11 @@ __REPORT_COMPONENT_BUNDLE__
     });
 
     poTranslationPendingList.addEventListener("input", event => {
+      const candidateTarget = event.target instanceof Element ? event.target.closest("[data-po-candidate-id]") : null;
+      if (candidateTarget) {
+        state.poTranslationCandidateDrafts[candidateTarget.dataset.poCandidateId || ""] = candidateTarget.value;
+        return;
+      }
       const target = event.target instanceof Element ? event.target.closest("[data-po-prompt-id]") : null;
       if (!target) return;
       state.poTranslationPromptDrafts[target.dataset.poPromptId || ""] = target.value;
@@ -3740,7 +3800,9 @@ __REPORT_COMPONENT_BUNDLE__
       const itemId = target.dataset.id || "";
       try {
         if (target.dataset.action === "sql-translation-accept") {
-          await runSqlTranslationItemAction(itemId, "accept", () => acceptSqlTranslation(itemId));
+          const candidateInput = sqlTranslationPendingList.querySelector(`[data-sql-candidate-id="${itemId}"]`);
+          const candidateText = candidateInput ? candidateInput.value : "";
+          await runSqlTranslationItemAction(itemId, "accept", () => acceptSqlTranslation(itemId, candidateText));
           return;
         }
         if (target.dataset.action === "sql-translation-regenerate") {
@@ -3761,6 +3823,11 @@ __REPORT_COMPONENT_BUNDLE__
     });
 
     sqlTranslationPendingList.addEventListener("input", event => {
+      const candidateTarget = event.target instanceof Element ? event.target.closest("[data-sql-candidate-id]") : null;
+      if (candidateTarget) {
+        state.sqlTranslationCandidateDrafts[candidateTarget.dataset.sqlCandidateId || ""] = candidateTarget.value;
+        return;
+      }
       const target = event.target instanceof Element ? event.target.closest("[data-sql-prompt-id]") : null;
       if (!target) return;
       state.sqlTranslationPromptDrafts[target.dataset.sqlPromptId || ""] = target.value;

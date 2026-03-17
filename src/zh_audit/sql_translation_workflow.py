@@ -274,23 +274,27 @@ class SqlTranslationSession(object):
                 }
                 self._persist_locked()
 
-    def accept(self, item_id):
+    def accept(self, item_id, candidate_text=""):
         with self.lock:
             item = self._require_pending_item(item_id)
-            if not item.get("can_accept", True):
-                raise ValueError(item.get("validation_message") or "Candidate validation failed.")
+            manual_candidate = str(candidate_text if candidate_text is not None else "")
+            reason = "人工接受（跳过系统校验）" if item.get("validation_state") == "failed" else "人工接受"
+            if manual_candidate.strip():
+                item["candidate_text"] = sanitize_candidate_text(manual_candidate)
+                item["raw_candidate_text"] = manual_candidate
+                reason = "手动录入后接受"
             appended = self._append_update_sql_once(item)
             item["status"] = "accepted"
             item["target_text"] = item.get("candidate_text", "")
             item["updated_at"] = _timestamp()
-            item["accepted_reason"] = "人工接受"
+            item["accepted_reason"] = reason
             self.pending_ids.remove(item_id)
             self.pending -= 1
             self.accepted += 1
             if appended:
                 self.appended += 1
             self._push_recent(item_id)
-            self._push_event("人工接受", item, item.get("candidate_text", ""))
+            self._push_event(reason, item, item.get("candidate_text", ""))
             self._persist_locked()
             return self.snapshot()
 

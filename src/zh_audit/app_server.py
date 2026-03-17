@@ -285,10 +285,10 @@ class AppServiceState(object):
             session.stop()
             return self.translation_payload_locked()
 
-    def translation_accept(self, item_id):
+    def translation_accept(self, item_id, candidate_text=""):
         with self.lock:
             session = self._require_translation_session()
-        session.accept(item_id)
+        session.accept(item_id, candidate_text=candidate_text)
         return self.translation_payload()
 
     def translation_regenerate(self, item_id, prompt):
@@ -364,10 +364,10 @@ class AppServiceState(object):
             session.stop()
             return self.po_translation_payload_locked()
 
-    def po_translation_accept(self, item_id):
+    def po_translation_accept(self, item_id, candidate_text=""):
         with self.lock:
             session = self._require_po_translation_session()
-        session.accept(item_id)
+        session.accept(item_id, candidate_text=candidate_text)
         return self.po_translation_payload()
 
     def po_translation_regenerate(self, item_id, prompt):
@@ -453,10 +453,10 @@ class AppServiceState(object):
             session.stop()
             return self.sql_translation_payload_locked()
 
-    def sql_translation_accept(self, item_id):
+    def sql_translation_accept(self, item_id, candidate_text=""):
         with self.lock:
             session = self._require_sql_translation_session()
-        session.accept(item_id)
+        session.accept(item_id, candidate_text=candidate_text)
         return self.sql_translation_payload()
 
     def sql_translation_regenerate(self, item_id, prompt):
@@ -1288,7 +1288,13 @@ class AppRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(200, self.server.app_state.resume_translation())
                 return
             if parsed.path == "/api/translation/accept":
-                self._send_json(200, self.server.app_state.translation_accept(payload.get("item_id", "")))
+                self._send_json(
+                    200,
+                    self.server.app_state.translation_accept(
+                        payload.get("item_id", ""),
+                        payload.get("candidate_text", ""),
+                    ),
+                )
                 return
             if parsed.path == "/api/translation/regenerate":
                 self._send_json(
@@ -1309,7 +1315,13 @@ class AppRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(200, self.server.app_state.resume_po_translation())
                 return
             if parsed.path == "/api/po-translation/accept":
-                self._send_json(200, self.server.app_state.po_translation_accept(payload.get("item_id", "")))
+                self._send_json(
+                    200,
+                    self.server.app_state.po_translation_accept(
+                        payload.get("item_id", ""),
+                        payload.get("candidate_text", ""),
+                    ),
+                )
                 return
             if parsed.path == "/api/po-translation/regenerate":
                 self._send_json(
@@ -1330,7 +1342,13 @@ class AppRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(200, self.server.app_state.resume_sql_translation())
                 return
             if parsed.path == "/api/sql-translation/accept":
-                self._send_json(200, self.server.app_state.sql_translation_accept(payload.get("item_id", "")))
+                self._send_json(
+                    200,
+                    self.server.app_state.sql_translation_accept(
+                        payload.get("item_id", ""),
+                        payload.get("candidate_text", ""),
+                    ),
+                )
                 return
             if parsed.path == "/api/sql-translation/regenerate":
                 self._send_json(

@@ -236,8 +236,9 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(pending["generation_attempts_used"], 5)
             self.assertIn("已重试 5 次仍未通过", pending["validation_message"])
             self.assertIn("失败原因：候选仍含中文", pending["validation_message"])
-            with self.assertRaises(ValueError):
-                session.accept(pending["id"])
+            accepted = session.accept(pending["id"], candidate_text="Adapter service API not found.")
+            self.assertEqual(accepted["status"]["counts"]["accepted"], 1)
+            self.assertEqual(accepted["recent_items"][0]["target_text"], "Adapter service API not found.")
 
     def test_sql_translation_session_ignores_frontend_module_terms(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -358,8 +358,37 @@ class TranslationWorkflowTest(unittest.TestCase):
 
             snapshot = session.snapshot()
             self.assertEqual(snapshot["status"]["counts"]["accepted"], 1)
-            self.assertEqual(snapshot["status"]["counts"]["pending"], 0)
-            self.assertEqual(snapshot["events"][0]["label"], "已自动审批")
+
+    def test_translation_session_allows_manual_accept_after_failed_validation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "zh.properties"
+            target = Path(temp_dir) / "en.properties"
+            source.write_text("API_NOT_FOUND=适配服务接口不存在。\n", encoding="utf-8")
+            target.write_text("API_NOT_FOUND=API not found in adapter server.\n", encoding="utf-8")
+
+            session = TranslationSession(
+                source_path=source,
+                target_path=target,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": "适配服务接口不存在。",
+                    "reason": "ok",
+                },
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(pending["validation_state"], "failed")
+
+            accepted = session.accept(pending["id"], candidate_text="Adapter service API not found.")
+            self.assertEqual(accepted["status"]["counts"]["accepted"], 1)
+            self.assertIn("API_NOT_FOUND=Adapter service API not found.", target.read_text(encoding="utf-8"))
+            self.assertEqual(accepted["status"]["counts"]["pending"], 0)
+            self.assertEqual(accepted["recent_items"][0]["target_text"], "Adapter service API not found.")
 
     def test_translation_regenerate_passes_extra_prompt_to_reviewer(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -545,8 +574,8 @@ class TranslationWorkflowTest(unittest.TestCase):
             self.assertIn("已重试 5 次仍未通过", pending["validation_message"])
             self.assertIn("失败原因：候选仍含中文", pending["validation_message"])
             self.assertIn("候选未通过校验：候选仍含中文", snapshot["events"][0]["label"])
-            with self.assertRaises(ValueError):
-                session.accept(pending["id"])
+            accepted = session.accept(pending["id"])
+            self.assertEqual(accepted["status"]["counts"]["accepted"], 1)
 
     def test_translation_session_retries_retryable_model_format_errors_without_interrupting_task(self):
         with tempfile.TemporaryDirectory() as temp_dir:

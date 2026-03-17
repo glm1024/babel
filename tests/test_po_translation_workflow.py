@@ -249,3 +249,57 @@ class PoTranslationWorkflowTest(unittest.TestCase):
             restored_pending = restored.snapshot()["pending_items"][0]
             self.assertTrue(restored_pending["frontend_glossary_enabled"])
             self.assertEqual(restored_pending["frontend_ui_slots"], ["slot_1"])
+
+    def test_po_translation_session_allows_manual_accept_after_failed_validation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            po_path = Path(temp_dir) / "doc.po"
+            po_path.write_text(
+                'msgid ""\n'
+                'msgstr ""\n'
+                '"Project-Id-Version: Demo\\\\n"\n'
+                '\n'
+                '#: ../../source/demo.rst:8\n'
+                'msgid "详见 :ref:`增加主机<5.2.1-addHost>` 章节。"\n'
+                'msgstr ""\n',
+                encoding="utf-8",
+            )
+
+            session = PoTranslationSession(
+                po_path=po_path,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 200},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "slot_translations": [
+                        {
+                            "slot_id": kwargs["protected_source"]["translatable_slots"][0]["slot_id"],
+                            "translation": "详见 ",
+                            "frontend_ui_context": False,
+                        },
+                        {
+                            "slot_id": kwargs["protected_source"]["translatable_slots"][1]["slot_id"],
+                            "translation": "增加主机",
+                            "frontend_ui_context": False,
+                        },
+                        {
+                            "slot_id": kwargs["protected_source"]["translatable_slots"][2]["slot_id"],
+                            "translation": " section.",
+                            "frontend_ui_context": False,
+                        },
+                    ],
+                    "reason": "ok",
+                },
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(pending["validation_state"], "failed")
+
+            accepted = session.accept(
+                pending["id"],
+                candidate_text="See :ref:`Add Host<5.2.1-addHost>` section.",
+            )
+            self.assertEqual(accepted["status"]["counts"]["accepted"], 1)
+            self.assertIn('msgstr "See :ref:`Add Host<5.2.1-addHost>` section."', po_path.read_text(encoding="utf-8"))

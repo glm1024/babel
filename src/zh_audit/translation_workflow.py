@@ -243,12 +243,16 @@ class TranslationSession(object):
                 }
                 self._persist_locked()
 
-    def accept(self, item_id):
+    def accept(self, item_id, candidate_text=""):
         with self.lock:
             item = self._require_pending_item(item_id)
-            if not item.get("can_accept", True):
-                raise ValueError(item.get("validation_message") or "Candidate validation failed.")
-            self._apply_item(item, "accepted", "人工接受")
+            manual_candidate = str(candidate_text if candidate_text is not None else "")
+            reason = "人工接受（跳过系统校验）" if item.get("validation_state") == "failed" else "人工接受"
+            if manual_candidate.strip():
+                item["candidate_text"] = sanitize_candidate_text(manual_candidate)
+                item["raw_candidate_text"] = manual_candidate
+                reason = "手动录入后接受"
+            self._apply_item(item, "accepted", reason)
             return self.snapshot()
 
     def reject(self, item_id):
