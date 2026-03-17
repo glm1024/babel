@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from zh_audit.model_client import ModelResponseFormatError
 from zh_audit.sql_translation_workflow import (
     SqlTranslationSession,
     build_sql_translation_review_system_prompt,
@@ -342,6 +343,42 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(pending["generation_attempts_used"], 5)
             self.assertIn("模型返回格式不规范", pending["validation_message"])
             self.assertIn("候选未通过校验：模型返回格式不规范", snapshot["events"][0]["label"])
+
+    def test_sql_translation_session_keeps_raw_model_debug_text_for_format_errors(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sql_dir = root / "sql"
+            sql_dir.mkdir()
+            (sql_dir / "demo.sql").write_text(
+                "INSERT INTO t_demo (id, name_zh, name_en) VALUES ('17020009', '可用区不能为空。', 'az can not be null.');\n",
+                encoding="utf-8",
+            )
+
+            session = SqlTranslationSession(
+                directory_path=sql_dir,
+                table_name="t_demo",
+                primary_key_field="id",
+                source_field="name_zh",
+                target_field="name_en",
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: (_ for _ in ()).throw(
+                    ModelResponseFormatError(
+                        "Model response does not contain a valid JSON object: verdict=needs_update",
+                        raw_response='{"choices":[{"message":{"content":"verdict=needs_update\\ncandidate_translation=AZ cannot be empty."}}]}',
+                        raw_content="verdict=needs_update\ncandidate_translation=AZ cannot be empty.",
+                    )
+                ),
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run()
+
+            pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(pending["failure_phase"], "模型")
+            self.assertEqual(pending["raw_candidate_text"], "")
+            self.assertIn("candidate_translation=AZ cannot be empty.", pending["raw_failure_content"])
+            self.assertIn('"choices"', pending["raw_failure_response"])
 
 
 if __name__ == "__main__":

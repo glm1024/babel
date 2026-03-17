@@ -16,7 +16,7 @@ from zh_audit.candidate_validation import (
     validate_candidate_text,
     validation_message,
 )
-from zh_audit.model_client import describe_retryable_model_response_error
+from zh_audit.model_client import describe_retryable_model_response_error, model_response_debug_payload
 from zh_audit.terminology_xlsx import exact_terminology_translation, match_locked_terms
 from zh_audit.utils import contains_han, decode_unicode_escapes
 
@@ -430,6 +430,10 @@ class SqlTranslationSession(object):
             can_accept=normalized["can_accept"],
             generation_attempts_used=normalized["generation_attempts_used"],
             model_calls_used=normalized["model_calls_used"],
+            raw_candidate_text=normalized.get("raw_candidate_text", ""),
+            raw_failure_content=normalized.get("raw_failure_content", ""),
+            raw_failure_response=normalized.get("raw_failure_response", ""),
+            failure_phase=normalized.get("failure_phase", ""),
         )
         with self.lock:
             self._finalize_item(item, "待审批")
@@ -441,6 +445,10 @@ class SqlTranslationSession(object):
         last_result = {
             "verdict": "needs_update",
             "candidate_text": sanitize_candidate_text(item.get("target_text", "")),
+            "raw_candidate_text": "",
+            "raw_failure_content": "",
+            "raw_failure_response": "",
+            "failure_phase": "",
             "reason": "",
             "validation_state": "failed",
             "validation_message": validation_message("校验未通过"),
@@ -472,9 +480,14 @@ class SqlTranslationSession(object):
                 retry_issue = describe_retryable_model_response_error(exc, phase="模型")
                 if not retry_issue:
                     raise
+                debug_payload = model_response_debug_payload(exc)
                 last_result = {
                     "verdict": "needs_update",
                     "candidate_text": sanitize_candidate_text(item.get("target_text", "")),
+                    "raw_candidate_text": "",
+                    "raw_failure_content": _display_text(debug_payload.get("raw_content", "")).strip(),
+                    "raw_failure_response": _display_text(debug_payload.get("raw_response", "")).strip(),
+                    "failure_phase": "模型",
                     "reason": "",
                     "validation_state": "failed",
                     "validation_message": validation_message(retry_issue),
@@ -488,6 +501,7 @@ class SqlTranslationSession(object):
             model_calls_used += 1
             normalized = self._normalize_model_result(item, raw_result, item.get("target_text", ""))
             candidate_text = normalized["candidate_text"]
+            raw_candidate_text = _display_text(raw_result.get("candidate_translation", "")).strip()
             validation_issue = validate_candidate_text(
                 item.get("source_text", ""),
                 candidate_text,
@@ -501,6 +515,10 @@ class SqlTranslationSession(object):
                 last_result = {
                     "verdict": "needs_update",
                     "candidate_text": candidate_text,
+                    "raw_candidate_text": raw_candidate_text,
+                    "raw_failure_content": "",
+                    "raw_failure_response": "",
+                    "failure_phase": "",
                     "reason": normalized["reason"],
                     "validation_state": "failed",
                     "validation_message": validation_message(validation_issue),
@@ -533,9 +551,14 @@ class SqlTranslationSession(object):
                     retry_issue = describe_retryable_model_response_error(exc, phase="AI复核")
                     if not retry_issue:
                         raise
+                    debug_payload = model_response_debug_payload(exc)
                     last_result = {
                         "verdict": "needs_update",
                         "candidate_text": candidate_text,
+                        "raw_candidate_text": raw_candidate_text,
+                        "raw_failure_content": _display_text(debug_payload.get("raw_content", "")).strip(),
+                        "raw_failure_response": _display_text(debug_payload.get("raw_response", "")).strip(),
+                        "failure_phase": "AI复核",
                         "reason": normalized["reason"],
                         "validation_state": "failed",
                         "validation_message": validation_message(retry_issue),
@@ -557,6 +580,10 @@ class SqlTranslationSession(object):
                     last_result = {
                         "verdict": "needs_update",
                         "candidate_text": candidate_text,
+                        "raw_candidate_text": raw_candidate_text,
+                        "raw_failure_content": "",
+                        "raw_failure_response": "",
+                        "failure_phase": "AI复核",
                         "reason": normalized["reason"],
                         "validation_state": "failed",
                         "validation_message": validation_message(retry_issue),
@@ -569,6 +596,10 @@ class SqlTranslationSession(object):
             return {
                 "verdict": normalized["verdict"],
                 "candidate_text": candidate_text,
+                "raw_candidate_text": raw_candidate_text,
+                "raw_failure_content": "",
+                "raw_failure_response": "",
+                "failure_phase": "",
                 "reason": normalized["reason"],
                 "validation_state": "passed",
                 "validation_message": "",
@@ -648,6 +679,10 @@ class SqlTranslationSession(object):
         can_accept,
         generation_attempts_used,
         model_calls_used,
+        raw_candidate_text="",
+        raw_failure_content="",
+        raw_failure_response="",
+        failure_phase="",
     ):
         with self.lock:
             item_id = "sql-{}".format(self.next_id)
@@ -668,6 +703,10 @@ class SqlTranslationSession(object):
                 "target_field": row.get("target_field", self.target_field),
                 "target_text": target_text,
                 "candidate_text": candidate_text,
+                "raw_candidate_text": str(raw_candidate_text or ""),
+                "raw_failure_content": str(raw_failure_content or ""),
+                "raw_failure_response": str(raw_failure_response or ""),
+                "failure_phase": str(failure_phase or ""),
                 "locked_terms": [dict(term) for term in locked_terms],
                 "reason": reason,
                 "verdict": verdict,
@@ -687,6 +726,10 @@ class SqlTranslationSession(object):
 
     def _update_item_validation(self, item, normalized):
         item["candidate_text"] = normalized["candidate_text"]
+        item["raw_candidate_text"] = str(normalized.get("raw_candidate_text", ""))
+        item["raw_failure_content"] = str(normalized.get("raw_failure_content", ""))
+        item["raw_failure_response"] = str(normalized.get("raw_failure_response", ""))
+        item["failure_phase"] = str(normalized.get("failure_phase", ""))
         item["reason"] = normalized["reason"]
         item["verdict"] = normalized["verdict"]
         item["validation_state"] = normalized["validation_state"]
@@ -785,6 +828,10 @@ class SqlTranslationSession(object):
             "source_text": item.get("source_text", ""),
             "target_text": item.get("target_text", ""),
             "candidate_text": item.get("candidate_text", ""),
+            "raw_candidate_text": item.get("raw_candidate_text", ""),
+            "raw_failure_content": item.get("raw_failure_content", ""),
+            "raw_failure_response": item.get("raw_failure_response", ""),
+            "failure_phase": item.get("failure_phase", ""),
             "locked_terms": [dict(term) for term in item.get("locked_terms", [])],
             "reason": item.get("reason", ""),
             "verdict": item.get("verdict", ""),
@@ -861,6 +908,10 @@ class SqlTranslationSession(object):
             restored.setdefault("validation_state", "passed")
             restored.setdefault("validation_message", "")
             restored.setdefault("validation_issue", "")
+            restored.setdefault("raw_candidate_text", "")
+            restored.setdefault("raw_failure_content", "")
+            restored.setdefault("raw_failure_response", "")
+            restored.setdefault("failure_phase", "")
             restored.setdefault("can_accept", True)
             restored.setdefault(
                 "generation_attempts_used",

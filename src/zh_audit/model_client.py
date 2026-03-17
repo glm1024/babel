@@ -36,6 +36,13 @@ RETRYABLE_MODEL_RESPONSE_MARKERS = (
 )
 
 
+class ModelResponseFormatError(ValueError):
+    def __init__(self, message, *, raw_response="", raw_content=""):
+        ValueError.__init__(self, message)
+        self.raw_response = str(raw_response or "")
+        self.raw_content = str(raw_content or "")
+
+
 def call_openai_compatible_json(model_config, system_prompt, user_prompt, max_tokens=None, timeout=90):
     payload = {
         "model": _required_model_value(model_config, "model"),
@@ -50,20 +57,37 @@ def call_openai_compatible_json(model_config, system_prompt, user_prompt, max_to
     try:
         payload = json.loads(raw)
     except ValueError:
-        raise ValueError("模型响应不是合法 JSON：{}".format(raw[:200]))
+        raise ModelResponseFormatError(
+            "模型响应不是合法 JSON：{}".format(raw[:200]),
+            raw_response=raw,
+        )
     try:
         content = payload["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError):
-        raise ValueError("模型响应中缺少 message content。")
+        raise ModelResponseFormatError(
+            "模型响应中缺少 message content。",
+            raw_response=raw,
+        )
     if isinstance(content, list):
         fragments = []
         for item in content:
             if isinstance(item, dict) and item.get("type") == "text":
                 fragments.append(item.get("text", ""))
         content = "".join(fragments)
-    parsed = _extract_json_object(content)
+    try:
+        parsed = _extract_json_object(content)
+    except ValueError as exc:
+        raise ModelResponseFormatError(
+            str(exc),
+            raw_response=raw,
+            raw_content=content,
+        )
     if not isinstance(parsed, dict):
-        raise ValueError("模型响应 JSON 必须是对象。")
+        raise ModelResponseFormatError(
+            "模型响应 JSON 必须是对象。",
+            raw_response=raw,
+            raw_content=content,
+        )
     return parsed
 
 
@@ -161,6 +185,13 @@ def describe_retryable_model_response_error(error, phase="模型"):
 def is_retryable_model_response_error(error):
     message = str(error or "")
     return any(marker in message for marker in RETRYABLE_MODEL_RESPONSE_MARKERS)
+
+
+def model_response_debug_payload(error):
+    return {
+        "raw_response": str(getattr(error, "raw_response", "") or ""),
+        "raw_content": str(getattr(error, "raw_content", "") or ""),
+    }
 
 
 def _json_object_candidates(text):

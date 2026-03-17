@@ -913,6 +913,22 @@ def render_app_shell(bootstrap_payload, client_config):
       font-size: var(--text-md);
       line-height: 1.55;
     }
+    .translation-debug-row {
+      display: grid;
+      gap: 6px;
+    }
+    .translation-debug-block {
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      line-height: 1.55;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.82);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
     .translation-validation-note {
       font-size: var(--text-xs);
       color: var(--muted);
@@ -1874,6 +1890,36 @@ __REPORT_COMPONENT_BUNDLE__
       return escapeHtml(value).replaceAll('"', "&quot;");
     }
 
+    function renderDebugBlock(label, value) {
+      if (!value) {
+        return "";
+      }
+      return `
+        <div class="translation-debug-row">
+          <span class="muted">${escapeHtml(label)}：</span>
+          <div class="translation-debug-block">${escapeHtml(value)}</div>
+        </div>
+      `;
+    }
+
+    function renderModelDebugInfo(item) {
+      const parts = [];
+      const rawCandidate = String(item.raw_candidate_text || "");
+      const candidateText = String(item.candidate_text || "");
+      const failurePhase = String(item.failure_phase || "模型");
+      const rawFailureContent = String(item.raw_failure_content || "");
+      const rawFailureResponse = String(item.raw_failure_response || "");
+      if (rawCandidate && rawCandidate !== candidateText) {
+        parts.push(renderDebugBlock("模型原始候选", rawCandidate));
+      }
+      if (rawFailureContent) {
+        parts.push(renderDebugBlock(`${failurePhase}原始正文`, rawFailureContent));
+      } else if (rawFailureResponse) {
+        parts.push(renderDebugBlock(`${failurePhase}接口返回`, rawFailureResponse));
+      }
+      return parts.join("");
+    }
+
     function displaySnippet(item) {
       return item.snippet || item.normalized_text || item.text || "";
     }
@@ -2350,6 +2396,7 @@ __REPORT_COMPONENT_BUNDLE__
             <div><span class="muted">中文：</span>${escapeHtml(item.source_text || "-")}</div>
             <div><span class="muted">当前英文：</span><code>${escapeHtml(item.target_text || "(空)")}</code></div>
             <div><span class="muted">候选英文：</span><code>${escapeHtml(item.candidate_text || "-")}</code></div>
+            ${renderModelDebugInfo(item)}
             ${item.validation_message ? `<div class="translation-validation-note ${item.validation_state === "failed" ? "is-error" : ""}">${escapeHtml(item.validation_message)}</div>` : ""}
             ${itemOp ? `<div class="translation-validation-note is-progress">${escapeHtml(itemOp.message || "正在处理当前条目...")}</div>` : ""}
             <div class="translation-call-budget">重试轮次：${escapeHtml(String(item.generation_attempts_used || 0))}/${escapeHtml(String(5))}</div>
@@ -2472,6 +2519,7 @@ __REPORT_COMPONENT_BUNDLE__
             <div><span class="muted">msgid：</span>${escapeHtml(item.source_text || "-")}</div>
             <div><span class="muted">当前 msgstr：</span><code>${escapeHtml(item.target_text || "(空)")}</code></div>
             <div><span class="muted">候选 msgstr：</span><code>${escapeHtml(item.candidate_text || "-")}</code></div>
+            ${renderModelDebugInfo(item)}
             <div><span class="muted">RST 保护：</span>${escapeHtml(item.protected_summary || "-")}</div>
             ${item.validation_message ? `<div class="translation-validation-note ${item.validation_state === "failed" ? "is-error" : ""}">${escapeHtml(item.validation_message)}</div>` : ""}
             ${itemOp ? `<div class="translation-validation-note is-progress">${escapeHtml(itemOp.message || "正在处理当前条目...")}</div>` : ""}
@@ -2601,6 +2649,7 @@ __REPORT_COMPONENT_BUNDLE__
             <div><span class="muted">中文：</span>${escapeHtml(item.source_text || "-")}</div>
             <div><span class="muted">当前英文：</span><code>${escapeHtml(item.target_text || "(空)")}</code></div>
             <div><span class="muted">候选英文：</span><code>${escapeHtml(item.candidate_text || "-")}</code></div>
+            ${renderModelDebugInfo(item)}
             ${item.validation_message ? `<div class="translation-validation-note ${item.validation_state === "failed" ? "is-error" : ""}">${escapeHtml(item.validation_message)}</div>` : ""}
             ${itemOp ? `<div class="translation-validation-note is-progress">${escapeHtml(itemOp.message || "正在处理当前条目...")}</div>` : ""}
             <div class="translation-call-budget">重试轮次：${escapeHtml(String(item.generation_attempts_used || 0))}/${escapeHtml(String(5))}</div>

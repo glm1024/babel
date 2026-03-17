@@ -1,6 +1,7 @@
 import unittest
+from unittest import mock
 
-from zh_audit.model_client import _extract_json_object
+from zh_audit.model_client import ModelResponseFormatError, _extract_json_object, call_openai_compatible_json
 
 
 class ModelClientTest(unittest.TestCase):
@@ -25,6 +26,23 @@ class ModelClientTest(unittest.TestCase):
 
         self.assertEqual(parsed["decision"], "pass")
         self.assertEqual(parsed["issues"], [])
+
+    def test_call_openai_compatible_json_exposes_raw_content_on_invalid_inner_json(self):
+        raw_response = (
+            '{"choices":[{"message":{"content":"verdict=needs_update\\n'
+            'candidate_translation=AZ cannot be empty."}}]}'
+        )
+        with mock.patch("zh_audit.model_client._post_chat_completion", return_value=raw_response):
+            with self.assertRaises(ModelResponseFormatError) as ctx:
+                call_openai_compatible_json(
+                    model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo"},
+                    system_prompt="system",
+                    user_prompt="user",
+                )
+
+        self.assertIn("valid JSON object", str(ctx.exception))
+        self.assertIn("candidate_translation=AZ cannot be empty.", ctx.exception.raw_content)
+        self.assertIn('"choices"', ctx.exception.raw_response)
 
 
 if __name__ == "__main__":

@@ -16,6 +16,35 @@ def _model_and_review_response(**kwargs):
             "decision": "pass",
             "issues": [],
         }
+    user_prompt = str(kwargs.get("user_prompt", "") or "")
+    start = user_prompt.find("{")
+    end = user_prompt.rfind("}")
+    payload = {}
+    if start >= 0 and end > start:
+        try:
+            payload = json.loads(user_prompt[start : end + 1])
+        except ValueError:
+            payload = {}
+    source_text = str(payload.get("source_text", "") or "")
+    locked_terms = payload.get("locked_terms", [])
+    if source_text.startswith("创建对等连接") and locked_terms:
+        preferred = None
+        for item in locked_terms:
+            if str((item or {}).get("source", "") or "").strip() == "对等连接":
+                preferred = item
+                break
+        if preferred is None:
+            preferred = max(
+                locked_terms,
+                key=lambda item: len(str((item or {}).get("target", "") or "").strip()),
+            )
+        term = str((preferred or {}).get("target", "") or "").strip()
+        if term:
+            return {
+                "verdict": "needs_update",
+                "candidate_translation": "create {}: {{0}}".format(term),
+                "reason": "ok",
+            }
     return {
         "verdict": "needs_update",
         "candidate_translation": "create link: {0}",
@@ -242,6 +271,9 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("输出文件", html)
             self.assertIn("接受后的候选英文会直接覆盖原 `.po` 文件中的相邻 `msgstr`。", html)
             self.assertIn("重试轮次：", html)
+            self.assertIn("function renderModelDebugInfo(item)", html)
+            self.assertIn("模型原始候选", html)
+            self.assertIn("原始正文", html)
             self.assertIn("接受", html)
             self.assertIn("重新生成", html)
             self.assertIn("正在重新生成当前条目，完成后会自动刷新。", html)
@@ -672,7 +704,7 @@ class AppServerSmokeTest(unittest.TestCase):
                 self.assertEqual(latest["status"]["counts"]["glossary_applied"], 1)
                 self.assertEqual(latest["status"]["counts"]["pending"], 1)
                 pending = latest["pending_items"][0]
-                self.assertEqual(pending["candidate_text"], "create link: {0}")
+                self.assertEqual(pending["candidate_text"], "create Peering Connections: {0}")
                 self.assertTrue(pending["can_accept"])
                 self.assertEqual(pending["generation_attempts_used"], 1)
                 self.assertGreaterEqual(pending["model_calls_used"], 2)
@@ -681,7 +713,7 @@ class AppServerSmokeTest(unittest.TestCase):
                 self.assertEqual(accepted["status"]["counts"]["accepted"], 2)
                 target_text = target.read_text(encoding="utf-8")
                 self.assertIn("RESOURCE_POOL=resource pool", target_text)
-                self.assertIn("NETWORK_LINK_ADD=create link: {0}", target_text)
+                self.assertIn("NETWORK_LINK_ADD=create Peering Connections: {0}", target_text)
                 self.assertNotIn("# Added by zh-audit 码值校译", target_text)
                 self.assertFalse(any(path.name.startswith("messages_en.properties.bak.") for path in root.iterdir()))
 
@@ -806,7 +838,7 @@ class AppServerSmokeTest(unittest.TestCase):
                 pending = latest["pending_items"][0]
                 accepted = reloaded.translation_accept(pending["id"])
                 self.assertEqual(accepted["status"]["counts"]["accepted"], 1)
-                self.assertIn("NETWORK_LINK_ADD=create link: {0}", target.read_text(encoding="utf-8"))
+                self.assertIn("NETWORK_LINK_ADD=create Peering Connections: {0}", target.read_text(encoding="utf-8"))
 
     def test_sql_translation_task_roundtrip_and_resume(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
