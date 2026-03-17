@@ -26,6 +26,9 @@ SMART_QUOTE_TRANSLATION = str.maketrans(
 )
 TRAILING_COMMA_PATTERN = re.compile(r",(\s*[}\]])")
 CODE_FENCE_PATTERN = re.compile(r"^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$", re.IGNORECASE)
+JSON_STRING_FIELD_TEMPLATE = r'"{field}"\s*:\s*"((?:\\.|[^"\\])*)"'
+JSON_SINGLE_QUOTED_FIELD_TEMPLATE = r"'{field}'\s*:\s*'((?:\\.|[^'\\])*)'"
+LINE_FIELD_TEMPLATE = r"(?mi)^\s*{field}\s*[:=]\s*(.+?)\s*$"
 RETRYABLE_MODEL_RESPONSE_MARKERS = (
     "模型响应不是合法 JSON",
     "模型响应中缺少 message content",
@@ -37,10 +40,22 @@ RETRYABLE_MODEL_RESPONSE_MARKERS = (
 
 
 class ModelResponseFormatError(ValueError):
-    def __init__(self, message, *, raw_response="", raw_content=""):
+    def __init__(
+        self,
+        message,
+        *,
+        raw_response="",
+        raw_content="",
+        parse_error_detail="",
+        extracted_candidate_text="",
+        extracted_reason="",
+    ):
         ValueError.__init__(self, message)
         self.raw_response = str(raw_response or "")
         self.raw_content = str(raw_content or "")
+        self.parse_error_detail = str(parse_error_detail or "")
+        self.extracted_candidate_text = str(extracted_candidate_text or "")
+        self.extracted_reason = str(extracted_reason or "")
 
 
 def call_openai_compatible_json(model_config, system_prompt, user_prompt, max_tokens=None, timeout=90):
@@ -56,10 +71,14 @@ def call_openai_compatible_json(model_config, system_prompt, user_prompt, max_to
     raw = _post_chat_completion(model_config, payload, timeout=timeout)
     try:
         payload = json.loads(raw)
-    except ValueError:
+    except ValueError as exc:
+        extracted = _extract_debug_fields(raw)
         raise ModelResponseFormatError(
             "模型响应不是合法 JSON：{}".format(raw[:200]),
             raw_response=raw,
+            parse_error_detail=str(exc),
+            extracted_candidate_text=extracted.get("candidate_translation", ""),
+            extracted_reason=extracted.get("reason", ""),
         )
     try:
         content = payload["choices"][0]["message"]["content"]
@@ -77,16 +96,23 @@ def call_openai_compatible_json(model_config, system_prompt, user_prompt, max_to
     try:
         parsed = _extract_json_object(content)
     except ValueError as exc:
+        extracted = _extract_debug_fields(content)
         raise ModelResponseFormatError(
             str(exc),
             raw_response=raw,
             raw_content=content,
+            parse_error_detail=str(exc),
+            extracted_candidate_text=extracted.get("candidate_translation", ""),
+            extracted_reason=extracted.get("reason", ""),
         )
     if not isinstance(parsed, dict):
+        extracted = _extract_debug_fields(content)
         raise ModelResponseFormatError(
             "模型响应 JSON 必须是对象。",
             raw_response=raw,
             raw_content=content,
+            extracted_candidate_text=extracted.get("candidate_translation", ""),
+            extracted_reason=extracted.get("reason", ""),
         )
     return parsed
 
@@ -162,12 +188,17 @@ def _extract_json_object(content):
     text = str(content or "").strip()
     if not text:
         raise ValueError("Model response content is empty.")
+    last_error = ""
     for candidate in _json_object_candidates(text):
         try:
             return json.loads(candidate)
-        except ValueError:
-            pass
-    raise ValueError("Model response does not contain a valid JSON object: {}".format(text[:200]))
+        except ValueError as exc:
+            if not last_error:
+                last_error = str(exc)
+    message = "Model response does not contain a valid JSON object: {}".format(text[:200])
+    if last_error:
+        message = "{}; parser error: {}".format(message, last_error)
+    raise ValueError(message)
 
 
 def describe_retryable_model_response_error(error, phase="模型"):
@@ -191,6 +222,9 @@ def model_response_debug_payload(error):
     return {
         "raw_response": str(getattr(error, "raw_response", "") or ""),
         "raw_content": str(getattr(error, "raw_content", "") or ""),
+        "parse_error_detail": str(getattr(error, "parse_error_detail", "") or ""),
+        "extracted_candidate_text": str(getattr(error, "extracted_candidate_text", "") or ""),
+        "extracted_reason": str(getattr(error, "extracted_reason", "") or ""),
     }
 
 
@@ -232,3 +266,32 @@ def _normalize_json_like_text(text):
     value = value.translate(SMART_QUOTE_TRANSLATION)
     value = TRAILING_COMMA_PATTERN.sub(r"\1", value)
     return value
+
+
+def _extract_debug_fields(text):
+    value = _normalize_json_like_text(text)
+    return {
+        "candidate_translation": _extract_debug_field(value, "candidate_translation"),
+        "reason": _extract_debug_field(value, "reason"),
+    }
+
+
+def _extract_debug_field(text, field_name):
+    if not text:
+        return ""
+    field = re.escape(str(field_name or ""))
+    for template in (JSON_STRING_FIELD_TEMPLATE, JSON_SINGLE_QUOTED_FIELD_TEMPLATE):
+        match = re.search(template.format(field=field), text)
+        if not match:
+            continue
+        try:
+            return json.loads('"{}"'.format(match.group(1)))
+        except ValueError:
+            return match.group(1)
+    line_match = re.search(LINE_FIELD_TEMPLATE.format(field=field), text)
+    if not line_match:
+        return ""
+    value = line_match.group(1).strip().strip(",")
+    if value[:1] == value[-1:] and value[:1] in ('"', "'"):
+        value = value[1:-1]
+    return value.strip()

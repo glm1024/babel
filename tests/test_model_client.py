@@ -30,7 +30,8 @@ class ModelClientTest(unittest.TestCase):
     def test_call_openai_compatible_json_exposes_raw_content_on_invalid_inner_json(self):
         raw_response = (
             '{"choices":[{"message":{"content":"verdict=needs_update\\n'
-            'candidate_translation=AZ cannot be empty."}}]}'
+            'candidate_translation=AZ cannot be empty.\\n'
+            'reason=现有英文过于简略。"}}]}'
         )
         with mock.patch("zh_audit.model_client._post_chat_completion", return_value=raw_response):
             with self.assertRaises(ModelResponseFormatError) as ctx:
@@ -43,6 +44,9 @@ class ModelClientTest(unittest.TestCase):
         self.assertIn("valid JSON object", str(ctx.exception))
         self.assertIn("candidate_translation=AZ cannot be empty.", ctx.exception.raw_content)
         self.assertIn('"choices"', ctx.exception.raw_response)
+        self.assertEqual(ctx.exception.extracted_candidate_text, "AZ cannot be empty.")
+        self.assertEqual(ctx.exception.extracted_reason, "现有英文过于简略。")
+        self.assertIn("valid JSON object", ctx.exception.parse_error_detail)
 
 
 if __name__ == "__main__":

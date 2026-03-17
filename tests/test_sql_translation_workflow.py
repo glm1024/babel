@@ -365,8 +365,11 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
                 model_runner=lambda **kwargs: (_ for _ in ()).throw(
                     ModelResponseFormatError(
                         "Model response does not contain a valid JSON object: verdict=needs_update",
-                        raw_response='{"choices":[{"message":{"content":"verdict=needs_update\\ncandidate_translation=AZ cannot be empty."}}]}',
-                        raw_content="verdict=needs_update\ncandidate_translation=AZ cannot be empty.",
+                        raw_response='{"choices":[{"message":{"content":"verdict=needs_update\\ncandidate_translation=AZ cannot be empty.\\nreason=现有英文过于简略。"}}]}',
+                        raw_content="verdict=needs_update\ncandidate_translation=AZ cannot be empty.\nreason=现有英文过于简略。",
+                        parse_error_detail="Model response does not contain a valid JSON object: verdict=needs_update; parser error: Expecting value: line 1 column 1 (char 0)",
+                        extracted_candidate_text="AZ cannot be empty.",
+                        extracted_reason="现有英文过于简略。",
                     )
                 ),
                 reviewer_runner=_pass_review,
@@ -376,8 +379,11 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
 
             pending = session.snapshot()["pending_items"][0]
             self.assertEqual(pending["failure_phase"], "模型")
-            self.assertEqual(pending["raw_candidate_text"], "")
+            self.assertEqual(pending["candidate_text"], "AZ cannot be empty.")
+            self.assertEqual(pending["raw_candidate_text"], "AZ cannot be empty.")
             self.assertIn("candidate_translation=AZ cannot be empty.", pending["raw_failure_content"])
+            self.assertEqual(pending["raw_reason_text"], "现有英文过于简略。")
+            self.assertIn("parser error", pending["parse_error_detail"])
             self.assertIn('"choices"', pending["raw_failure_response"])
 
 

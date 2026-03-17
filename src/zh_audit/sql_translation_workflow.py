@@ -433,6 +433,8 @@ class SqlTranslationSession(object):
             raw_candidate_text=normalized.get("raw_candidate_text", ""),
             raw_failure_content=normalized.get("raw_failure_content", ""),
             raw_failure_response=normalized.get("raw_failure_response", ""),
+            raw_reason_text=normalized.get("raw_reason_text", ""),
+            parse_error_detail=normalized.get("parse_error_detail", ""),
             failure_phase=normalized.get("failure_phase", ""),
         )
         with self.lock:
@@ -448,6 +450,8 @@ class SqlTranslationSession(object):
             "raw_candidate_text": "",
             "raw_failure_content": "",
             "raw_failure_response": "",
+            "raw_reason_text": "",
+            "parse_error_detail": "",
             "failure_phase": "",
             "reason": "",
             "validation_state": "failed",
@@ -481,14 +485,18 @@ class SqlTranslationSession(object):
                 if not retry_issue:
                     raise
                 debug_payload = model_response_debug_payload(exc)
+                extracted_candidate = sanitize_candidate_text(debug_payload.get("extracted_candidate_text", ""))
+                extracted_reason = _display_text(debug_payload.get("extracted_reason", "")).strip()
                 last_result = {
                     "verdict": "needs_update",
-                    "candidate_text": sanitize_candidate_text(item.get("target_text", "")),
-                    "raw_candidate_text": "",
+                    "candidate_text": extracted_candidate or sanitize_candidate_text(item.get("target_text", "")),
+                    "raw_candidate_text": extracted_candidate,
                     "raw_failure_content": _display_text(debug_payload.get("raw_content", "")).strip(),
                     "raw_failure_response": _display_text(debug_payload.get("raw_response", "")).strip(),
+                    "raw_reason_text": extracted_reason,
+                    "parse_error_detail": _display_text(debug_payload.get("parse_error_detail", "")).strip(),
                     "failure_phase": "模型",
-                    "reason": "",
+                    "reason": extracted_reason,
                     "validation_state": "failed",
                     "validation_message": validation_message(retry_issue),
                     "validation_issue": retry_issue,
@@ -518,6 +526,8 @@ class SqlTranslationSession(object):
                     "raw_candidate_text": raw_candidate_text,
                     "raw_failure_content": "",
                     "raw_failure_response": "",
+                    "raw_reason_text": "",
+                    "parse_error_detail": "",
                     "failure_phase": "",
                     "reason": normalized["reason"],
                     "validation_state": "failed",
@@ -552,14 +562,17 @@ class SqlTranslationSession(object):
                     if not retry_issue:
                         raise
                     debug_payload = model_response_debug_payload(exc)
+                    extracted_reason = _display_text(debug_payload.get("extracted_reason", "")).strip()
                     last_result = {
                         "verdict": "needs_update",
                         "candidate_text": candidate_text,
                         "raw_candidate_text": raw_candidate_text,
                         "raw_failure_content": _display_text(debug_payload.get("raw_content", "")).strip(),
                         "raw_failure_response": _display_text(debug_payload.get("raw_response", "")).strip(),
+                        "raw_reason_text": extracted_reason,
+                        "parse_error_detail": _display_text(debug_payload.get("parse_error_detail", "")).strip(),
                         "failure_phase": "AI复核",
-                        "reason": normalized["reason"],
+                        "reason": extracted_reason or normalized["reason"],
                         "validation_state": "failed",
                         "validation_message": validation_message(retry_issue),
                         "validation_issue": retry_issue,
@@ -583,6 +596,8 @@ class SqlTranslationSession(object):
                         "raw_candidate_text": raw_candidate_text,
                         "raw_failure_content": "",
                         "raw_failure_response": "",
+                        "raw_reason_text": "",
+                        "parse_error_detail": "",
                         "failure_phase": "AI复核",
                         "reason": normalized["reason"],
                         "validation_state": "failed",
@@ -599,6 +614,8 @@ class SqlTranslationSession(object):
                 "raw_candidate_text": raw_candidate_text,
                 "raw_failure_content": "",
                 "raw_failure_response": "",
+                "raw_reason_text": "",
+                "parse_error_detail": "",
                 "failure_phase": "",
                 "reason": normalized["reason"],
                 "validation_state": "passed",
@@ -682,6 +699,8 @@ class SqlTranslationSession(object):
         raw_candidate_text="",
         raw_failure_content="",
         raw_failure_response="",
+        raw_reason_text="",
+        parse_error_detail="",
         failure_phase="",
     ):
         with self.lock:
@@ -706,6 +725,8 @@ class SqlTranslationSession(object):
                 "raw_candidate_text": str(raw_candidate_text or ""),
                 "raw_failure_content": str(raw_failure_content or ""),
                 "raw_failure_response": str(raw_failure_response or ""),
+                "raw_reason_text": str(raw_reason_text or ""),
+                "parse_error_detail": str(parse_error_detail or ""),
                 "failure_phase": str(failure_phase or ""),
                 "locked_terms": [dict(term) for term in locked_terms],
                 "reason": reason,
@@ -729,6 +750,8 @@ class SqlTranslationSession(object):
         item["raw_candidate_text"] = str(normalized.get("raw_candidate_text", ""))
         item["raw_failure_content"] = str(normalized.get("raw_failure_content", ""))
         item["raw_failure_response"] = str(normalized.get("raw_failure_response", ""))
+        item["raw_reason_text"] = str(normalized.get("raw_reason_text", ""))
+        item["parse_error_detail"] = str(normalized.get("parse_error_detail", ""))
         item["failure_phase"] = str(normalized.get("failure_phase", ""))
         item["reason"] = normalized["reason"]
         item["verdict"] = normalized["verdict"]
@@ -831,6 +854,8 @@ class SqlTranslationSession(object):
             "raw_candidate_text": item.get("raw_candidate_text", ""),
             "raw_failure_content": item.get("raw_failure_content", ""),
             "raw_failure_response": item.get("raw_failure_response", ""),
+            "raw_reason_text": item.get("raw_reason_text", ""),
+            "parse_error_detail": item.get("parse_error_detail", ""),
             "failure_phase": item.get("failure_phase", ""),
             "locked_terms": [dict(term) for term in item.get("locked_terms", [])],
             "reason": item.get("reason", ""),
@@ -911,6 +936,8 @@ class SqlTranslationSession(object):
             restored.setdefault("raw_candidate_text", "")
             restored.setdefault("raw_failure_content", "")
             restored.setdefault("raw_failure_response", "")
+            restored.setdefault("raw_reason_text", "")
+            restored.setdefault("parse_error_detail", "")
             restored.setdefault("failure_phase", "")
             restored.setdefault("can_accept", True)
             restored.setdefault(

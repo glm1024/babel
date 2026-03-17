@@ -273,6 +273,8 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("重试轮次：", html)
             self.assertIn("function renderModelDebugInfo(item)", html)
             self.assertIn("模型原始候选", html)
+            self.assertIn("原始说明", html)
+            self.assertIn("解析错误", html)
             self.assertIn("原始正文", html)
             self.assertIn("接受", html)
             self.assertIn("重新生成", html)

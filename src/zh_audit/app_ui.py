@@ -1909,8 +1909,16 @@ __REPORT_COMPONENT_BUNDLE__
       const failurePhase = String(item.failure_phase || "模型");
       const rawFailureContent = String(item.raw_failure_content || "");
       const rawFailureResponse = String(item.raw_failure_response || "");
+      const rawReasonText = String(item.raw_reason_text || "");
+      const parseErrorDetail = String(item.parse_error_detail || "");
       if (rawCandidate && rawCandidate !== candidateText) {
         parts.push(renderDebugBlock("模型原始候选", rawCandidate));
+      }
+      if (rawReasonText) {
+        parts.push(renderDebugBlock(`${failurePhase}原始说明`, rawReasonText));
+      }
+      if (parseErrorDetail) {
+        parts.push(renderDebugBlock(`${failurePhase}解析错误`, parseErrorDetail));
       }
       if (rawFailureContent) {
         parts.push(renderDebugBlock(`${failurePhase}原始正文`, rawFailureContent));
