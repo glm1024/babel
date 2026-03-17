@@ -14,7 +14,7 @@ def render_app_shell(bootstrap_payload, client_config):
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>中文硬编码盘点服务</title>
+  <title>ICM国际化翻译系统</title>
   <style>
     html {
       min-height: 100%;
@@ -929,6 +929,19 @@ def render_app_shell(bootstrap_payload, client_config):
       overflow-wrap: anywhere;
       word-break: break-word;
     }
+    .translation-sql-snippet {
+      margin: 0;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.82);
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      line-height: 1.55;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
     .translation-validation-note {
       font-size: var(--text-xs);
       color: var(--muted);
@@ -1387,7 +1400,7 @@ def render_app_shell(bootstrap_payload, client_config):
             </div>
             <label>
               <div class="clearable-input">
-                <input id="sqlTranslationDirectoryInput" class="field-input" type="text" placeholder="请输入数据库脚本目录绝对路径" aria-label="数据库脚本目录绝对路径">
+                <input id="sqlTranslationDirectoryInput" class="field-input" type="text" placeholder="请输入SQL脚本所在目录绝对路径" aria-label="数据库脚本目录绝对路径">
                 <button id="sqlTranslationDirectoryClearBtn" class="field-clear-btn hidden" type="button" aria-label="清空数据库脚本目录" title="清空数据库脚本目录">×</button>
               </div>
             </label>
@@ -1396,7 +1409,7 @@ def render_app_shell(bootstrap_payload, client_config):
                 <input id="sqlTranslationTableInput" class="field-input" type="text" placeholder="请输入目标表名" aria-label="目标表名">
               </label>
               <label>
-                <input id="sqlTranslationPrimaryKeyInput" class="field-input" type="text" placeholder="请输入主键字段名，默认 id" aria-label="主键字段名">
+                <input id="sqlTranslationPrimaryKeyInput" class="field-input" type="text" placeholder="请输入定位字段名，默认 id" aria-label="定位字段名">
               </label>
               <label>
                 <input id="sqlTranslationSourceFieldInput" class="field-input" type="text" placeholder="请输入中文文案字段名" aria-label="中文文案字段名">
@@ -1405,6 +1418,7 @@ def render_app_shell(bootstrap_payload, client_config):
                 <input id="sqlTranslationTargetFieldInput" class="field-input" type="text" placeholder="请输入英文文案字段名" aria-label="英文文案字段名">
               </label>
             </div>
+            <div class="muted">定位字段用于生成 UPDATE 的 WHERE 条件，不要求一定是主键，默认使用 `id`。</div>
             <div class="translation-control-row">
               <label class="checkbox-row">
                 <input id="sqlTranslationAutoAccept" type="checkbox">
@@ -1444,7 +1458,7 @@ def render_app_shell(bootstrap_payload, client_config):
               <div class="progress-bar"><span id="sqlTranslationProgressBarInner"></span></div>
               <div class="progress-meta">
                 <div class="progress-meta-item">
-                  <span class="progress-meta-label">当前主键：</span>
+                  <span class="progress-meta-label">当前定位值：</span>
                   <span id="sqlTranslationCurrentPrimaryKey" class="progress-meta-value">-</span>
                 </div>
                 <div class="progress-meta-item">
@@ -2430,7 +2444,7 @@ __REPORT_COMPONENT_BUNDLE__
             <div><span class="muted">中文：</span>${escapeHtml(item.source_text || "-")}</div>
             <div><span class="muted">当前英文：</span><code>${escapeHtml(item.target_text || "(空)")}</code></div>
             <div><span class="muted">候选英文：</span><code>${escapeHtml(item.candidate_text || "-")}</code></div>
-            <div><span class="muted">手动英文：</span></div>
+            <div><span class="muted">手动输入：</span></div>
             <input class="field-input translation-inline-input" data-candidate-id="${escapeAttr(item.id)}" value="${escapeAttr(draftValue(state.translationCandidateDrafts, item.id, item.candidate_text || ""))}" placeholder="可直接修改候选英文，点击接受后写入" ${isBusy ? "disabled" : ""}>
             ${renderModelDebugInfo(item)}
             ${item.validation_message ? `<div class="translation-validation-note ${item.validation_state === "failed" ? "is-error" : ""}">${escapeHtml(item.validation_message)}</div>` : ""}
@@ -2666,9 +2680,12 @@ __REPORT_COMPONENT_BUNDLE__
               <span class="muted">${escapeHtml(item.at || "")}</span>
             </div>
             <div class="translation-log-key">${escapeHtml(`${item.source_path || "-"}:${item.line || "-"}`)}</div>
-            <div class="muted">主键：${escapeHtml(item.primary_key_value || "-")}</div>
-            <div class="muted">${escapeHtml(item.source_text || "-")}</div>
-            ${item.target_text ? `<div><code>${escapeHtml(item.target_text)}</code></div>` : ""}
+            <div class="muted">定位值：${escapeHtml(item.primary_key_value || "-")}</div>
+            ${item.source_text ? `<div class="muted">${escapeHtml(item.source_text)}</div>` : ""}
+            ${item.parse_phase ? `<div><span class="muted">阶段：</span>${escapeHtml(item.parse_phase)}</div>` : ""}
+            ${item.reason ? `<div><span class="muted">原因：</span>${escapeHtml(item.reason)}</div>` : ""}
+            ${item.statement_preview ? `<pre class="translation-sql-snippet"><code>${escapeHtml(item.statement_preview)}</code></pre>` : ""}
+            ${item.target_text && !item.reason ? `<div><code>${escapeHtml(item.target_text)}</code></div>` : ""}
           </div>
         `).join("");
       }
@@ -2688,11 +2705,11 @@ __REPORT_COMPONENT_BUNDLE__
         <div class="translation-log-item${isBusy ? " is-busy" : ""}">
           <div class="translation-item-stack">
             <strong>${escapeHtml(`${item.source_path || "-"}:${item.line || "-"}`)}</strong>
-            <div><span class="muted">主键：</span>${escapeHtml(item.primary_key_value || "-")}</div>
+            <div><span class="muted">定位值：</span>${escapeHtml(item.primary_key_value || "-")}</div>
             <div><span class="muted">中文：</span>${escapeHtml(item.source_text || "-")}</div>
             <div><span class="muted">当前英文：</span><code>${escapeHtml(item.target_text || "(空)")}</code></div>
             <div><span class="muted">候选英文：</span><code>${escapeHtml(item.candidate_text || "-")}</code></div>
-            <div><span class="muted">手动英文：</span></div>
+            <div><span class="muted">手动输入：</span></div>
             <input class="field-input translation-inline-input" data-sql-candidate-id="${escapeAttr(item.id)}" value="${escapeAttr(draftValue(state.sqlTranslationCandidateDrafts, item.id, item.candidate_text || ""))}" placeholder="可直接修改候选英文，点击接受后写入" ${isBusy ? "disabled" : ""}>
             ${renderModelDebugInfo(item)}
             ${item.validation_message ? `<div class="translation-validation-note ${item.validation_state === "failed" ? "is-error" : ""}">${escapeHtml(item.validation_message)}</div>` : ""}

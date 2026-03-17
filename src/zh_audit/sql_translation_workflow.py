@@ -832,7 +832,7 @@ class SqlTranslationSession(object):
             [
                 SQL_TRANSLATION_OUTPUT_PREFIX,
                 "-- table: {}".format(self.table_name),
-                "-- primary_key_field: {}".format(self.primary_key_field),
+                "-- locator_field: {}".format(self.primary_key_field),
                 "-- source_field: {}".format(self.source_field),
                 "-- target_field: {}".format(self.target_field),
                 "-- source_directory: {}".format(self.directory_path),
@@ -856,6 +856,9 @@ class SqlTranslationSession(object):
         del self.recent_ids[50:]
 
     def _push_event(self, label, item, detail):
+        skip_reason = ""
+        if label == "已跳过":
+            skip_reason = str(item.get("skip_reason", "") or item.get("reason", "") or "")
         self.events.insert(
             0,
             {
@@ -866,6 +869,9 @@ class SqlTranslationSession(object):
                 "primary_key_value": item.get("primary_key_display", ""),
                 "source_text": item.get("source_text", ""),
                 "target_text": detail,
+                "reason": skip_reason,
+                "parse_phase": item.get("parse_phase", ""),
+                "statement_preview": item.get("statement_preview", ""),
             },
         )
         del self.events[100:]
@@ -1044,7 +1050,7 @@ def scan_sql_translation_directory(directory_path, table_name, primary_key_field
         if len(duplicate_rows) < 2:
             continue
         for row in duplicate_rows:
-            row["skip_reason"] = "主键值重复，无法唯一定位 update。"
+            row["skip_reason"] = "定位字段值重复，无法唯一定位 update。"
     return {
         "rows": rows,
         "events": events,
@@ -1080,14 +1086,38 @@ def parse_sql_translation_file(path, table_name, primary_key_field, source_field
         if _normalize_identifier(_table_leaf_name(table_expression)) != target_table_name:
             continue
         if str(table_match.group(1) or "").strip().lower() == "replace":
-            events.append(_build_scan_event(sql_path, statement["line"], "REPLACE INTO 暂不支持。"))
+            events.append(
+                _build_scan_event(
+                    sql_path,
+                    statement["line"],
+                    "REPLACE INTO 暂不支持。",
+                    statement_text=original,
+                    parse_phase="语句类型",
+                )
+            )
             continue
         values_match = insert_values_re.match(masked_text)
         if values_match is None:
-            events.append(_build_scan_event(sql_path, statement["line"], "仅支持 INSERT ... VALUES 语句。"))
+            events.append(
+                _build_scan_event(
+                    sql_path,
+                    statement["line"],
+                    "仅支持 INSERT ... VALUES 语句。",
+                    statement_text=original,
+                    parse_phase="INSERT 结构",
+                )
+            )
             continue
         if values_match.group("columns") is None:
-            events.append(_build_scan_event(sql_path, statement["line"], "未显式声明列名，暂不支持。"))
+            events.append(
+                _build_scan_event(
+                    sql_path,
+                    statement["line"],
+                    "未显式声明列名，暂不支持。",
+                    statement_text=original,
+                    parse_phase="列名识别",
+                )
+            )
             continue
         columns_text = original[values_match.start("columns"):values_match.end("columns")]
         columns = _parse_identifier_list(columns_text)
@@ -1095,19 +1125,51 @@ def parse_sql_translation_file(path, table_name, primary_key_field, source_field
         for column in columns:
             column_map[column["normalized"]] = column["raw"]
         if target_primary not in column_map:
-            events.append(_build_scan_event(sql_path, statement["line"], "INSERT 语句缺少主键字段。"))
+            events.append(
+                _build_scan_event(
+                    sql_path,
+                    statement["line"],
+                    "INSERT 语句缺少定位字段。",
+                    statement_text=original,
+                    parse_phase="字段匹配",
+                )
+            )
             continue
         if target_source not in column_map:
-            events.append(_build_scan_event(sql_path, statement["line"], "INSERT 语句缺少中文文案字段。"))
+            events.append(
+                _build_scan_event(
+                    sql_path,
+                    statement["line"],
+                    "INSERT 语句缺少中文文案字段。",
+                    statement_text=original,
+                    parse_phase="字段匹配",
+                )
+            )
             continue
         if target_target not in column_map:
-            events.append(_build_scan_event(sql_path, statement["line"], "INSERT 语句缺少英文文案字段。"))
+            events.append(
+                _build_scan_event(
+                    sql_path,
+                    statement["line"],
+                    "INSERT 语句缺少英文文案字段。",
+                    statement_text=original,
+                    parse_phase="字段匹配",
+                )
+            )
             continue
         values_text = original[values_match.start("values"):values_match.end("values")]
         values_line = statement["line"] + original[:values_match.start("values")].count("\n")
         groups = _parse_values_groups(values_text, values_line)
         if not groups:
-            events.append(_build_scan_event(sql_path, statement["line"], "未解析到 VALUES 元组。"))
+            events.append(
+                _build_scan_event(
+                    sql_path,
+                    statement["line"],
+                    "未解析到 VALUES 元组。",
+                    statement_text=original,
+                    parse_phase="VALUES 解析",
+                )
+            )
             continue
         for group in groups:
             tokens = _split_tuple_values(group["text"])
@@ -1128,6 +1190,8 @@ def parse_sql_translation_file(path, table_name, primary_key_field, source_field
                         "target_field_sql": column_map[target_target],
                         "target_text": "",
                         "skip_reason": "VALUES 元组字段数与列数不一致。",
+                        "parse_phase": "VALUES 解析",
+                        "statement_preview": _preview_sql_statement(original),
                     }
                 )
                 continue
@@ -1200,6 +1264,9 @@ def build_sql_translation_user_prompt(
                 extra_instruction
             )
         )
+    sections.append(
+        "primary_key_field and primary_key_value identify the row for the future UPDATE WHERE clause. They may refer to a business locator field, not necessarily a real primary key."
+    )
     sections.append("Task payload JSON:")
     sections.append(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
     return "\n".join(sections)
@@ -1261,6 +1328,9 @@ def build_sql_translation_review_user_prompt(
                 extra_instruction
             )
         )
+    sections.append(
+        "primary_key_field and primary_key_value identify the row for the future UPDATE WHERE clause. They may refer to a business locator field, not necessarily a real primary key."
+    )
     sections.append("Review payload JSON:")
     sections.append(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
     return "\n".join(sections)
@@ -1292,7 +1362,7 @@ def _build_update_sql(item):
     )
 
 
-def _build_scan_event(path, line, reason):
+def _build_scan_event(path, line, reason, statement_text="", parse_phase=""):
     return {
         "at": _timestamp(),
         "label": "已跳过",
@@ -1301,6 +1371,9 @@ def _build_scan_event(path, line, reason):
         "primary_key_value": "",
         "source_text": "",
         "target_text": reason,
+        "reason": str(reason or ""),
+        "parse_phase": str(parse_phase or ""),
+        "statement_preview": _preview_sql_statement(statement_text),
     }
 
 
@@ -1311,6 +1384,17 @@ def _load_written_item_ids(path):
         if line.startswith("-- item:"):
             written.add(line[len("-- item:"):].strip())
     return written
+
+
+def _preview_sql_statement(text, limit=1200):
+    value = str(text or "").strip()
+    if not value:
+        return ""
+    lines = [line.rstrip() for line in value.splitlines()]
+    preview = "\n".join(lines).strip()
+    if len(preview) <= limit:
+        return preview
+    return preview[: max(limit - 3, 0)].rstrip() + "..."
 
 
 def _mask_sql_comments(text):

@@ -99,7 +99,27 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             )
 
             self.assertEqual(len(parsed["rows"]), 2)
-            self.assertTrue(all(item["skip_reason"] == "主键值重复，无法唯一定位 update。" for item in parsed["rows"]))
+            self.assertTrue(all(item["skip_reason"] == "定位字段值重复，无法唯一定位 update。" for item in parsed["rows"]))
+
+    def test_parse_sql_translation_file_keeps_statement_preview_for_skip_events(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            sql_path = Path(temp_dir) / "demo.sql"
+            sql_path.write_text(
+                "INSERT INTO t_demo VALUES ('1', '中文', 'English');\n",
+                encoding="utf-8",
+            )
+
+            parsed = parse_sql_translation_file(
+                path=sql_path,
+                table_name="t_demo",
+                primary_key_field="id",
+                source_field="name_zh",
+                target_field="name_en",
+            )
+
+            self.assertEqual(parsed["events"][0]["reason"], "未显式声明列名，暂不支持。")
+            self.assertEqual(parsed["events"][0]["parse_phase"], "列名识别")
+            self.assertIn("INSERT INTO t_demo VALUES", parsed["events"][0]["statement_preview"])
 
     def test_sql_translation_session_creates_output_and_appends_only_on_accept(self):
         with tempfile.TemporaryDirectory() as temp_dir:
