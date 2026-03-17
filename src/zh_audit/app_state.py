@@ -306,6 +306,7 @@ def default_sql_translation_config():
         "primary_key_field": "id",
         "source_field": "",
         "target_field": "",
+        "auto_accept": False,
     }
 
 
@@ -322,6 +323,7 @@ def normalize_sql_translation_config(raw_config, path=None):
         or defaults["primary_key_field"],
         "source_field": _normalize_model_text(raw_config.get("source_field", defaults["source_field"])),
         "target_field": _normalize_model_text(raw_config.get("target_field", defaults["target_field"])),
+        "auto_accept": bool(raw_config.get("auto_accept", defaults["auto_accept"])),
     }
 
 

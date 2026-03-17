@@ -1406,6 +1406,10 @@ def render_app_shell(bootstrap_payload, client_config):
               </label>
             </div>
             <div class="translation-control-row">
+              <label class="checkbox-row">
+                <input id="sqlTranslationAutoAccept" type="checkbox">
+                <span>跳过手动审批，自动接受后续全部 AI 翻译</span>
+              </label>
               <div class="btn-row">
                 <button id="sqlTranslationStartBtn" class="primary-btn" type="button">开始校译</button>
                 <button id="sqlTranslationResumeBtn" class="secondary-btn" type="button">继续任务</button>
@@ -1675,6 +1679,7 @@ __REPORT_COMPONENT_BUNDLE__
     const sqlTranslationPrimaryKeyInput = document.getElementById("sqlTranslationPrimaryKeyInput");
     const sqlTranslationSourceFieldInput = document.getElementById("sqlTranslationSourceFieldInput");
     const sqlTranslationTargetFieldInput = document.getElementById("sqlTranslationTargetFieldInput");
+    const sqlTranslationAutoAccept = document.getElementById("sqlTranslationAutoAccept");
     const sqlTranslationStartBtn = document.getElementById("sqlTranslationStartBtn");
     const sqlTranslationResumeBtn = document.getElementById("sqlTranslationResumeBtn");
     const sqlTranslationStopBtn = document.getElementById("sqlTranslationStopBtn");
@@ -1756,6 +1761,7 @@ __REPORT_COMPONENT_BUNDLE__
           primary_key_field: "id",
           source_field: "",
           target_field: "",
+          auto_accept: false,
         },
         status: {
           status: "idle",
@@ -2606,6 +2612,7 @@ __REPORT_COMPONENT_BUNDLE__
       sqlTranslationPrimaryKeyInput.value = config.primary_key_field || "";
       sqlTranslationSourceFieldInput.value = config.source_field || "";
       sqlTranslationTargetFieldInput.value = config.target_field || "";
+      sqlTranslationAutoAccept.checked = !!config.auto_accept;
       setStatusBannerState(
         sqlTranslationStatusBanner,
         sqlTranslationBannerText(status, terminology),
@@ -2965,6 +2972,7 @@ __REPORT_COMPONENT_BUNDLE__
         primary_key_field: sqlTranslationPrimaryKeyInput.value.trim() || "id",
         source_field: sqlTranslationSourceFieldInput.value.trim(),
         target_field: sqlTranslationTargetFieldInput.value.trim(),
+        auto_accept: sqlTranslationAutoAccept.checked,
       };
     }
 
@@ -3639,6 +3647,16 @@ __REPORT_COMPONENT_BUNDLE__
           }
         });
       });
+    sqlTranslationAutoAccept.addEventListener("change", async () => {
+      try {
+        await saveSqlTranslationConfig();
+      } catch (error) {
+        setStatusBannerState(sqlTranslationStatusBanner, error.message || "保存自动接受配置失败", {
+          isError: true,
+          isLoading: false,
+        });
+      }
+    });
     sqlTranslationDirectoryInput.addEventListener("input", () => {
       syncClearableInput(sqlTranslationDirectoryInput, sqlTranslationDirectoryClearBtn);
     });

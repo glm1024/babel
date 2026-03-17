@@ -11,6 +11,7 @@ from zh_audit.candidate_validation import (
     MAX_GENERATION_ATTEMPTS_PER_ITEM,
     contains_locked_terms,
     exhausted_validation_message,
+    has_matching_placeholders,
     normalize_review_result,
     sanitize_candidate_text,
     validate_candidate_text,
@@ -32,6 +33,7 @@ def default_sql_translation_config():
         "primary_key_field": "id",
         "source_field": "",
         "target_field": "",
+        "auto_accept": False,
     }
 
 
@@ -225,7 +227,7 @@ class SqlTranslationSession(object):
         with self.lock:
             return self._saved_state_locked()
 
-    def run(self):
+    def run(self, should_auto_accept):
         while True:
             with self.lock:
                 if self.stop_requested:
@@ -262,7 +264,7 @@ class SqlTranslationSession(object):
                 }
                 self._persist_locked()
 
-            self._process_row(row)
+            self._process_row(row, should_auto_accept)
 
             with self.lock:
                 self.next_index += 1
@@ -280,22 +282,12 @@ class SqlTranslationSession(object):
             manual_candidate = str(candidate_text if candidate_text is not None else "")
             reason = "人工接受（跳过系统校验）" if item.get("validation_state") == "failed" else "人工接受"
             if manual_candidate.strip():
-                item["candidate_text"] = sanitize_candidate_text(manual_candidate)
+                item["candidate_text"] = self._validated_candidate_text(item, manual_candidate)
                 item["raw_candidate_text"] = manual_candidate
                 reason = "手动录入后接受"
-            appended = self._append_update_sql_once(item)
-            item["status"] = "accepted"
-            item["target_text"] = item.get("candidate_text", "")
-            item["updated_at"] = _timestamp()
-            item["accepted_reason"] = reason
-            self.pending_ids.remove(item_id)
-            self.pending -= 1
-            self.accepted += 1
-            if appended:
-                self.appended += 1
-            self._push_recent(item_id)
-            self._push_event(reason, item, item.get("candidate_text", ""))
-            self._persist_locked()
+            else:
+                item["candidate_text"] = self._validated_candidate_text(item)
+            self._apply_item(item, "accepted", reason)
             return self.snapshot()
 
     def reject(self, item_id):
@@ -346,7 +338,7 @@ class SqlTranslationSession(object):
             self._persist_locked()
             return self.snapshot()
 
-    def _process_row(self, row):
+    def _process_row(self, row, should_auto_accept):
         skip_reason = str(row.get("skip_reason", "") or "")
         if skip_reason:
             with self.lock:
@@ -394,7 +386,7 @@ class SqlTranslationSession(object):
             )
             with self.lock:
                 self.glossary_applied += 1
-                self._finalize_item(item, "术语命中")
+                self._finalize_item(item, should_auto_accept=should_auto_accept(), event_label="术语命中")
             return
 
         normalized = self._build_candidate_with_guardrails(
@@ -442,7 +434,7 @@ class SqlTranslationSession(object):
             failure_phase=normalized.get("failure_phase", ""),
         )
         with self.lock:
-            self._finalize_item(item, "待审批")
+            self._finalize_item(item, should_auto_accept=should_auto_accept(), event_label="待审批")
 
     def _build_candidate_with_guardrails(self, item, base_extra_prompt):
         generation_attempts_used = 0
@@ -766,8 +758,11 @@ class SqlTranslationSession(object):
         item["generation_attempts_used"] = int(normalized.get("generation_attempts_used", item.get("generation_attempts_used", 0)) or 0)
         item["model_calls_used"] = int(normalized["model_calls_used"])
 
-    def _finalize_item(self, item, event_label):
+    def _finalize_item(self, item, should_auto_accept, event_label):
         self.processed += 1
+        if should_auto_accept and item.get("can_accept", True):
+            self._apply_item(item, "accepted", "已自动审批")
+            return
         item["status"] = "pending"
         item["updated_at"] = _timestamp()
         self.pending_ids.append(item["id"])
@@ -775,6 +770,35 @@ class SqlTranslationSession(object):
         if item.get("validation_state") == "failed":
             self.failed += 1
         self._push_event(self._pending_event_label(item, event_label), item, item.get("candidate_text", ""))
+        self._persist_locked()
+
+    def _validated_candidate_text(self, item, candidate_text=None):
+        value = sanitize_candidate_text(
+            item.get("candidate_text", "") if candidate_text is None else candidate_text
+        )
+        if not value:
+            raise ValueError("Candidate translation is empty for SQL item {}".format(item.get("primary_key_display", "")))
+        if not has_matching_placeholders(item.get("source_text", ""), value):
+            raise ValueError(
+                "Candidate translation lost placeholders for SQL item {}".format(item.get("primary_key_display", ""))
+            )
+        return value
+
+    def _apply_item(self, item, status, reason):
+        item["candidate_text"] = self._validated_candidate_text(item)
+        appended = self._append_update_sql_once(item)
+        item["status"] = status
+        item["target_text"] = item.get("candidate_text", "")
+        item["updated_at"] = _timestamp()
+        item["accepted_reason"] = reason
+        if item["id"] in self.pending_ids:
+            self.pending_ids.remove(item["id"])
+            self.pending -= 1
+        self.accepted += 1
+        if appended:
+            self.appended += 1
+        self._push_recent(item["id"])
+        self._push_event(reason, item, item.get("candidate_text", ""))
         self._persist_locked()
 
     def _pending_event_label(self, item, default_label):

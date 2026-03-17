@@ -303,3 +303,58 @@ class PoTranslationWorkflowTest(unittest.TestCase):
             )
             self.assertEqual(accepted["status"]["counts"]["accepted"], 1)
             self.assertIn('msgstr "See :ref:`Add Host<5.2.1-addHost>` section."', po_path.read_text(encoding="utf-8"))
+
+    def test_po_translation_manual_accept_rejects_rst_structure_break(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            po_path = Path(temp_dir) / "doc.po"
+            po_path.write_text(
+                'msgid ""\n'
+                'msgstr ""\n'
+                '"Project-Id-Version: Demo\\\\n"\n'
+                '\n'
+                '#: ../../source/demo.rst:9\n'
+                'msgid "详见 :ref:`增加主机<5.2.1-addHost>` 章节。"\n'
+                'msgstr ""\n',
+                encoding="utf-8",
+            )
+
+            session = PoTranslationSession(
+                po_path=po_path,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 200},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "slot_translations": [
+                        {
+                            "slot_id": kwargs["protected_source"]["translatable_slots"][0]["slot_id"],
+                            "translation": "See ",
+                            "frontend_ui_context": False,
+                        },
+                        {
+                            "slot_id": kwargs["protected_source"]["translatable_slots"][1]["slot_id"],
+                            "translation": "Add Host",
+                            "frontend_ui_context": False,
+                        },
+                        {
+                            "slot_id": kwargs["protected_source"]["translatable_slots"][2]["slot_id"],
+                            "translation": " section.",
+                            "frontend_ui_context": False,
+                        },
+                    ],
+                    "reason": "ok",
+                },
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            with self.assertRaisesRegex(ValueError, "breaks RST structure"):
+                session.accept(
+                    pending["id"],
+                    candidate_text="See :ref:`Add Host<other-anchor>` section.",
+                )
+
+            still_pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(still_pending["id"], pending["id"])
+            self.assertEqual(still_pending["candidate_text"], "See :ref:`Add Host<5.2.1-addHost>` section.")

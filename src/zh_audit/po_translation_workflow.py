@@ -252,9 +252,11 @@ class PoTranslationSession(object):
             manual_candidate = str(candidate_text if candidate_text is not None else "")
             reason = "人工接受（跳过系统校验）" if item.get("validation_state") == "failed" else "人工接受"
             if manual_candidate.strip():
-                item["candidate_text"] = sanitize_candidate_text(manual_candidate)
+                item["candidate_text"] = self._validated_candidate_text(item, manual_candidate)
                 item["raw_candidate_text"] = manual_candidate
                 reason = "手动录入后接受"
+            else:
+                item["candidate_text"] = self._validated_candidate_text(item)
             self._apply_item(item, "accepted", reason)
             return self.snapshot()
 
@@ -923,11 +925,7 @@ class PoTranslationSession(object):
         entry = self.document.find_entry(item["entry_id"])
         if entry is None:
             raise ValueError("PO entry not found in document: {}".format(item["entry_id"]))
-        candidate_text = sanitize_candidate_text(item.get("candidate_text", ""))
-        if not candidate_text:
-            raise ValueError("Candidate translation is empty for PO entry {}".format(item["entry_id"]))
-        if not has_matching_placeholders(item.get("source_text", ""), candidate_text):
-            raise ValueError("Candidate translation lost placeholders for PO entry {}".format(item["entry_id"]))
+        candidate_text = self._validated_candidate_text(item)
         entry.set_msgstr_value(candidate_text)
         self.document.write()
         item["target_text"] = entry.msgstr_text()
@@ -946,6 +944,17 @@ class PoTranslationSession(object):
         self._push_recent(item["id"])
         self._push_event(reason, item, item.get("candidate_text", ""))
         self._persist_locked()
+
+    def _validated_candidate_text(self, item, candidate_text=None):
+        value = sanitize_candidate_text(item.get("candidate_text", "") if candidate_text is None else candidate_text)
+        if not value:
+            raise ValueError("Candidate translation is empty for PO entry {}".format(item["entry_id"]))
+        if not has_matching_placeholders(item.get("source_text", ""), value):
+            raise ValueError("Candidate translation lost placeholders for PO entry {}".format(item["entry_id"]))
+        issue = validate_protected_candidate(item.get("protected_source", {}), value)
+        if issue:
+            raise ValueError("Candidate translation breaks RST structure for PO entry {}: {}".format(item["entry_id"], issue))
+        return value
 
     def _push_recent(self, item_id):
         if item_id in self.recent_ids:

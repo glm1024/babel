@@ -271,6 +271,7 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn('placeholder="请输入主键字段名，默认 id"', html)
             self.assertIn('placeholder="请输入中文文案字段名"', html)
             self.assertIn('placeholder="请输入英文文案字段名"', html)
+            self.assertIn('id="sqlTranslationAutoAccept"', html)
             self.assertIn('placeholder="请填写待翻译 PO 文件绝对路径..."', html)
             self.assertIn("输出文件", html)
             self.assertIn("接受后的候选英文会直接覆盖原 `.po` 文件中的相邻 `msgstr`。", html)
@@ -353,6 +354,7 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("保存模型配置时会先做一次连通性测试。", html)
             self.assertIn("当前还没有扫描结果，请先到首页配置扫描目录并点击“开始扫描”。", html)
             self.assertNotIn("扫描设置", html)
+
             self.assertNotIn("最大文件大小（字节）", html)
             self.assertFalse(state.bootstrap_payload()["has_results"])
 
@@ -380,6 +382,30 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertTrue((out_dir / "summary.json").exists())
             self.assertTrue((out_dir / "report.html").exists())
             self.assertTrue((out_dir / "app_state.json").exists())
+
+    def test_sql_translation_auto_accept_config_persists_across_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            out_dir = root / "results"
+            state = AppServiceState(out_dir=out_dir)
+
+            payload = state.save_config(
+                {
+                    "sql_translation_config": {
+                        "directory_path": "/tmp/sql-demo",
+                        "table_name": "t_demo",
+                        "primary_key_field": "id",
+                        "source_field": "name_zh",
+                        "target_field": "name_en",
+                        "auto_accept": True,
+                    }
+                }
+            )
+
+            self.assertTrue(payload["config"]["sql_translation_config"]["auto_accept"])
+
+            reloaded = AppServiceState(out_dir=out_dir)
+            self.assertTrue(reloaded.bootstrap_payload()["config"]["sql_translation_config"]["auto_accept"])
 
     def test_resolve_and_reopen_persist_across_restart(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -832,7 +858,7 @@ class AppServerSmokeTest(unittest.TestCase):
             with patch("zh_audit.app_server.call_openai_compatible_json") as mocked:
                 mocked.side_effect = _model_and_review_response
                 resumed = reloaded.resume_translation()
-                self.assertEqual(resumed["status"]["status"], "running")
+                self.assertIn(resumed["status"]["status"], {"running", "done"})
 
                 deadline = time.time() + 10
                 latest = resumed

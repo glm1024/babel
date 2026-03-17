@@ -95,6 +95,9 @@ class AppServiceState(object):
         self.app_state = load_app_state(self.app_state_path)
         self.translation_auto_accept = bool(self.app_state.get("translation_config", {}).get("auto_accept", False))
         self.po_translation_auto_accept = bool(self.app_state.get("po_translation_config", {}).get("auto_accept", False))
+        self.sql_translation_auto_accept = bool(
+            self.app_state.get("sql_translation_config", {}).get("auto_accept", False)
+        )
         self.scan_status = self._idle_scan_status()
         self.terminology_path = Path(__file__).resolve().parents[2] / "resources" / "国际化专业术语词典.xlsx"
         self.terminology = normalize_terminology_catalog({})
@@ -190,6 +193,7 @@ class AppServiceState(object):
             self.app_state = next_app_state
             self.translation_auto_accept = bool(self.app_state["translation_config"].get("auto_accept", False))
             self.po_translation_auto_accept = bool(self.app_state["po_translation_config"].get("auto_accept", False))
+            self.sql_translation_auto_accept = bool(self.app_state["sql_translation_config"].get("auto_accept", False))
             self._persist_app_state()
             return self.bootstrap_payload()
 
@@ -541,7 +545,7 @@ class AppServiceState(object):
 
     def _run_sql_translation_job(self, session):
         try:
-            session.run()
+            session.run(should_auto_accept=self._sql_translation_auto_accept)
         except Exception as exc:
             session.interrupt(str(exc))
         finally:
@@ -609,6 +613,7 @@ class AppServiceState(object):
         self.app_state = self._build_updated_app_state(payload)
         self.translation_auto_accept = bool(self.app_state["translation_config"].get("auto_accept", False))
         self.po_translation_auto_accept = bool(self.app_state["po_translation_config"].get("auto_accept", False))
+        self.sql_translation_auto_accept = bool(self.app_state["sql_translation_config"].get("auto_accept", False))
 
     def _persist_app_state(self):
         write_app_state(self.app_state_path, self.app_state)
@@ -1084,6 +1089,9 @@ class AppServiceState(object):
 
     def _po_translation_auto_accept(self):
         return bool(self.po_translation_auto_accept)
+
+    def _sql_translation_auto_accept(self):
+        return bool(self.sql_translation_auto_accept)
 
     def _start_translation_thread_locked(self, session):
         self.translation_thread = threading.Thread(
