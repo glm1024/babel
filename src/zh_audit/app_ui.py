@@ -349,6 +349,19 @@ def render_app_shell(bootstrap_payload, client_config):
       padding: var(--input-pad-y) var(--input-pad-x);
       color: var(--ink);
     }
+    select {
+      appearance: none;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      padding-right: calc(var(--input-pad-x) + 34px);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14' fill='none'%3E%3Cpath d='M3.25 5.5 7 9.25l3.75-3.75' stroke='%23555b65' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 14px center;
+      background-size: 14px 14px;
+    }
+    select::-ms-expand {
+      display: none;
+    }
     .root-input {
       flex: 1 1 auto;
       min-width: 0;
@@ -1050,7 +1063,6 @@ def render_app_shell(bootstrap_payload, client_config):
           <div id="rootsList" class="roots-list"></div>
           <div class="btn-row">
             <button id="addRootBtn" class="secondary-btn" type="button">新增目录</button>
-            <button id="saveRootsBtn" class="secondary-btn" type="button">保存目录</button>
             <button id="startScanBtn" class="primary-btn" type="button">开始扫描</button>
           </div>
         </div>
@@ -1570,7 +1582,6 @@ __REPORT_COMPONENT_BUNDLE__
     const settingsPage = document.getElementById("settingsPage");
     const rootsList = document.getElementById("rootsList");
     const addRootBtn = document.getElementById("addRootBtn");
-    const saveRootsBtn = document.getElementById("saveRootsBtn");
     const startScanBtn = document.getElementById("startScanBtn");
     const homeStatus = document.getElementById("homeStatus");
     const progressBarInner = document.getElementById("progressBarInner");
@@ -3129,12 +3140,29 @@ __REPORT_COMPONENT_BUNDLE__
       state.draftConfig.scan_roots[index] = target.value;
     });
 
-    rootsList.addEventListener("click", event => {
+    rootsList.addEventListener("change", async event => {
+      const target = event.target instanceof Element ? event.target.closest(".root-input") : null;
+      if (!target) return;
+      try {
+        await saveRoots();
+      } catch (error) {
+        homeStatus.textContent = error.message || "保存目录失败";
+        homeStatus.classList.add("is-error");
+      }
+    });
+
+    rootsList.addEventListener("click", async event => {
       const target = event.target instanceof Element ? event.target.closest("[data-action='remove-root']") : null;
       if (!target) return;
       const index = Number.parseInt(target.dataset.index, 10);
       state.draftConfig.scan_roots.splice(index, 1);
       renderRoots();
+      try {
+        await saveRoots();
+      } catch (error) {
+        homeStatus.textContent = error.message || "保存目录失败";
+        homeStatus.classList.add("is-error");
+      }
     });
 
     addRootBtn.addEventListener("click", () => {
@@ -3291,15 +3319,6 @@ __REPORT_COMPONENT_BUNDLE__
     viewResultsBtn.addEventListener("click", () => {
       if (!state.hasResults) return;
       switchTab("results");
-    });
-
-    saveRootsBtn.addEventListener("click", async () => {
-      try {
-        await saveRoots();
-      } catch (error) {
-        homeStatus.textContent = error.message || "保存目录失败";
-        homeStatus.classList.add("is-error");
-      }
     });
 
     saveModelConfigBtn.addEventListener("click", async () => {
@@ -3691,10 +3710,24 @@ __REPORT_COMPONENT_BUNDLE__
     resultsReportHost.addEventListener("zh-audit-report-updated", event => {
       if (!event.detail) return;
       state.summary = event.detail.summary || state.summary;
-      state.findings = Array.isArray(event.detail.findings) ? event.detail.findings : state.findings;
-      state.hasResults = state.findings.length > 0;
-      state.resultsRevision += 1;
-      renderResultsPage();
+      if (Array.isArray(event.detail.findings)) {
+        state.findings = event.detail.findings;
+      } else if (event.detail.finding && event.detail.finding.id) {
+        const findingId = String(event.detail.finding.id);
+        const index = (state.findings || []).findIndex(item => String((item && item.id) || "") === findingId);
+        if (index >= 0) {
+          state.findings[index] = event.detail.finding;
+        }
+      }
+      if (typeof event.detail.has_results === "boolean") {
+        state.hasResults = event.detail.has_results;
+      } else {
+        state.hasResults = Array.isArray(state.findings) && state.findings.length > 0;
+      }
+      state.resultsRevision = Number(event.detail.results_revision || state.resultsRevision);
+      if (Array.isArray(event.detail.findings)) {
+        renderResultsPage();
+      }
       renderStatus();
     });
 

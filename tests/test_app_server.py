@@ -194,6 +194,7 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("scrollbar-gutter: stable;", html)
             self.assertIn("overflow-y: scroll;", html)
             self.assertIn("扫描目录", html)
+            self.assertNotIn(">保存目录<", html)
             self.assertIn("扫描结果", html)
             self.assertIn("免改规则", html)
             self.assertIn("配置翻译", html)
@@ -258,6 +259,8 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn('class="root-remove-btn"', html)
             self.assertIn('aria-label="删除目录"', html)
             self.assertNotIn('>删除<', html)
+            self.assertNotIn('id="saveRootsBtn"', html)
+            self.assertIn('rootsList.addEventListener("change"', html)
             self.assertIn('data-tab="results"', html)
             self.assertIn('data-tab="customKeep"', html)
             self.assertIn('data-tab="poTranslation"', html)
@@ -266,6 +269,12 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn('id="customKeepPage"', html)
             self.assertIn('id="customKeepCategoryList"', html)
             self.assertIn("window.ZhAuditReport", html)
+            self.assertIn('const FIX_REQUIRED_CATEGORY = "FIX_REQUIRED_MERGED";', html)
+            self.assertIn('return setSingleOption(categoryFilter, FIX_REQUIRED_CATEGORY, "category");', html)
+            self.assertIn('state.filters.category = state.filters.action === "fix" ? FIX_REQUIRED_CATEGORY : "";', html)
+            self.assertIn("function updateFindingInState(findingPayload) {", html)
+            self.assertIn('incremental: true', html)
+            self.assertIn('} else if (event.detail.finding && event.detail.finding.id) {', html)
             self.assertNotIn("<iframe", html)
             self.assertNotIn("标注无需修改", html)
             self.assertNotIn("/api/annotations", html)
@@ -273,6 +282,8 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("min-width: 0;", html)
             self.assertIn("margin: 0 auto;", html)
             self.assertIn("width: fit-content;", html)
+            self.assertIn("appearance: none;", html)
+            self.assertIn("background-position: right 14px center;", html)
             self.assertIn(".settings-workspace {", html)
             self.assertIn("height: calc(100vh - 124px);", html)
             self.assertIn(".translation-page-shell {", html)
@@ -372,7 +383,7 @@ class AppServerSmokeTest(unittest.TestCase):
 
             target = next(item for item in state.findings if item["text"] == "操作异常！")
             resolved_payload = state.resolve_finding(target["id"])
-            resolved_target = next(item for item in resolved_payload["findings"] if item["id"] == target["id"])
+            resolved_target = resolved_payload["finding"]
             self.assertEqual(resolved_target["action"], "resolved")
             self.assertTrue((out_dir / "remediation_state.json").exists())
 
@@ -387,7 +398,7 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertEqual(reloaded.summary["by_action"]["resolved"], 1)
 
             reopened_payload = reloaded.reopen_finding(restored["id"])
-            reopened_target = next(item for item in reopened_payload["findings"] if item["id"] == restored["id"])
+            reopened_target = reopened_payload["finding"]
             self.assertEqual(reopened_target["action"], "fix")
 
             remediation_state = json.loads((out_dir / "remediation_state.json").read_text(encoding="utf-8"))

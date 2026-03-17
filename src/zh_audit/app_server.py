@@ -1,4 +1,5 @@
 import json
+import os
 import threading
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -168,8 +169,8 @@ class AppServiceState(object):
                 raise ValueError("Only fix findings can be marked as resolved.")
             upsert_resolved(self.remediation_state, finding, self._timestamp())
             finding["action"] = "resolved"
-            self._refresh_and_persist_results_locked()
-            return self._results_payload_locked()
+            self._refresh_and_persist_remediation_locked()
+            return self._finding_update_payload_locked(finding)
 
     def reopen_finding(self, finding_id):
         with self.lock:
@@ -180,8 +181,8 @@ class AppServiceState(object):
                 raise ValueError("Only resolved findings can be reopened.")
             remove_resolved(self.remediation_state, finding)
             finding["action"] = "fix"
-            self._refresh_and_persist_results_locked()
-            return self._results_payload_locked()
+            self._refresh_and_persist_remediation_locked()
+            return self._finding_update_payload_locked(finding)
 
     def save_config(self, payload):
         with self.lock:
@@ -614,26 +615,30 @@ class AppServiceState(object):
     def _persist_app_state(self):
         write_app_state(self.app_state_path, self.app_state)
 
-    def _persist_results(self):
+    def _write_text_atomically(self, path, text):
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = target.with_name(target.name + ".tmp")
+        temp_path.write_text(text, encoding="utf-8")
+        os.replace(str(temp_path), str(target))
+
+    def _write_results_artifacts(self, summary_payload, findings_payload):
         self.out_dir.mkdir(parents=True, exist_ok=True)
-        self.findings_path.write_text(
-            json.dumps(self.findings, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        self.summary_path.write_text(
-            json.dumps(self.summary, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        self.report_path.write_text(
+        write_json_atomically(self.findings_path, findings_payload)
+        write_json_atomically(self.summary_path, summary_payload)
+        self._write_text_atomically(
+            self.report_path,
             render_report(
-                self.summary,
-                self.findings,
+                summary_payload,
+                findings_payload,
                 client_config={
                     "mode": "static",
                 },
             ),
-            encoding="utf-8",
         )
+
+    def _persist_results(self):
+        self._write_results_artifacts(dict(self.summary), [dict(item) for item in self.findings])
 
     def _persist_remediation_state(self):
         write_remediation_state(self.remediation_state_path, self.remediation_state)
@@ -780,6 +785,11 @@ class AppServiceState(object):
         self._persist_remediation_state()
         self._persist_results()
 
+    def _refresh_and_persist_remediation_locked(self):
+        self.summary = refresh_summary(dict(self.summary), self.findings)
+        self.results_revision += 1
+        self._persist_remediation_state()
+
     def _find_finding_by_id_locked(self, finding_id):
         for finding in self.findings:
             if str(finding.get("id", "")) == str(finding_id):
@@ -795,6 +805,14 @@ class AppServiceState(object):
         return {
             "summary": dict(self.summary),
             "findings": [dict(item) for item in self.findings],
+            "has_results": bool(self.findings),
+            "results_revision": self.results_revision,
+        }
+
+    def _finding_update_payload_locked(self, finding):
+        return {
+            "summary": dict(self.summary),
+            "finding": dict(finding),
             "has_results": bool(self.findings),
             "results_revision": self.results_revision,
         }

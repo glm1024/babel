@@ -371,6 +371,19 @@ def render_report(summary, findings, client_config=None):
       background: #fff;
       font: inherit;
     }
+    select {
+      appearance: none;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      padding-right: calc(var(--input-pad-x) + 34px);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14' fill='none'%3E%3Cpath d='M3.25 5.5 7 9.25l3.75-3.75' stroke='%23555b65' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 14px center;
+      background-size: 14px 14px;
+    }
+    select::-ms-expand {
+      display: none;
+    }
     select option,
     select optgroup {
       padding: 8px 12px;
@@ -963,6 +976,7 @@ def render_report(summary, findings, client_config=None):
     const PAGE_SIZES = __PAGE_SIZES__;
     const CATEGORY_DISPLAY_PRIORITY = __CATEGORY_DISPLAY_PRIORITY__;
     const CLIENT_CONFIG = __CLIENT_CONFIG__;
+    const FIX_REQUIRED_CATEGORY = "FIX_REQUIRED_MERGED";
     let summary = payload.summary;
     let findings = normalizeFindings(payload.findings);
     const numberFormatter = new Intl.NumberFormat("zh-CN");
@@ -977,7 +991,7 @@ def render_report(summary, findings, client_config=None):
       filters: {
         project: "",
         action: "fix",
-        category: "",
+        category: FIX_REQUIRED_CATEGORY,
         lang: "",
       },
     };
@@ -1109,7 +1123,7 @@ def render_report(summary, findings, client_config=None):
 
     function effectiveCategory(item) {
       if (item && (item.action === "fix" || item.action === "resolved")) {
-        return "FIX_REQUIRED_MERGED";
+        return FIX_REQUIRED_CATEGORY;
       }
       return item.category || "";
     }
@@ -1139,6 +1153,12 @@ def render_report(summary, findings, client_config=None):
       ).join("");
       select.value = resolved;
       return resolved;
+    }
+
+    function setSingleOption(select, value, group) {
+      select.innerHTML = `<option value="${escapeAttr(value)}">${escapeHtml(labelFor(group, value))}</option>`;
+      select.value = value;
+      return value;
     }
 
     function setPageSizeOptions() {
@@ -1268,9 +1288,9 @@ def render_report(summary, findings, client_config=None):
     function renderFilterOptions() {
       const configs = [
         { key: "project", node: projectFilter, label: "项目", group: "project" },
-        { key: "category", node: categoryFilter, label: "分类", group: "category" },
         { key: "lang", node: langFilter, label: "语言", group: "language" },
       ];
+      renderActionFilterOptions();
       let changed = false;
       let attempts = 0;
       do {
@@ -1288,9 +1308,13 @@ def render_report(summary, findings, client_config=None):
             changed = true;
           }
         });
+        const resolvedCategory = renderCategoryFilterOptions();
+        if (resolvedCategory !== state.filters.category) {
+          state.filters.category = resolvedCategory;
+          changed = true;
+        }
         attempts += 1;
       } while (changed && attempts < 6);
-      renderActionFilterOptions();
     }
 
     function renderActionFilterOptions() {
@@ -1301,6 +1325,14 @@ def render_report(summary, findings, client_config=None):
       const resolved = options.some(option => option.value === state.filters.action) ? state.filters.action : "fix";
       actionFilter.innerHTML = options.map(option => `<option value="${option.value}" ${option.value === resolved ? "selected" : ""}>${option.label}</option>`).join("");
       state.filters.action = resolved;
+    }
+
+    function renderCategoryFilterOptions() {
+      if (state.filters.action === "fix") {
+        return setSingleOption(categoryFilter, FIX_REQUIRED_CATEGORY, "category");
+      }
+      const selectedValue = state.filters.category === FIX_REQUIRED_CATEGORY ? "" : state.filters.category;
+      return setOptions(categoryFilter, availableValues("category"), "分类", "category", selectedValue);
     }
 
     function paginateFindings(items) {
@@ -1608,6 +1640,7 @@ def render_report(summary, findings, client_config=None):
     });
     actionFilter.addEventListener("change", () => {
       state.filters.action = actionFilter.value;
+      state.filters.category = state.filters.action === "fix" ? FIX_REQUIRED_CATEGORY : "";
       resetAndRender();
     });
     sortButtons.forEach(button => {
