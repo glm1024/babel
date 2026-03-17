@@ -10,6 +10,7 @@ from zh_audit.terminology_xlsx import (
     exact_terminology_translation,
     load_terminology_xlsx,
     match_locked_terms,
+    normalize_terminology_catalog,
     write_terminology_xlsx,
 )
 from zh_audit.translation_workflow import (
@@ -39,6 +40,53 @@ class TranslationWorkflowTest(unittest.TestCase):
             matches = match_locked_terms("创建云主机模板", glossary)
             self.assertEqual(matches[0]["source"], "云主机模板")
             self.assertNotIn("云主机", [item["source"] for item in matches])
+
+    def test_terminology_catalog_separates_frontend_module(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            glossary_path = Path(temp_dir) / "国际化专业术语词典.xlsx"
+            write_terminology_xlsx(
+                glossary_path,
+                [
+                    ("前端", "是", "Yes", ""),
+                    ("前端", "否", "No", ""),
+                    ("云资源", "资源池", "resource pool", ""),
+                ],
+            )
+            glossary = load_terminology_xlsx(glossary_path)
+
+            self.assertEqual(glossary.count, 3)
+            self.assertEqual(glossary.frontend_glossary["是"], "Yes")
+            self.assertEqual(glossary.non_frontend_glossary["资源池"], "resource pool")
+            self.assertEqual(match_locked_terms("是否自动装机不能为空。", glossary.non_frontend_glossary), [])
+
+    def test_translation_session_non_frontend_glossary_does_not_lock_frontend_terms(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "zh.properties"
+            target = Path(temp_dir) / "en.properties"
+            source.write_text("AUTO_PROVISION=是否自动装机不能为空。\n", encoding="utf-8")
+            target.write_text("AUTO_PROVISION=register type can not be null.\n", encoding="utf-8")
+            glossary = normalize_terminology_catalog({"资源池": "resource pool"})
+            glossary.add_entry(module="前端", source="是", target="Yes")
+            glossary.add_entry(module="前端", source="否", target="No")
+
+            session = TranslationSession(
+                source_path=source,
+                target_path=target,
+                glossary=glossary.non_frontend_glossary,
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": "Whether automatic provisioning is enabled cannot be null.",
+                    "reason": "ok",
+                },
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(pending["validation_state"], "passed")
+            self.assertTrue(pending["can_accept"])
 
     def test_properties_document_preserves_structure_and_appends(self):
         with tempfile.TemporaryDirectory() as temp_dir:

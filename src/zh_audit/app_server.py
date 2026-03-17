@@ -55,7 +55,7 @@ from zh_audit.sql_translation_workflow import (
     build_sql_translation_system_prompt,
     build_sql_translation_user_prompt,
 )
-from zh_audit.terminology_xlsx import ensure_default_terminology_xlsx, load_terminology_xlsx
+from zh_audit.terminology_xlsx import load_terminology_xlsx, normalize_terminology_catalog
 from zh_audit.translation_workflow import (
     TranslationSession,
     build_translation_review_system_prompt,
@@ -96,10 +96,8 @@ class AppServiceState(object):
         self.translation_auto_accept = bool(self.app_state.get("translation_config", {}).get("auto_accept", False))
         self.po_translation_auto_accept = bool(self.app_state.get("po_translation_config", {}).get("auto_accept", False))
         self.scan_status = self._idle_scan_status()
-        self.terminology_path = ensure_default_terminology_xlsx(
-            Path(__file__).resolve().parents[2] / "resources" / "terminology.xlsx"
-        )
-        self.terminology = {}
+        self.terminology_path = Path(__file__).resolve().parents[2] / "resources" / "国际化专业术语词典.xlsx"
+        self.terminology = normalize_terminology_catalog({})
         self.terminology_error = ""
         self._reload_terminology()
         self._restore_remediation_state()
@@ -250,7 +248,7 @@ class AppServiceState(object):
             self.translation_session = TranslationSession(
                 source_path=source_path.resolve(),
                 target_path=target_path.resolve(),
-                glossary=self.terminology,
+                glossary=self._translation_glossary(),
                 model_config=model_config,
                 model_runner=self._translation_model_runner,
                 reviewer_runner=self._translation_reviewer_runner,
@@ -275,7 +273,7 @@ class AppServiceState(object):
                 raise ValueError(self.terminology_error)
             with session.lock:
                 session.model_config = dict(model_config)
-                session.glossary = self.terminology
+                session.glossary = self._translation_glossary()
                 session.reviewer_runner = self._translation_reviewer_runner
             session.resume()
             self._start_translation_thread_locked(session)
@@ -329,7 +327,7 @@ class AppServiceState(object):
                 raise ValueError(self.terminology_error)
             self.po_translation_session = PoTranslationSession(
                 po_path=po_path.resolve(),
-                glossary=self.terminology,
+                glossary=self._po_translation_glossary(),
                 model_config=model_config,
                 model_runner=self._po_translation_model_runner,
                 reviewer_runner=self._po_translation_reviewer_runner,
@@ -354,7 +352,7 @@ class AppServiceState(object):
                 raise ValueError(self.terminology_error)
             with session.lock:
                 session.model_config = dict(model_config)
-                session.glossary = self.terminology
+                session.set_glossary(self._po_translation_glossary())
                 session.reviewer_runner = self._po_translation_reviewer_runner
             session.resume()
             self._start_po_translation_thread_locked(session)
@@ -418,7 +416,7 @@ class AppServiceState(object):
                 primary_key_field=primary_key_field,
                 source_field=source_field,
                 target_field=target_field,
-                glossary=self.terminology,
+                glossary=self._sql_translation_glossary(),
                 model_config=model_config,
                 model_runner=self._sql_translation_model_runner,
                 reviewer_runner=self._sql_translation_reviewer_runner,
@@ -443,7 +441,7 @@ class AppServiceState(object):
                 raise ValueError(self.terminology_error)
             with session.lock:
                 session.model_config = dict(model_config)
-                session.glossary = self.terminology
+                session.glossary = self._sql_translation_glossary()
                 session.reviewer_runner = self._sql_translation_reviewer_runner
             session.resume()
             self._start_sql_translation_thread_locked(session)
@@ -718,8 +716,20 @@ class AppServiceState(object):
             self.terminology = load_terminology_xlsx(self.terminology_path)
             self.terminology_error = ""
         except Exception as exc:
-            self.terminology = {}
+            self.terminology = normalize_terminology_catalog({})
             self.terminology_error = str(exc)
+
+    def _terminology_count(self):
+        return int(getattr(self.terminology, "count", len(self.terminology)) or 0)
+
+    def _translation_glossary(self):
+        return dict(getattr(self.terminology, "non_frontend_glossary", {}) or {})
+
+    def _sql_translation_glossary(self):
+        return dict(getattr(self.terminology, "non_frontend_glossary", {}) or {})
+
+    def _po_translation_glossary(self):
+        return self.terminology
 
     def _restore_translation_session(self):
         payload = load_json_file(self.translation_session_path)
@@ -728,7 +738,7 @@ class AppServiceState(object):
         try:
             self.translation_session = TranslationSession.from_saved_state(
                 payload=payload,
-                glossary=self.terminology,
+                glossary=self._translation_glossary(),
                 model_config=self._effective_model_config(),
                 model_runner=self._translation_model_runner,
                 reviewer_runner=self._translation_reviewer_runner,
@@ -745,7 +755,7 @@ class AppServiceState(object):
         try:
             self.po_translation_session = PoTranslationSession.from_saved_state(
                 payload=payload,
-                glossary=self.terminology,
+                glossary=self._po_translation_glossary(),
                 model_config=self._effective_model_config(),
                 model_runner=self._po_translation_model_runner,
                 reviewer_runner=self._po_translation_reviewer_runner,
@@ -824,7 +834,7 @@ class AppServiceState(object):
         try:
             self.sql_translation_session = SqlTranslationSession.from_saved_state(
                 payload=payload,
-                glossary=self.terminology,
+                glossary=self._sql_translation_glossary(),
                 model_config=self._effective_model_config(),
                 model_runner=self._sql_translation_model_runner,
                 reviewer_runner=self._sql_translation_reviewer_runner,
@@ -844,7 +854,7 @@ class AppServiceState(object):
         session_snapshot["config"] = dict(self.app_state.get("translation_config", default_translation_config()))
         session_snapshot["terminology"] = {
             "path": str(self.terminology_path),
-            "count": len(self.terminology),
+            "count": self._terminology_count(),
             "error": self.terminology_error,
         }
         self._attach_resume_status(session_snapshot["status"])
@@ -862,7 +872,7 @@ class AppServiceState(object):
         )
         session_snapshot["terminology"] = {
             "path": str(self.terminology_path),
-            "count": len(self.terminology),
+            "count": self._terminology_count(),
             "error": self.terminology_error,
         }
         self._attach_resume_status(session_snapshot["status"])
@@ -880,7 +890,7 @@ class AppServiceState(object):
         )
         session_snapshot["terminology"] = {
             "path": str(self.terminology_path),
-            "count": len(self.terminology),
+            "count": self._terminology_count(),
             "error": self.terminology_error,
         }
         self._attach_resume_status(session_snapshot["status"], output_path=session_snapshot["status"].get("output_path", ""))

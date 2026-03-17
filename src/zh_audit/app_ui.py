@@ -2529,12 +2529,14 @@ __REPORT_COMPONENT_BUNDLE__
             <div><span class="muted">候选 msgstr：</span><code>${escapeHtml(item.candidate_text || "-")}</code></div>
             ${renderModelDebugInfo(item)}
             <div><span class="muted">RST 保护：</span>${escapeHtml(item.protected_summary || "-")}</div>
+            <div><span class="muted">前端术语：</span>${escapeHtml(item.frontend_glossary_enabled ? `已启用（${((item.frontend_ui_slots || []).join(", ")) || "slot"}）` : "未启用")}</div>
             ${item.validation_message ? `<div class="translation-validation-note ${item.validation_state === "failed" ? "is-error" : ""}">${escapeHtml(item.validation_message)}</div>` : ""}
             ${itemOp ? `<div class="translation-validation-note is-progress">${escapeHtml(itemOp.message || "正在处理当前条目...")}</div>` : ""}
             <div class="translation-call-budget">重试轮次：${escapeHtml(String(item.generation_attempts_used || 0))}/${escapeHtml(String(5))}</div>
             <div class="translation-tags">
               ${(item.locked_terms || []).map(term => `<span class="translation-tag">${escapeHtml(`${term.source} => ${term.target}`)}</span>`).join("")}
             </div>
+            ${(item.active_frontend_terms || []).length ? `<div class="translation-tags">${(item.active_frontend_terms || []).map(term => `<span class="translation-tag">${escapeHtml(`前端：${term.source} => ${term.target}`)}</span>`).join("")}</div>` : ""}
           </div>
           <div class="translation-actions">
             <button class="primary-btn${itemOp && itemOp.action === "accept" ? " is-loading" : ""}" type="button" data-action="po-translation-accept" data-id="${escapeAttr(item.id)}" ${isBusy || item.can_accept === false ? `disabled title="${escapeAttr(acceptTitle)}"` : ""}>${escapeHtml(itemOp && itemOp.action === "accept" ? "接受中..." : "接受")}</button>

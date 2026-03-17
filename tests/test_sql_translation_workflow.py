@@ -9,6 +9,7 @@ from zh_audit.sql_translation_workflow import (
     parse_sql_translation_file,
     scan_sql_translation_directory,
 )
+from zh_audit.terminology_xlsx import normalize_terminology_catalog
 
 
 def _pass_review(**kwargs):
@@ -237,6 +238,40 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             self.assertIn("失败原因：候选仍含中文", pending["validation_message"])
             with self.assertRaises(ValueError):
                 session.accept(pending["id"])
+
+    def test_sql_translation_session_ignores_frontend_module_terms(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sql_dir = root / "sql"
+            sql_dir.mkdir()
+            (sql_dir / "demo.sql").write_text(
+                "INSERT INTO t_demo (id, name_zh, name_en) VALUES ('1', '用户操作超出权限范围。', 'user no operation permission.');\n",
+                encoding="utf-8",
+            )
+            glossary = normalize_terminology_catalog({"权限范围": "permission scope"})
+            glossary.add_entry(module="前端", source="操作", target="Operate")
+
+            session = SqlTranslationSession(
+                directory_path=sql_dir,
+                table_name="t_demo",
+                primary_key_field="id",
+                source_field="name_zh",
+                target_field="name_en",
+                glossary=glossary.non_frontend_glossary,
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": "User operation exceeds permission scope.",
+                    "reason": "ok",
+                },
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run()
+
+            pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(pending["validation_state"], "passed")
+            self.assertTrue(pending["can_accept"])
 
     def test_sql_translation_session_allows_sentence_initial_capitalization_for_locked_terms(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from zh_audit.po_rst_protection import protect_rst_text, validate_protected_candidate
 from zh_audit.po_translation_workflow import PoTranslationSession
+from zh_audit.terminology_xlsx import normalize_terminology_catalog
 
 
 def _pass_review(**kwargs):
@@ -154,3 +155,97 @@ class PoTranslationWorkflowTest(unittest.TestCase):
             self.assertGreaterEqual(len(calls), 2)
             self.assertIn("候选仍含中文", calls[-1]["extra_prompt"])
 
+    def test_po_translation_session_ignores_frontend_terms_without_ui_context(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            po_path = Path(temp_dir) / "doc.po"
+            po_path.write_text(
+                'msgid ""\n'
+                'msgstr ""\n'
+                '"Project-Id-Version: Demo\\\\n"\n'
+                '\n'
+                '#: ../../source/demo.rst:6\n'
+                'msgid "是否自动装机不能为空。"\n'
+                'msgstr "register type can not be null."\n',
+                encoding="utf-8",
+            )
+            glossary = normalize_terminology_catalog({"资源池": "resource pool"})
+            glossary.add_entry(module="前端", source="是", target="Yes")
+            glossary.add_entry(module="前端", source="否", target="No")
+
+            session = PoTranslationSession(
+                po_path=po_path,
+                glossary=glossary,
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 200},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "slot_translations": [
+                        {
+                            "slot_id": kwargs["protected_source"]["translatable_slots"][0]["slot_id"],
+                            "translation": "Whether automatic provisioning is enabled cannot be null.",
+                            "frontend_ui_context": False,
+                        }
+                    ],
+                    "reason": "ok",
+                },
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(pending["validation_state"], "passed")
+            self.assertFalse(pending["frontend_glossary_enabled"])
+            self.assertEqual(pending["active_frontend_terms"], [])
+
+    def test_po_translation_session_enables_frontend_terms_for_ui_context(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            po_path = Path(temp_dir) / "doc.po"
+            po_path.write_text(
+                'msgid ""\n'
+                'msgstr ""\n'
+                '"Project-Id-Version: Demo\\\\n"\n'
+                '\n'
+                '#: ../../source/demo.rst:7\n'
+                'msgid "单击“是”按钮。"\n'
+                'msgstr ""\n',
+                encoding="utf-8",
+            )
+            glossary = normalize_terminology_catalog({"按钮": "button"})
+            glossary.add_entry(module="前端", source="是", target="Yes")
+
+            session = PoTranslationSession(
+                po_path=po_path,
+                glossary=glossary,
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 200},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "slot_translations": [
+                        {
+                            "slot_id": kwargs["protected_source"]["translatable_slots"][0]["slot_id"],
+                            "translation": 'Click the "Yes" button.',
+                            "frontend_ui_context": True,
+                        }
+                    ],
+                    "reason": "ok",
+                },
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(pending["validation_state"], "passed")
+            self.assertTrue(pending["frontend_glossary_enabled"])
+            self.assertEqual(pending["frontend_ui_slots"], ["slot_1"])
+            self.assertEqual(pending["active_frontend_terms"][0]["source"], "是")
+
+            restored = PoTranslationSession.from_saved_state(
+                payload=session.save_state(),
+                glossary=glossary,
+                model_config=session.model_config,
+                model_runner=session.model_runner,
+                reviewer_runner=_pass_review,
+            )
+            restored_pending = restored.snapshot()["pending_items"][0]
+            self.assertTrue(restored_pending["frontend_glossary_enabled"])
+            self.assertEqual(restored_pending["frontend_ui_slots"], ["slot_1"])

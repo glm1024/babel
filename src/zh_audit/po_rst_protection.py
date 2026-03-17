@@ -121,8 +121,31 @@ def validate_protected_candidate(source_protected, candidate_text):
 
 
 def build_slot_translation_map(raw_slot_translations):
+    normalized_payload = build_slot_translation_payload(raw_slot_translations)
+    return {
+        slot_id: item.get("translation", "")
+        for slot_id, item in normalized_payload.items()
+    }
+
+
+def build_slot_translation_payload(raw_slot_translations):
     if isinstance(raw_slot_translations, dict):
-        return {str(key): str(value or "") for key, value in raw_slot_translations.items()}
+        normalized = {}
+        for key, value in raw_slot_translations.items():
+            slot_id = str(key or "")
+            if not slot_id:
+                continue
+            if isinstance(value, dict):
+                translation = str(value.get("translation", value.get("translated_text", "")) or "")
+                frontend_ui_context = _coerce_bool(value.get("frontend_ui_context", False))
+            else:
+                translation = str(value or "")
+                frontend_ui_context = False
+            normalized[slot_id] = {
+                "translation": translation,
+                "frontend_ui_context": frontend_ui_context,
+            }
+        return normalized
     normalized = {}
     if isinstance(raw_slot_translations, list):
         for item in raw_slot_translations:
@@ -131,8 +154,18 @@ def build_slot_translation_map(raw_slot_translations):
             slot_id = str(item.get("slot_id", "") or "")
             if not slot_id:
                 continue
-            normalized[slot_id] = str(item.get("translation", "") or "")
+            normalized[slot_id] = {
+                "translation": str(item.get("translation", item.get("translated_text", "")) or ""),
+                "frontend_ui_context": _coerce_bool(item.get("frontend_ui_context", False)),
+            }
     return normalized
+
+
+def _coerce_bool(value):
+    if isinstance(value, bool):
+        return value
+    text = str(value or "").strip().lower()
+    return text in ("1", "true", "yes", "y", "on")
 
 
 def _summarize_slots(slots):

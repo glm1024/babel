@@ -11,6 +11,9 @@ XLSX_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 
 TERMINOLOGY_HEADERS = ("中文", "英文")
+TERMINOLOGY_CATALOG_HEADERS = ("模块", "中文", "英文")
+TERMINOLOGY_CATALOG_FULL_HEADERS = ("模块", "中文", "英文", "英文缩写（如有）")
+FRONTEND_MODULE_NAME = "前端"
 DEFAULT_TERMINOLOGY_ROWS = [
     ("资源池", "resource pool"),
     ("主机组", "host group"),
@@ -44,6 +47,44 @@ DEFAULT_TERMINOLOGY_ROWS = [
 ]
 
 
+class TerminologyCatalog(OrderedDict):
+    def __init__(self, entries=None):
+        OrderedDict.__init__(self)
+        self.entries = []
+        self.frontend_glossary = OrderedDict()
+        self.non_frontend_glossary = OrderedDict()
+        if entries:
+            for entry in entries:
+                self.add_entry(
+                    module=entry.get("module", ""),
+                    source=entry.get("source", ""),
+                    target=entry.get("target", ""),
+                )
+
+    @property
+    def count(self):
+        return len(self.entries)
+
+    def add_entry(self, module, source, target):
+        source_text = str(source or "").strip()
+        target_text = str(target or "").strip()
+        module_name = str(module or "").strip()
+        if not source_text or not target_text:
+            return
+        entry = {
+            "module": module_name,
+            "source": source_text,
+            "target": target_text,
+        }
+        self.entries.append(entry)
+        if source_text not in self:
+            self[source_text] = target_text
+        if module_name == FRONTEND_MODULE_NAME:
+            _store_term(self.frontend_glossary, source_text, target_text, None, None, "frontend")
+        else:
+            _store_term(self.non_frontend_glossary, source_text, target_text, None, None, "non-frontend")
+
+
 def ensure_default_terminology_xlsx(path):
     glossary_path = Path(path)
     if glossary_path.exists():
@@ -66,22 +107,32 @@ def load_terminology_xlsx(path):
     if not rows:
         raise ValueError("Terminology file is empty: {}".format(glossary_path))
 
-    headers = rows[0]
-    if len(headers) < 2 or headers[0] != TERMINOLOGY_HEADERS[0] or headers[1] != TERMINOLOGY_HEADERS[1]:
-        raise ValueError("Terminology file {} must start with headers: 中文, 英文".format(glossary_path))
-
-    glossary = OrderedDict()
-    for row_index, row in enumerate(rows[1:], 2):
-        source = row[0].strip() if len(row) > 0 else ""
-        target = row[1].strip() if len(row) > 1 else ""
-        if not source and not target:
-            continue
-        if not source or not target:
-            raise ValueError("Terminology file {} has an incomplete row at line {}.".format(glossary_path, row_index))
-        if source in glossary:
-            raise ValueError("Terminology file {} has duplicate Chinese term: {}".format(glossary_path, source))
-        glossary[source] = target
-    if not glossary:
+    headers = tuple(str(value or "").strip() for value in rows[0])
+    glossary = TerminologyCatalog()
+    if len(headers) >= 3 and headers[:3] == TERMINOLOGY_CATALOG_HEADERS:
+        for row_index, row in enumerate(rows[1:], 2):
+            module = row[0].strip() if len(row) > 0 else ""
+            source = row[1].strip() if len(row) > 1 else ""
+            target = row[2].strip() if len(row) > 2 else ""
+            if not module and not source and not target:
+                continue
+            if not source or not target:
+                continue
+            glossary.add_entry(module=module, source=source, target=target)
+    elif len(headers) >= 2 and headers[:2] == TERMINOLOGY_HEADERS:
+        for row_index, row in enumerate(rows[1:], 2):
+            source = row[0].strip() if len(row) > 0 else ""
+            target = row[1].strip() if len(row) > 1 else ""
+            if not source and not target:
+                continue
+            if not source or not target:
+                continue
+            glossary.add_entry(module="", source=source, target=target)
+    else:
+        raise ValueError(
+            "Terminology file {} must start with headers: 模块, 中文, 英文".format(glossary_path)
+        )
+    if not glossary.entries:
         raise ValueError("Terminology file {} does not contain any terminology rows.".format(glossary_path))
     return glossary
 
@@ -89,7 +140,8 @@ def load_terminology_xlsx(path):
 def write_terminology_xlsx(path, rows):
     glossary_path = Path(path)
     workbook_xml = _build_workbook_xml()
-    worksheet_xml = _build_worksheet_xml(rows)
+    headers, normalized_rows = _normalize_rows_for_write(rows)
+    worksheet_xml = _build_worksheet_xml(headers, normalized_rows)
     content_types_xml = _build_content_types_xml()
     root_rels_xml = _build_root_rels_xml()
     workbook_rels_xml = _build_workbook_rels_xml()
@@ -105,9 +157,10 @@ def write_terminology_xlsx(path, rows):
 def match_locked_terms(text, glossary):
     if not text:
         return []
+    glossary_map = _as_glossary_mapping(glossary)
     matches = []
     occupied = []
-    for source in sorted(glossary.keys(), key=lambda item: (-len(item), item)):
+    for source in sorted(glossary_map.keys(), key=lambda item: (-len(item), item)):
         start = text.find(source)
         while start >= 0:
             end = start + len(source)
@@ -116,7 +169,7 @@ def match_locked_terms(text, glossary):
                 matches.append(
                     {
                         "source": source,
-                        "target": glossary[source],
+                        "target": glossary_map[source],
                         "start": start,
                         "end": end,
                     }
@@ -130,7 +183,17 @@ def exact_terminology_translation(text, glossary):
     normalized = str(text or "").strip()
     if not normalized:
         return ""
-    return glossary.get(normalized, "")
+    glossary_map = _as_glossary_mapping(glossary)
+    return glossary_map.get(normalized, "")
+
+
+def normalize_terminology_catalog(glossary):
+    if isinstance(glossary, TerminologyCatalog):
+        return glossary
+    catalog = TerminologyCatalog()
+    for source, target in OrderedDict(glossary or {}).items():
+        catalog.add_entry(module="", source=source, target=target)
+    return catalog
 
 
 def _overlaps(ranges, start, end):
@@ -138,6 +201,30 @@ def _overlaps(ranges, start, end):
         if start < current_end and end > current_start:
             return True
     return False
+
+
+def _as_glossary_mapping(glossary):
+    if isinstance(glossary, TerminologyCatalog):
+        return OrderedDict(glossary)
+    return OrderedDict(glossary or {})
+
+
+def _store_term(mapping, source, target, row_index, glossary_path, scope_label):
+    if source not in mapping:
+        mapping[source] = target
+        return
+    if mapping[source] == target:
+        return
+    if glossary_path is None:
+        raise ValueError("Conflicting {} terminology for {}.".format(scope_label, source))
+    raise ValueError(
+        "Terminology file {} has conflicting {} term {} at line {}.".format(
+            glossary_path,
+            scope_label,
+            source,
+            row_index,
+        )
+    )
 
 
 def _read_shared_strings(workbook):
@@ -210,6 +297,27 @@ def _column_index(reference):
     return max(index - 1, 0)
 
 
+def _normalize_rows_for_write(rows):
+    normalized_rows = []
+    use_catalog_headers = False
+    for row in rows:
+        if isinstance(row, dict):
+            values = (
+                str(row.get("module", "") or ""),
+                str(row.get("source", "") or ""),
+                str(row.get("target", "") or ""),
+                str(row.get("abbreviation", "") or ""),
+            )
+            use_catalog_headers = True
+        else:
+            values = tuple(row)
+            if len(values) >= 3:
+                use_catalog_headers = True
+        normalized_rows.append(values)
+    headers = TERMINOLOGY_CATALOG_FULL_HEADERS if use_catalog_headers else TERMINOLOGY_HEADERS
+    return headers, normalized_rows
+
+
 def _build_content_types_xml():
     return """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
@@ -243,10 +351,10 @@ def _build_workbook_xml():
 </workbook>"""
 
 
-def _build_worksheet_xml(rows):
+def _build_worksheet_xml(headers, rows):
     worksheet = ET.Element("{%s}worksheet" % XLSX_NS)
     sheet_data = ET.SubElement(worksheet, "{%s}sheetData" % XLSX_NS)
-    all_rows = [TERMINOLOGY_HEADERS] + list(rows)
+    all_rows = [tuple(headers)] + list(rows)
     for row_index, row in enumerate(all_rows, 1):
         row_node = ET.SubElement(sheet_data, "{%s}row" % XLSX_NS, {"r": str(row_index)})
         for column_index, value in enumerate(row, 1):

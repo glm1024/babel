@@ -119,6 +119,7 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertEqual(bootstrap["config"]["model_config"]["max_tokens"], 256)
             self.assertEqual(bootstrap["config"]["custom_keep_categories"][0]["rules"][0]["type"], "keyword")
             self.assertIn("po_translation", bootstrap)
+            self.assertIn("国际化专业术语词典.xlsx", bootstrap["translation"]["terminology"]["path"])
             self.assertFalse(bootstrap["has_results"])
             self.assertEqual(bootstrap["findings"], [])
 
@@ -148,6 +149,7 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertEqual(bootstrap["config"]["model_config"]["provider"], "openai compatible")
             self.assertEqual(bootstrap["config"]["model_config"]["base_url"], "http://100.7.69.249:7777/v1")
             self.assertEqual(bootstrap["config"]["model_config"]["api_key"], "sk-shared")
+            self.assertIn("国际化专业术语词典.xlsx", bootstrap["po_translation"]["terminology"]["path"])
 
             with patch("zh_audit.app_server.probe_openai_compatible_model", return_value={"message": "OK"}):
                 updated = state.save_config(

@@ -19,16 +19,16 @@ from zh_audit.candidate_validation import (
 from zh_audit.model_client import describe_retryable_model_response_error, model_response_debug_payload
 from zh_audit.po_file import load_po_document
 from zh_audit.po_rst_protection import (
-    build_slot_translation_map,
+    build_slot_translation_payload,
     compose_protected_text,
     protect_rst_text,
     validate_protected_candidate,
 )
-from zh_audit.terminology_xlsx import exact_terminology_translation, match_locked_terms
+from zh_audit.terminology_xlsx import exact_terminology_translation, match_locked_terms, normalize_terminology_catalog
 from zh_audit.utils import contains_han, decode_unicode_escapes
 
 
-PO_TRANSLATION_SESSION_VERSION = 1
+PO_TRANSLATION_SESSION_VERSION = 2
 
 
 def default_po_translation_config():
@@ -50,7 +50,7 @@ class PoTranslationSession(object):
     ):
         self.lock = threading.RLock()
         self.po_path = str(po_path)
-        self.glossary = OrderedDict(glossary)
+        self.set_glossary(glossary)
         self.model_config = dict(model_config)
         self.model_runner = model_runner
         self.reviewer_runner = reviewer_runner
@@ -86,6 +86,11 @@ class PoTranslationSession(object):
         self.stop_requested = False
         self.next_id = 1
         self.next_index = 0
+
+    def set_glossary(self, glossary):
+        self.glossary_catalog = normalize_terminology_catalog(glossary)
+        self.glossary = OrderedDict(self.glossary_catalog.non_frontend_glossary)
+        self.frontend_glossary = OrderedDict(self.glossary_catalog.frontend_glossary)
 
     @classmethod
     def from_saved_state(
@@ -330,6 +335,7 @@ class PoTranslationSession(object):
                 self._persist_locked()
             return
 
+        protected_source = self._attach_slot_terminology(protected_source)
         locked_terms = match_locked_terms(source_text, self.glossary)
         exact_translation = ""
         slots = protected_source.get("slots", [])
@@ -350,6 +356,9 @@ class PoTranslationSession(object):
                 protected_source=protected_source,
                 candidate_text=exact_translation,
                 locked_terms=locked_terms,
+                active_frontend_terms=[],
+                frontend_glossary_enabled=False,
+                frontend_ui_slots=[],
                 reason="整句命中术语词典。",
                 verdict="needs_update",
                 target_missing=not target_text.strip(),
@@ -388,7 +397,10 @@ class PoTranslationSession(object):
             target_text=target_text,
             protected_source=protected_source,
             candidate_text=normalized["candidate_text"],
-            locked_terms=locked_terms,
+            locked_terms=normalized["locked_terms"],
+            active_frontend_terms=normalized["active_frontend_terms"],
+            frontend_glossary_enabled=normalized["frontend_glossary_enabled"],
+            frontend_ui_slots=normalized["frontend_ui_slots"],
             reason=normalized["reason"],
             verdict=normalized["verdict"],
             target_missing=not target_text.strip(),
@@ -432,6 +444,10 @@ class PoTranslationSession(object):
             "parse_error_detail": "",
             "failure_phase": "",
             "reason": "",
+            "locked_terms": [dict(term) for term in locked_terms],
+            "active_frontend_terms": [],
+            "frontend_glossary_enabled": False,
+            "frontend_ui_slots": [],
             "validation_state": "failed",
             "validation_message": validation_message("校验未通过"),
             "validation_issue": "校验未通过",
@@ -471,6 +487,10 @@ class PoTranslationSession(object):
                     "parse_error_detail": _display_text(debug_payload.get("parse_error_detail", "")).strip(),
                     "failure_phase": "模型",
                     "reason": extracted_reason,
+                    "locked_terms": [dict(term) for term in locked_terms],
+                    "active_frontend_terms": [],
+                    "frontend_glossary_enabled": False,
+                    "frontend_ui_slots": [],
                     "validation_state": "failed",
                     "validation_message": validation_message(retry_issue),
                     "validation_issue": retry_issue,
@@ -500,7 +520,7 @@ class PoTranslationSession(object):
                 candidate_text=candidate_text,
                 raw_candidate_text=candidate_text,
                 protected_source=protected_source,
-                locked_terms=locked_terms,
+                locked_terms=normalized["locked_terms"],
                 current_target=current_target,
                 verdict=normalized["verdict"],
             )
@@ -516,6 +536,10 @@ class PoTranslationSession(object):
                     "parse_error_detail": "",
                     "failure_phase": "",
                     "reason": normalized["reason"],
+                    "locked_terms": [dict(term) for term in normalized["locked_terms"]],
+                    "active_frontend_terms": [dict(term) for term in normalized["active_frontend_terms"]],
+                    "frontend_glossary_enabled": bool(normalized["frontend_glossary_enabled"]),
+                    "frontend_ui_slots": list(normalized["frontend_ui_slots"]),
                     "validation_state": "failed",
                     "validation_message": validation_message(validation_issue),
                     "validation_issue": validation_issue,
@@ -532,8 +556,13 @@ class PoTranslationSession(object):
                         source_text=source_text,
                         target_text=current_target,
                         candidate_text=candidate_text,
-                        protected_source=protected_source,
-                        locked_terms=locked_terms,
+                        protected_source=self._review_protected_source(
+                            protected_source,
+                            normalized["frontend_glossary_enabled"],
+                            normalized["frontend_ui_slots"],
+                            normalized["active_frontend_terms"],
+                        ),
+                        locked_terms=normalized["locked_terms"],
                         model_config=self.model_config,
                         target_missing=target_missing,
                         extra_prompt=base_extra_prompt,
@@ -555,6 +584,10 @@ class PoTranslationSession(object):
                         "parse_error_detail": _display_text(debug_payload.get("parse_error_detail", "")).strip(),
                         "failure_phase": "AI复核",
                         "reason": extracted_reason or normalized["reason"],
+                        "locked_terms": [dict(term) for term in normalized["locked_terms"]],
+                        "active_frontend_terms": [dict(term) for term in normalized["active_frontend_terms"]],
+                        "frontend_glossary_enabled": bool(normalized["frontend_glossary_enabled"]),
+                        "frontend_ui_slots": list(normalized["frontend_ui_slots"]),
                         "validation_state": "failed",
                         "validation_message": validation_message(retry_issue),
                         "validation_issue": retry_issue,
@@ -582,6 +615,10 @@ class PoTranslationSession(object):
                         "parse_error_detail": "",
                         "failure_phase": "AI复核",
                         "reason": normalized["reason"],
+                        "locked_terms": [dict(term) for term in normalized["locked_terms"]],
+                        "active_frontend_terms": [dict(term) for term in normalized["active_frontend_terms"]],
+                        "frontend_glossary_enabled": bool(normalized["frontend_glossary_enabled"]),
+                        "frontend_ui_slots": list(normalized["frontend_ui_slots"]),
                         "validation_state": "failed",
                         "validation_message": validation_message(retry_issue),
                         "validation_issue": retry_issue,
@@ -600,6 +637,10 @@ class PoTranslationSession(object):
                 "parse_error_detail": "",
                 "failure_phase": "",
                 "reason": normalized["reason"],
+                "locked_terms": [dict(term) for term in normalized["locked_terms"]],
+                "active_frontend_terms": [dict(term) for term in normalized["active_frontend_terms"]],
+                "frontend_glossary_enabled": bool(normalized["frontend_glossary_enabled"]),
+                "frontend_ui_slots": list(normalized["frontend_ui_slots"]),
                 "validation_state": "passed",
                 "validation_message": "",
                 "validation_issue": "",
@@ -627,7 +668,7 @@ class PoTranslationSession(object):
         reason = _display_text(result.get("reason", "")).strip()
         if verdict not in ("accurate", "needs_update"):
             verdict = "needs_update"
-        locked_terms = list(item.get("locked_terms", []))
+        locked_terms = [dict(term) for term in item.get("locked_terms", [])]
         target_missing = bool(item.get("target_missing", not str(current_target or "").strip()))
         protected_source = dict(item.get("protected_source", {}))
         if verdict == "accurate" and target_missing:
@@ -641,12 +682,28 @@ class PoTranslationSession(object):
                     "verdict": verdict,
                     "candidate_text": sanitize_candidate_text(current_target),
                     "reason": _normalize_reason(reason, fallback="现有英文翻译准确。"),
+                    "locked_terms": [dict(term) for term in locked_terms],
+                    "active_frontend_terms": [],
+                    "frontend_glossary_enabled": False,
+                    "frontend_ui_slots": [],
                 }
-        slot_translations = build_slot_translation_map(result.get("slot_translations"))
+        slot_payload = build_slot_translation_payload(result.get("slot_translations"))
+        slot_translations = {
+            slot_id: payload.get("translation", "")
+            for slot_id, payload in slot_payload.items()
+        }
         candidate = compose_protected_text(protected_source, slot_translations)
         candidate = sanitize_candidate_text(candidate)
         if not candidate:
             raise ValueError("Model did not return candidate translation for PO entry {}".format(item.get("entry_id", "")))
+        frontend_ui_slots = sorted(
+            [
+                slot_id
+                for slot_id, payload in slot_payload.items()
+                if payload.get("frontend_ui_context", False)
+            ]
+        )
+        active_frontend_terms = self._active_frontend_terms(protected_source, frontend_ui_slots)
         return {
             "verdict": "needs_update",
             "candidate_text": candidate,
@@ -654,6 +711,10 @@ class PoTranslationSession(object):
                 reason,
                 fallback="目标英文缺失，建议补充候选英文。" if target_missing else "现有英文翻译不够准确，建议更新为候选英文。",
             ),
+            "locked_terms": self._merge_locked_terms(locked_terms, active_frontend_terms),
+            "active_frontend_terms": active_frontend_terms,
+            "frontend_glossary_enabled": bool(frontend_ui_slots),
+            "frontend_ui_slots": frontend_ui_slots,
         }
 
     def _validate_candidate(
@@ -682,6 +743,61 @@ class PoTranslationSession(object):
             return "verdict=accurate 时候选必须等于当前 msgstr"
         return ""
 
+    def _attach_slot_terminology(self, protected_source):
+        enriched = dict(protected_source or {})
+        enriched_slots = []
+        for slot in protected_source.get("translatable_slots", []):
+            source_text = slot.get("source_text", "")
+            enriched_slot = dict(slot)
+            enriched_slot["non_frontend_locked_terms"] = match_locked_terms(source_text, self.glossary)
+            enriched_slot["frontend_locked_terms"] = match_locked_terms(source_text, self.frontend_glossary)
+            enriched_slots.append(enriched_slot)
+        enriched["translatable_slots"] = enriched_slots
+        return enriched
+
+    def _active_frontend_terms(self, protected_source, frontend_ui_slots):
+        active = []
+        active_slot_ids = set(frontend_ui_slots or [])
+        for slot in protected_source.get("translatable_slots", []):
+            slot_id = str(slot.get("slot_id", "") or "")
+            if slot_id not in active_slot_ids:
+                continue
+            for term in slot.get("frontend_locked_terms", []):
+                active.append(
+                    {
+                        "source": term.get("source", ""),
+                        "target": term.get("target", ""),
+                        "slot_id": slot_id,
+                    }
+                )
+        return self._dedupe_terms(active)
+
+    def _merge_locked_terms(self, base_terms, extra_terms):
+        merged = [dict(term) for term in base_terms or []]
+        merged.extend(dict(term) for term in extra_terms or [])
+        return self._dedupe_terms(merged)
+
+    def _dedupe_terms(self, terms):
+        deduped = []
+        seen = set()
+        for term in terms or []:
+            source = str(term.get("source", "") or "")
+            target = str(term.get("target", "") or "")
+            slot_id = str(term.get("slot_id", "") or "")
+            key = (source, target, slot_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(dict(term))
+        return deduped
+
+    def _review_protected_source(self, protected_source, frontend_glossary_enabled, frontend_ui_slots, active_frontend_terms):
+        payload = dict(protected_source or {})
+        payload["frontend_glossary_enabled"] = bool(frontend_glossary_enabled)
+        payload["frontend_ui_slots"] = list(frontend_ui_slots or [])
+        payload["active_frontend_terms"] = [dict(term) for term in active_frontend_terms or []]
+        return payload
+
     def _build_retry_prompt(self, base_extra_prompt, retry_issue):
         parts = []
         if retry_issue:
@@ -698,6 +814,9 @@ class PoTranslationSession(object):
         protected_source,
         candidate_text,
         locked_terms,
+        active_frontend_terms,
+        frontend_glossary_enabled,
+        frontend_ui_slots,
         reason,
         verdict,
         target_missing,
@@ -733,6 +852,9 @@ class PoTranslationSession(object):
                 "protected_summary": protected_source.get("summary", ""),
                 "protected_source": dict(protected_source),
                 "locked_terms": [dict(term) for term in locked_terms],
+                "active_frontend_terms": [dict(term) for term in active_frontend_terms],
+                "frontend_glossary_enabled": bool(frontend_glossary_enabled),
+                "frontend_ui_slots": list(frontend_ui_slots or []),
                 "reason": reason,
                 "verdict": verdict,
                 "target_missing": bool(target_missing),
@@ -759,6 +881,10 @@ class PoTranslationSession(object):
         item["failure_phase"] = str(normalized.get("failure_phase", ""))
         item["reason"] = normalized["reason"]
         item["verdict"] = normalized["verdict"]
+        item["locked_terms"] = [dict(term) for term in normalized.get("locked_terms", item.get("locked_terms", []))]
+        item["active_frontend_terms"] = [dict(term) for term in normalized.get("active_frontend_terms", item.get("active_frontend_terms", []))]
+        item["frontend_glossary_enabled"] = bool(normalized.get("frontend_glossary_enabled", item.get("frontend_glossary_enabled", False)))
+        item["frontend_ui_slots"] = list(normalized.get("frontend_ui_slots", item.get("frontend_ui_slots", [])))
         item["validation_state"] = normalized["validation_state"]
         item["validation_message"] = normalized["validation_message"]
         item["validation_issue"] = normalized.get("validation_issue", "")
@@ -864,6 +990,9 @@ class PoTranslationSession(object):
             "failure_phase": item.get("failure_phase", ""),
             "protected_summary": item.get("protected_summary", ""),
             "locked_terms": [dict(term) for term in item.get("locked_terms", [])],
+            "active_frontend_terms": [dict(term) for term in item.get("active_frontend_terms", [])],
+            "frontend_glossary_enabled": bool(item.get("frontend_glossary_enabled", False)),
+            "frontend_ui_slots": list(item.get("frontend_ui_slots", [])),
             "reason": item.get("reason", ""),
             "verdict": item.get("verdict", ""),
             "status": item.get("status", ""),
@@ -929,6 +1058,9 @@ class PoTranslationSession(object):
             restored.setdefault("raw_reason_text", "")
             restored.setdefault("parse_error_detail", "")
             restored.setdefault("failure_phase", "")
+            restored.setdefault("active_frontend_terms", [])
+            restored.setdefault("frontend_glossary_enabled", False)
+            restored.setdefault("frontend_ui_slots", [])
             restored.setdefault("can_accept", True)
             restored.setdefault(
                 "generation_attempts_used",
@@ -990,10 +1122,18 @@ def build_po_translation_user_prompt(entry_id, references, source_text, target_t
                 "slot_id": slot.get("slot_id", ""),
                 "type": slot.get("type", ""),
                 "source_text": slot.get("source_text", ""),
-                "locked_terms": [
+                "non_frontend_locked_terms": [
                     {"source": term["source"], "target": term["target"]}
-                    for term in match_locked_terms(slot.get("source_text", ""), OrderedDict((term["source"], term["target"]) for term in locked_terms))
+                    for term in slot.get("non_frontend_locked_terms", [])
                 ],
+                "frontend_locked_terms": [
+                    {"source": term["source"], "target": term["target"]}
+                    for term in slot.get("frontend_locked_terms", [])
+                ],
+                "frontend_ui_context_rule": (
+                    "Set frontend_ui_context=true only when this slot clearly refers to visible front-end UI elements "
+                    "such as buttons, tabs, menus, links, labels, or page controls. Otherwise return false."
+                ),
             }
             for slot in protected_source.get("translatable_slots", [])
         ],
@@ -1021,10 +1161,13 @@ def build_po_translation_system_prompt():
         "You are a professional translator for gettext PO documentation strings that may contain protected reStructuredText fragments.\n"
         "Return JSON only with keys: verdict, slot_translations, reason.\n"
         "verdict must be either accurate or needs_update.\n"
-        "slot_translations must be either an object mapping slot_id to English translation or an array of objects with keys slot_id and translation.\n"
+        "slot_translations must be either an object mapping slot_id to English translation or an array of objects with keys slot_id, translation, and frontend_ui_context.\n"
         "Translate only the provided translatable_slots. Never recreate the full sentence on your own.\n"
         "Do not change rst role names, anchors, substitution tokens, inline literals, placeholders, or any immutable markup.\n"
         "For role_label or link_label slots, translate only the visible label text.\n"
+        "For each translated slot, return frontend_ui_context=true only when the slot is clearly talking about visible UI elements such as buttons, tabs, menus, links, labels, or page controls.\n"
+        "When frontend_ui_context=false, ignore frontend_locked_terms entirely.\n"
+        "When frontend_ui_context=true, use frontend_locked_terms exactly as given if they are relevant.\n"
         "Each translation must be natural English and must not contain Chinese explanations, JSON, or multiple lines.\n"
         "reason must be written in Simplified Chinese.\n"
         "If locked_terms are provided, the translated slots must use the target terms exactly as given, while sentence-initial capitalization is allowed.\n"
@@ -1045,6 +1188,12 @@ def build_po_translation_review_user_prompt(entry_id, references, source_text, t
         "locked_terms": [
             {"source": term["source"], "target": term["target"]}
             for term in locked_terms
+        ],
+        "frontend_glossary_enabled": bool(protected_source.get("frontend_glossary_enabled", False)),
+        "frontend_ui_slots": list(protected_source.get("frontend_ui_slots", [])),
+        "active_frontend_terms": [
+            {"source": term["source"], "target": term["target"]}
+            for term in protected_source.get("active_frontend_terms", [])
         ],
         "extra_prompt": extra_prompt or "",
     }
