@@ -1409,7 +1409,7 @@ def render_app_shell(bootstrap_payload, client_config):
                 <input id="sqlTranslationTableInput" class="field-input" type="text" placeholder="请输入目标表名" aria-label="目标表名">
               </label>
               <label>
-                <input id="sqlTranslationPrimaryKeyInput" class="field-input" type="text" placeholder="请输入定位字段名，默认 id" aria-label="定位字段名">
+                <input id="sqlTranslationPrimaryKeyInput" class="field-input" type="text" placeholder="请输入定位字段名" aria-label="定位字段名">
               </label>
               <label>
                 <input id="sqlTranslationSourceFieldInput" class="field-input" type="text" placeholder="请输入中文文案字段名" aria-label="中文文案字段名">
@@ -1418,7 +1418,7 @@ def render_app_shell(bootstrap_payload, client_config):
                 <input id="sqlTranslationTargetFieldInput" class="field-input" type="text" placeholder="请输入英文文案字段名" aria-label="英文文案字段名">
               </label>
             </div>
-            <div class="muted">定位字段用于生成 UPDATE 的 WHERE 条件，不要求一定是主键，默认使用 `id`。</div>
+            <div class="muted">定位字段用于生成 UPDATE 的 WHERE 条件，不要求一定是主键；留空时按 `id` 处理。</div>
             <div class="translation-control-row">
               <label class="checkbox-row">
                 <input id="sqlTranslationAutoAccept" type="checkbox">
@@ -1772,7 +1772,7 @@ __REPORT_COMPONENT_BUNDLE__
         config: {
           directory_path: "",
           table_name: "",
-          primary_key_field: "id",
+          primary_key_field: "",
           source_field: "",
           target_field: "",
           auto_accept: false,
@@ -2986,7 +2986,7 @@ __REPORT_COMPONENT_BUNDLE__
       return {
         directory_path: sqlTranslationDirectoryInput.value.trim(),
         table_name: sqlTranslationTableInput.value.trim(),
-        primary_key_field: sqlTranslationPrimaryKeyInput.value.trim() || "id",
+        primary_key_field: sqlTranslationPrimaryKeyInput.value.trim(),
         source_field: sqlTranslationSourceFieldInput.value.trim(),
         target_field: sqlTranslationTargetFieldInput.value.trim(),
         auto_accept: sqlTranslationAutoAccept.checked,

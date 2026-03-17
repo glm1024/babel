@@ -303,7 +303,7 @@ def default_sql_translation_config():
     return {
         "directory_path": "",
         "table_name": "",
-        "primary_key_field": "id",
+        "primary_key_field": "",
         "source_field": "",
         "target_field": "",
         "auto_accept": False,
@@ -319,8 +319,7 @@ def normalize_sql_translation_config(raw_config, path=None):
     return {
         "directory_path": _normalize_model_text(raw_config.get("directory_path", defaults["directory_path"])),
         "table_name": _normalize_model_text(raw_config.get("table_name", defaults["table_name"])),
-        "primary_key_field": _normalize_model_text(raw_config.get("primary_key_field", defaults["primary_key_field"]))
-        or defaults["primary_key_field"],
+        "primary_key_field": _normalize_model_text(raw_config.get("primary_key_field", defaults["primary_key_field"])),
         "source_field": _normalize_model_text(raw_config.get("source_field", defaults["source_field"])),
         "target_field": _normalize_model_text(raw_config.get("target_field", defaults["target_field"])),
         "auto_accept": bool(raw_config.get("auto_accept", defaults["auto_accept"])),
