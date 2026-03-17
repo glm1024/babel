@@ -25,26 +25,69 @@ def render_app_shell(bootstrap_payload, client_config):
       --bg: #f4efe8;
       --panel: #fffdfa;
       --ink: #1f2328;
-      --muted: #6a6f76;
+      --muted: #555b65;
       --line: #d8cbbd;
       --accent: #9f3d2a;
       --accent-soft: #ead6c3;
       --danger: #9d2f2f;
       --ok: #2d6a4f;
-      --soft-bg: rgba(255,255,255,0.75);
+      --soft-bg: rgba(255,255,255,0.84);
+      --font-ui: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
+      --font-mono: "Cascadia Code", "Consolas", "SFMono-Regular", "Menlo", monospace;
+      --text-xs: 12px;
+      --text-sm: 13px;
+      --text-md: 15px;
+      --text-lg: 18px;
+      --text-xl: 22px;
+      --text-2xl: 32px;
+      --leading-tight: 1.3;
+      --leading-normal: 1.6;
+      --leading-relaxed: 1.65;
+      --workspace-home-max: 920px;
+      --workspace-settings-max: 920px;
+      --workspace-custom-keep-max: 1180px;
+      --tab-height: 36px;
+      --tab-pad-x: 18px;
+      --button-pad-y: 10px;
+      --button-pad-x: 16px;
+      --input-pad-y: 12px;
+      --input-pad-x: 14px;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       min-height: 100vh;
-      font-family: "Iowan Old Style", "Noto Serif SC", serif;
+      font-family: var(--font-ui);
+      font-size: var(--text-md);
+      font-weight: 450;
+      line-height: var(--leading-normal);
       color: var(--ink);
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
       background:
         radial-gradient(circle at top left, rgba(159,61,42,0.12), transparent 32%),
         radial-gradient(circle at top right, rgba(45,106,79,0.10), transparent 28%),
         linear-gradient(180deg, #f8f3ec 0%, var(--bg) 100%);
     }
     h1, h2, h3, p { margin: 0; }
+    h1, h2, h3 {
+      font-family: var(--font-ui);
+      line-height: var(--leading-tight);
+      color: var(--ink);
+    }
+    h1 {
+      font-size: var(--text-2xl);
+      font-weight: 650;
+    }
+    h2 {
+      font-size: var(--text-xl);
+      font-weight: 650;
+    }
+    h3 {
+      font-size: var(--text-lg);
+      font-weight: 600;
+    }
     button, input, textarea, select {
       font: inherit;
     }
@@ -93,9 +136,7 @@ def render_app_shell(bootstrap_payload, client_config):
       min-width: 0;
     }
     .tab-bar {
-      display: inline-flex;
-      justify-self: center;
-      align-self: center;
+      display: flex;
       position: sticky;
       top: 16px;
       z-index: 120;
@@ -103,23 +144,27 @@ def render_app_shell(bootstrap_payload, client_config):
       align-items: center;
       min-height: 0;
       padding: 4px;
+      width: fit-content;
+      max-width: 100%;
+      margin: 0 auto;
       background: rgba(255,255,255,0.55);
       border-radius: 14px;
       border: 1px solid var(--line);
-      width: auto;
       pointer-events: auto;
     }
     .tab-btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      height: 34px;
-      min-height: 34px;
+      height: var(--tab-height);
+      min-height: var(--tab-height);
       line-height: 1;
       border: 1px solid transparent;
       background: transparent;
       border-radius: 10px;
-      padding: 0 16px;
+      padding: 0 var(--tab-pad-x);
+      font-size: var(--text-md);
+      font-weight: 500;
       color: var(--muted);
       cursor: pointer;
       white-space: nowrap;
@@ -142,19 +187,19 @@ def render_app_shell(bootstrap_payload, client_config):
       display: grid;
     }
     .home-workspace {
-      width: min(920px, 100%);
+      width: min(var(--workspace-home-max), 100%);
       margin: 0 auto;
       display: grid;
       gap: 20px;
     }
     .settings-workspace {
-      width: min(920px, 100%);
+      width: min(var(--workspace-settings-max), 100%);
       margin: 0 auto;
       display: grid;
       gap: 20px;
     }
     .custom-keep-workspace {
-      width: min(1180px, 100%);
+      width: min(var(--workspace-custom-keep-max), 100%);
       margin: 0 auto;
       display: grid;
       gap: 20px;
@@ -209,7 +254,7 @@ def render_app_shell(bootstrap_payload, client_config):
       flex-wrap: wrap;
     }
     .custom-keep-help {
-      line-height: 1.65;
+      line-height: var(--leading-relaxed);
     }
     .custom-keep-rules-shell {
       display: grid;
@@ -244,7 +289,7 @@ def render_app_shell(bootstrap_payload, client_config):
       border: 1px dashed var(--line);
       background: rgba(255,255,255,0.58);
       color: var(--muted);
-      line-height: 1.7;
+      line-height: var(--leading-relaxed);
     }
     .results-tab-shell {
       display: grid;
@@ -274,7 +319,9 @@ def render_app_shell(bootstrap_payload, client_config):
       min-width: 0;
     }
     .card-title {
-      font-size: 18px;
+      font-size: var(--text-lg);
+      font-weight: 600;
+      line-height: var(--leading-tight);
     }
     .muted {
       color: var(--muted);
@@ -298,8 +345,8 @@ def render_app_shell(bootstrap_payload, client_config):
       width: 100%;
       border: 1px solid var(--line);
       border-radius: 14px;
-      background: rgba(255,255,255,0.84);
-      padding: 12px 14px;
+      background: rgba(255,255,255,0.92);
+      padding: var(--input-pad-y) var(--input-pad-x);
       color: var(--ink);
     }
     .root-input {
@@ -324,9 +371,11 @@ def render_app_shell(bootstrap_payload, client_config):
     .secondary-btn,
     .danger-btn {
       border-radius: 14px;
-      padding: 10px 16px;
+      padding: var(--button-pad-y) var(--button-pad-x);
       border: 1px solid var(--line);
       background: rgba(255,255,255,0.78);
+      font-size: var(--text-md);
+      font-weight: 500;
       cursor: pointer;
     }
     .primary-btn {
@@ -422,7 +471,8 @@ def render_app_shell(bootstrap_payload, client_config):
       justify-content: center;
       border-radius: 999px;
       padding: 5px 11px;
-      font-size: 12px;
+      font-size: var(--text-xs);
+      font-weight: 500;
       border: 1px solid var(--line);
       white-space: nowrap;
     }
@@ -472,7 +522,7 @@ def render_app_shell(bootstrap_payload, client_config):
     .progress-meta {
       display: grid;
       gap: 8px;
-      font-size: 13px;
+      font-size: var(--text-sm);
       color: var(--muted);
       min-width: 0;
     }
@@ -514,7 +564,7 @@ def render_app_shell(bootstrap_payload, client_config):
       border-radius: 18px;
       background: rgba(255,255,255,0.60);
       color: var(--muted);
-      line-height: 1.7;
+      line-height: var(--leading-relaxed);
     }
     .status-banner {
       padding: 12px 14px;
@@ -522,6 +572,8 @@ def render_app_shell(bootstrap_payload, client_config):
       border: 1px solid var(--line);
       background: rgba(255,255,255,0.72);
       color: var(--muted);
+      font-size: var(--text-sm);
+      line-height: var(--leading-relaxed);
       min-width: 0;
       overflow-wrap: anywhere;
       word-break: break-word;
@@ -562,14 +614,15 @@ def render_app_shell(bootstrap_payload, client_config):
       align-items: center;
       gap: 10px;
       color: var(--muted);
-      font-size: 14px;
+      font-size: var(--text-sm);
     }
     .checkbox-row input {
       width: auto;
       margin: 0;
     }
     .field-label {
-      font-size: 13px;
+      font-size: var(--text-sm);
+      font-weight: 500;
       color: var(--muted);
     }
     .readonly-output {
@@ -578,6 +631,8 @@ def render_app_shell(bootstrap_payload, client_config):
       border: 1px solid var(--line);
       background: rgba(255,255,255,0.76);
       color: var(--muted);
+      font-size: var(--text-sm);
+      line-height: var(--leading-relaxed);
       word-break: break-all;
     }
     .translation-page-shell {
@@ -617,10 +672,10 @@ def render_app_shell(bootstrap_payload, client_config):
       gap: 10px;
     }
     .translation-top-card .card-title {
-      font-size: 17px;
+      font-size: var(--text-lg);
     }
     .translation-top-card .muted {
-      font-size: 12px;
+      font-size: var(--text-xs);
     }
     .translation-top-card .field-input {
       padding: 9px 12px;
@@ -636,11 +691,11 @@ def render_app_shell(bootstrap_payload, client_config):
       font-size: 16px;
     }
     .translation-top-card .checkbox-row {
-      font-size: 13px;
+      font-size: var(--text-sm);
       gap: 8px;
     }
     .translation-top-card .field-label {
-      font-size: 12px;
+      font-size: var(--text-xs);
       margin-bottom: 4px;
     }
     .translation-top-card .btn-row {
@@ -711,7 +766,7 @@ def render_app_shell(bootstrap_payload, client_config):
       cursor: pointer;
       padding: 8px 12px;
       color: var(--muted);
-      font-size: 12px;
+      font-size: var(--text-xs);
       list-style: none;
     }
     .translation-details summary::-webkit-details-marker {
@@ -726,7 +781,7 @@ def render_app_shell(bootstrap_payload, client_config):
     .translation-details-content .readonly-output {
       padding: 8px 12px;
       border-radius: 12px;
-      font-size: 12px;
+      font-size: var(--text-xs);
     }
     .translation-stat-row {
       display: flex;
@@ -744,13 +799,13 @@ def render_app_shell(bootstrap_payload, client_config):
       border: 1px solid var(--line);
       background: var(--soft-bg);
       color: var(--muted);
-      font-size: 12px;
+      font-size: var(--text-xs);
       line-height: 1;
       white-space: nowrap;
     }
     .translation-stat-chip strong {
       color: var(--ink);
-      font-size: 13px;
+      font-size: var(--text-sm);
       line-height: 1;
     }
     .translation-top-card .progress-box {
@@ -763,7 +818,7 @@ def render_app_shell(bootstrap_payload, client_config):
     }
     .translation-top-card .progress-meta {
       gap: 6px;
-      font-size: 12px;
+      font-size: var(--text-xs);
     }
     .translation-top-card .progress-meta-item {
       gap: 4px;
@@ -811,8 +866,8 @@ def render_app_shell(bootstrap_payload, client_config):
       flex-wrap: wrap;
     }
     .translation-log-key {
-      font-family: "SFMono-Regular", "Menlo", monospace;
-      font-size: 13px;
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
       overflow-wrap: anywhere;
     }
     .translation-tags {
@@ -828,7 +883,7 @@ def render_app_shell(bootstrap_payload, client_config):
       border: 1px solid var(--line);
       background: rgba(255,255,255,0.82);
       color: var(--muted);
-      font-size: 12px;
+      font-size: var(--text-xs);
     }
     .translation-item-stack {
       display: grid;
@@ -841,12 +896,12 @@ def render_app_shell(bootstrap_payload, client_config):
       word-break: break-word;
     }
     .translation-item-stack code {
-      font-family: "SFMono-Regular", "Menlo", monospace;
-      font-size: 14px;
+      font-family: var(--font-mono);
+      font-size: var(--text-md);
       line-height: 1.55;
     }
     .translation-validation-note {
-      font-size: 12px;
+      font-size: var(--text-xs);
       color: var(--muted);
       line-height: 1.5;
     }
@@ -857,7 +912,7 @@ def render_app_shell(bootstrap_payload, client_config):
       color: var(--accent);
     }
     .translation-call-budget {
-      font-size: 12px;
+      font-size: var(--text-xs);
       color: var(--muted);
     }
     .translation-log-item.is-busy {
@@ -894,6 +949,46 @@ def render_app_shell(bootstrap_payload, client_config):
     @media (max-width: 1500px) {
       .translation-compact-field-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @media (min-width: 1920px) {
+      :root {
+        --muted: #4d535d;
+        --text-xs: 13px;
+        --text-sm: 14px;
+        --text-md: 16px;
+        --text-lg: 20px;
+        --text-xl: 24px;
+        --text-2xl: 36px;
+        --workspace-home-max: 1120px;
+        --workspace-settings-max: 1120px;
+        --workspace-custom-keep-max: 1440px;
+        --tab-height: 42px;
+        --tab-pad-x: 20px;
+        --button-pad-y: 12px;
+        --button-pad-x: 18px;
+        --input-pad-y: 13px;
+        --input-pad-x: 16px;
+      }
+    }
+    @media (min-width: 2560px) {
+      :root {
+        --muted: #434952;
+        --text-xs: 14px;
+        --text-sm: 15px;
+        --text-md: 17px;
+        --text-lg: 20px;
+        --text-xl: 24px;
+        --text-2xl: 36px;
+        --workspace-home-max: 1280px;
+        --workspace-settings-max: 1280px;
+        --workspace-custom-keep-max: 1680px;
+        --tab-height: 46px;
+        --tab-pad-x: 22px;
+        --button-pad-y: 13px;
+        --button-pad-x: 20px;
+        --input-pad-y: 14px;
+        --input-pad-x: 18px;
       }
     }
     @media (max-width: 1100px) {
@@ -937,8 +1032,9 @@ def render_app_shell(bootstrap_payload, client_config):
       <button class="tab-btn is-active" type="button" data-tab="home">首页</button>
       <button class="tab-btn" type="button" data-tab="results">扫描结果</button>
       <button class="tab-btn" type="button" data-tab="customKeep">免改规则</button>
-      <button class="tab-btn" type="button" data-tab="translation">国际化文件</button>
-      <button class="tab-btn" type="button" data-tab="sqlTranslation">数据库数据</button>
+      <button class="tab-btn" type="button" data-tab="poTranslation">文档翻译</button>
+      <button class="tab-btn" type="button" data-tab="translation">配置翻译</button>
+      <button class="tab-btn" type="button" data-tab="sqlTranslation">SQL翻译</button>
       <button class="tab-btn" type="button" data-tab="settings">模型配置</button>
     </div>
 
@@ -1148,6 +1244,108 @@ def render_app_shell(bootstrap_payload, client_config):
       </div>
     </section>
 
+    <section class="page" id="poTranslationPage">
+      <div class="translation-page-shell">
+        <div class="translation-top-grid">
+          <div class="panel card translation-top-card">
+            <div class="card-head">
+              <div>
+                <div class="muted">PO Documents</div>
+                <h2 class="card-title">文档翻译（PO/RST）</h2>
+              </div>
+              <span id="poTranslationStatusPill" class="pill keep">空闲</span>
+            </div>
+            <label>
+              <div class="clearable-input">
+                <input id="poTranslationInput" class="field-input" type="text" placeholder="请填写待翻译 PO 文件绝对路径...">
+                <button id="poTranslationClearBtn" class="field-clear-btn hidden" type="button" aria-label="清空 PO 文件路径" title="清空 PO 文件路径">×</button>
+              </div>
+            </label>
+            <div class="muted">接受后的候选英文会直接覆盖原 `.po` 文件中的相邻 `msgstr`。</div>
+            <div class="translation-control-row">
+              <label class="checkbox-row">
+                <input id="poTranslationAutoAccept" type="checkbox">
+                <span>跳过手动审批，自动接受后续全部 AI 翻译</span>
+              </label>
+              <div class="btn-row">
+                <button id="poTranslationStartBtn" class="primary-btn" type="button">开始校译</button>
+                <button id="poTranslationResumeBtn" class="secondary-btn" type="button">继续任务</button>
+                <button id="poTranslationStopBtn" class="secondary-btn" type="button">停止任务</button>
+              </div>
+            </div>
+            <div id="poTranslationStatusBanner" class="status-banner translation-status-inline" title="等待校译">等待校译</div>
+          </div>
+
+          <div class="panel card translation-top-card">
+            <div class="card-head">
+              <div>
+                <div class="muted">Progress</div>
+                <h2 class="card-title">任务进度</h2>
+              </div>
+            </div>
+            <div class="translation-stat-row">
+              <span class="translation-stat-chip">总 <strong id="poTranslationTotalCount">0</strong></span>
+              <span class="translation-stat-chip">已处理 <strong id="poTranslationProcessedCount">0</strong></span>
+              <span class="translation-stat-chip">待审批 <strong id="poTranslationPendingCount">0</strong></span>
+              <span class="translation-stat-chip">已接受 <strong id="poTranslationAcceptedCount">0</strong></span>
+              <span class="translation-stat-chip">已更新 <strong id="poTranslationUpdatedCount">0</strong></span>
+              <span class="translation-stat-chip">已填充 <strong id="poTranslationFilledCount">0</strong></span>
+              <span class="translation-stat-chip">已跳过 <strong id="poTranslationSkippedCount">0</strong></span>
+              <span class="translation-stat-chip">暂不支持 <strong id="poTranslationUnsupportedCount">0</strong></span>
+            </div>
+            <div class="progress-box">
+              <div class="progress-bar"><span id="poTranslationProgressBarInner"></span></div>
+              <div class="progress-meta">
+                <div class="progress-meta-item">
+                  <span class="progress-meta-label">当前状态：</span>
+                  <span id="poTranslationCurrentStatus" class="progress-meta-value">-</span>
+                </div>
+                <div class="progress-meta-item">
+                  <span class="progress-meta-label">当前引用：</span>
+                  <span id="poTranslationCurrentReferences" class="progress-meta-value">-</span>
+                </div>
+                <div class="progress-meta-item">
+                  <span class="progress-meta-label">当前 msgid：</span>
+                  <span id="poTranslationCurrentMsgid" class="progress-meta-value">-</span>
+                </div>
+              </div>
+              <details class="translation-details">
+                <summary>更多进度</summary>
+                <div class="translation-details-content">
+                  <div class="readonly-output">当前条目：<span id="poTranslationCurrentEntryId">-</span></div>
+                </div>
+              </details>
+            </div>
+          </div>
+        </div>
+
+        <div class="translation-bottom-grid">
+          <div class="panel card translation-fill-card">
+            <div class="card-head">
+              <div>
+                <div class="muted">Processing Log</div>
+                <h2 class="card-title">处理记录</h2>
+              </div>
+            </div>
+            <div id="poTranslationEvents" class="translation-list"></div>
+          </div>
+
+          <div class="panel card translation-fill-card">
+            <div class="card-head">
+              <div>
+                <div class="muted">Review Queue</div>
+                <h2 class="card-title">待审批条目</h2>
+              </div>
+            </div>
+            <div class="translation-panel-body">
+              <div id="poTranslationPendingEmpty" class="translation-empty">当前没有待审批条目。</div>
+              <div id="poTranslationPendingList" class="translation-list hidden"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="page" id="sqlTranslationPage">
       <div class="translation-page-shell">
         <div class="translation-top-grid">
@@ -1155,7 +1353,7 @@ def render_app_shell(bootstrap_payload, client_config):
             <div class="card-head">
               <div>
                 <div class="muted">Database Data</div>
-                <h2 class="card-title">数据库数据中英文校对和翻译</h2>
+                <h2 class="card-title">SQL 中英文校对和翻译</h2>
               </div>
               <span id="sqlTranslationStatusPill" class="pill keep">空闲</span>
             </div>
@@ -1318,7 +1516,8 @@ __REPORT_COMPONENT_BUNDLE__
       model: "",
       max_tokens: 100,
     };
-    const TAB_IDS = ["home", "results", "customKeep", "translation", "sqlTranslation", "settings"];
+    const TAB_IDS = ["home", "results", "customKeep", "poTranslation", "translation", "sqlTranslation", "settings"];
+    const CUSTOM_KEEP_DRAFT_STORAGE_KEY = `zh-audit:custom-keep-draft:${window.location.pathname}`;
 
     function normalizeTabId(value) {
       const candidate = String(value || "").trim();
@@ -1347,10 +1546,13 @@ __REPORT_COMPONENT_BUNDLE__
       hasResults: !!BOOTSTRAP.has_results,
       resultsRevision: Number(BOOTSTRAP.results_revision || 0),
       translation: BOOTSTRAP.translation || defaultTranslationPayload(),
+      poTranslation: BOOTSTRAP.po_translation || defaultPoTranslationPayload(),
       sqlTranslation: BOOTSTRAP.sql_translation || defaultSqlTranslationPayload(),
       translationPromptDrafts: {},
+      poTranslationPromptDrafts: {},
       sqlTranslationPromptDrafts: {},
       translationItemOps: {},
+      poTranslationItemOps: {},
       sqlTranslationItemOps: {},
       customKeepSelectedIndex: 0,
       customKeepDirty: false,
@@ -1363,6 +1565,7 @@ __REPORT_COMPONENT_BUNDLE__
     const resultsPage = document.getElementById("resultsPage");
     const customKeepPage = document.getElementById("customKeepPage");
     const translationPage = document.getElementById("translationPage");
+    const poTranslationPage = document.getElementById("poTranslationPage");
     const sqlTranslationPage = document.getElementById("sqlTranslationPage");
     const settingsPage = document.getElementById("settingsPage");
     const rootsList = document.getElementById("rootsList");
@@ -1411,6 +1614,30 @@ __REPORT_COMPONENT_BUNDLE__
     const translationCurrentStatus = document.getElementById("translationCurrentStatus");
     const translationPendingEmpty = document.getElementById("translationPendingEmpty");
     const translationPendingList = document.getElementById("translationPendingList");
+    const poTranslationStatusPill = document.getElementById("poTranslationStatusPill");
+    const poTranslationInput = document.getElementById("poTranslationInput");
+    const poTranslationClearBtn = document.getElementById("poTranslationClearBtn");
+    const poTranslationAutoAccept = document.getElementById("poTranslationAutoAccept");
+    const poTranslationStartBtn = document.getElementById("poTranslationStartBtn");
+    const poTranslationResumeBtn = document.getElementById("poTranslationResumeBtn");
+    const poTranslationStopBtn = document.getElementById("poTranslationStopBtn");
+    const poTranslationStatusBanner = document.getElementById("poTranslationStatusBanner");
+    const poTranslationEvents = document.getElementById("poTranslationEvents");
+    const poTranslationTotalCount = document.getElementById("poTranslationTotalCount");
+    const poTranslationProcessedCount = document.getElementById("poTranslationProcessedCount");
+    const poTranslationPendingCount = document.getElementById("poTranslationPendingCount");
+    const poTranslationAcceptedCount = document.getElementById("poTranslationAcceptedCount");
+    const poTranslationUpdatedCount = document.getElementById("poTranslationUpdatedCount");
+    const poTranslationFilledCount = document.getElementById("poTranslationFilledCount");
+    const poTranslationSkippedCount = document.getElementById("poTranslationSkippedCount");
+    const poTranslationUnsupportedCount = document.getElementById("poTranslationUnsupportedCount");
+    const poTranslationProgressBarInner = document.getElementById("poTranslationProgressBarInner");
+    const poTranslationCurrentStatus = document.getElementById("poTranslationCurrentStatus");
+    const poTranslationCurrentReferences = document.getElementById("poTranslationCurrentReferences");
+    const poTranslationCurrentMsgid = document.getElementById("poTranslationCurrentMsgid");
+    const poTranslationCurrentEntryId = document.getElementById("poTranslationCurrentEntryId");
+    const poTranslationPendingEmpty = document.getElementById("poTranslationPendingEmpty");
+    const poTranslationPendingList = document.getElementById("poTranslationPendingList");
     const sqlTranslationStatusPill = document.getElementById("sqlTranslationStatusPill");
     const sqlTranslationDirectoryInput = document.getElementById("sqlTranslationDirectoryInput");
     const sqlTranslationDirectoryClearBtn = document.getElementById("sqlTranslationDirectoryClearBtn");
@@ -1448,6 +1675,7 @@ __REPORT_COMPONENT_BUNDLE__
     const settingsStatusBanner = document.getElementById("settingsStatusBanner");
     let scanTimer = null;
     let translationTimer = null;
+    let poTranslationTimer = null;
     let sqlTranslationTimer = null;
     let reportController = null;
 
@@ -1518,6 +1746,44 @@ __REPORT_COMPONENT_BUNDLE__
             rejected: 0,
             regenerated: 0,
             glossary_applied: 0,
+          },
+        },
+        pending_items: [],
+        recent_items: [],
+        events: [],
+        terminology: {
+          path: "",
+          count: 0,
+          error: "",
+        },
+      };
+    }
+
+    function defaultPoTranslationPayload() {
+      return {
+        config: {
+          po_path: "",
+          auto_accept: false,
+        },
+        status: {
+          status: "idle",
+          message: "等待校译",
+          error: "",
+          started_at: "",
+          finished_at: "",
+          current: { entry_id: "", references: [], msgid_preview: "", status: "" },
+          counts: {
+            total: 0,
+            processed: 0,
+            pending: 0,
+            accepted: 0,
+            updated: 0,
+            filled: 0,
+            skipped: 0,
+            unsupported: 0,
+            failed: 0,
+            rejected: 0,
+            regenerated: 0,
           },
         },
         pending_items: [],
@@ -1632,6 +1898,72 @@ __REPORT_COMPONENT_BUNDLE__
       return candidate;
     }
 
+    function normalizeCustomKeepRuleDraft(rule) {
+      const type = String((rule && rule.type) || "keyword").trim().toLowerCase();
+      return {
+        type: type === "regex" ? "regex" : "keyword",
+        pattern: String((rule && rule.pattern) || ""),
+      };
+    }
+
+    function normalizeCustomKeepCategoryDraft(category) {
+      const rules = Array.isArray(category && category.rules)
+        ? category.rules.map(normalizeCustomKeepRuleDraft)
+        : [];
+      return {
+        name: String((category && category.name) || ""),
+        enabled: !category || !Object.prototype.hasOwnProperty.call(category, "enabled") ? true : !!category.enabled,
+        rules: rules.length ? rules : [defaultCustomKeepRule()],
+      };
+    }
+
+    function persistCustomKeepDraft() {
+      try {
+        const categories = Array.isArray(state.draftConfig.custom_keep_categories)
+          ? state.draftConfig.custom_keep_categories.map(normalizeCustomKeepCategoryDraft)
+          : [];
+        window.sessionStorage.setItem(CUSTOM_KEEP_DRAFT_STORAGE_KEY, JSON.stringify({
+          custom_keep_categories: categories,
+          selected_index: state.customKeepSelectedIndex,
+        }));
+      } catch (error) {
+        // Ignore storage errors and keep the draft only in memory.
+      }
+    }
+
+    function clearCustomKeepDraft() {
+      try {
+        window.sessionStorage.removeItem(CUSTOM_KEEP_DRAFT_STORAGE_KEY);
+      } catch (error) {
+        // Ignore storage errors and rely on the persisted backend config.
+      }
+    }
+
+    function restoreCustomKeepDraft() {
+      try {
+        const raw = window.sessionStorage.getItem(CUSTOM_KEEP_DRAFT_STORAGE_KEY);
+        if (!raw) {
+          return false;
+        }
+        const draft = JSON.parse(raw);
+        const categories = Array.isArray(draft && draft.custom_keep_categories)
+          ? draft.custom_keep_categories.map(normalizeCustomKeepCategoryDraft)
+          : null;
+        if (!categories) {
+          return false;
+        }
+        state.draftConfig.custom_keep_categories = categories;
+        state.customKeepSelectedIndex = Number.isInteger(draft && draft.selected_index)
+          ? draft.selected_index
+          : state.customKeepSelectedIndex;
+        state.customKeepDirty = true;
+        setCustomKeepStatus("", { isError: false });
+        return true;
+      } catch (error) {
+        return false;
+      }
+    }
+
     function setCustomKeepStatus(text, options = {}) {
       state.customKeepStatus = {
         text: String(text || ""),
@@ -1642,6 +1974,7 @@ __REPORT_COMPONENT_BUNDLE__
     function markCustomKeepDirty() {
       state.customKeepDirty = true;
       setCustomKeepStatus("", { isError: false });
+      persistCustomKeepDraft();
     }
 
     function ensureCustomKeepSelectedIndex() {
@@ -1688,10 +2021,12 @@ __REPORT_COMPONENT_BUNDLE__
       state.hasResults = !!data.has_results;
       state.resultsRevision = Number(data.results_revision || 0);
       state.translation = data.translation || state.translation;
+      state.poTranslation = data.po_translation || state.poTranslation;
       state.sqlTranslation = data.sql_translation || state.sqlTranslation;
       if (!keepDraft) {
         state.customKeepDirty = false;
         setCustomKeepStatus(defaultCustomKeepStatus().text);
+        restoreCustomKeepDraft();
       }
       ensureCustomKeepSelectedIndex();
       renderAll();
@@ -1726,6 +2061,7 @@ __REPORT_COMPONENT_BUNDLE__
       resultsPage.classList.toggle("is-active", state.activeTab === "results");
       customKeepPage.classList.toggle("is-active", state.activeTab === "customKeep");
       translationPage.classList.toggle("is-active", state.activeTab === "translation");
+      poTranslationPage.classList.toggle("is-active", state.activeTab === "poTranslation");
       sqlTranslationPage.classList.toggle("is-active", state.activeTab === "sqlTranslation");
       settingsPage.classList.toggle("is-active", state.activeTab === "settings");
     }
@@ -1826,7 +2162,7 @@ __REPORT_COMPONENT_BUNDLE__
       customKeepEmpty.classList.toggle("hidden", Boolean(selectedCategory));
       customKeepRulesHost.classList.toggle("hidden", !selectedCategory);
       addCustomKeepRuleBtn.disabled = !selectedCategory;
-      saveCustomKeepRulesBtn.disabled = !categories.length;
+      saveCustomKeepRulesBtn.disabled = !categories.length && !state.customKeepDirty;
 
       if (!selectedCategory) {
         customKeepRuleList.innerHTML = "";
@@ -1891,6 +2227,7 @@ __REPORT_COMPONENT_BUNDLE__
     function syncPathClearButtons() {
       syncClearableInput(translationSourceInput, translationSourceClearBtn);
       syncClearableInput(translationTargetInput, translationTargetClearBtn);
+      syncClearableInput(poTranslationInput, poTranslationClearBtn);
       syncClearableInput(sqlTranslationDirectoryInput, sqlTranslationDirectoryClearBtn);
     }
 
@@ -2026,6 +2363,121 @@ __REPORT_COMPONENT_BUNDLE__
         return status.error ? `${status.resume_message}；原因：${status.error}` : status.resume_message;
       }
       return status.error ? `${status.message || "校译失败"}：${status.error}` : (status.message || "等待校译");
+    }
+
+    function poTranslationBannerText(status, terminology) {
+      if (terminology.error) {
+        return terminology.error;
+      }
+      if (status.resume_message) {
+        return status.error ? `${status.resume_message}；原因：${status.error}` : status.resume_message;
+      }
+      return status.error ? `${status.message || "校译失败"}：${status.error}` : (status.message || "等待校译");
+    }
+
+    function renderPoTranslation() {
+      const poTranslation = state.poTranslation || defaultPoTranslationPayload();
+      const config = poTranslation.config || {};
+      const status = poTranslation.status || {};
+      const counts = status.counts || {};
+      const terminology = poTranslation.terminology || {};
+      const total = Number(counts.total || 0);
+      const processed = Number(counts.processed || 0);
+      const percent = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+      const poTranslationIsLoading = status.status === "running" && !Boolean(status.error || terminology.error);
+
+      poTranslationInput.value = config.po_path || "";
+      poTranslationAutoAccept.checked = !!config.auto_accept;
+      setStatusBannerState(
+        poTranslationStatusBanner,
+        poTranslationBannerText(status, terminology),
+        {
+          isError: Boolean(status.error || terminology.error),
+          isLoading: poTranslationIsLoading,
+        },
+      );
+      poTranslationStatusPill.textContent =
+        status.status === "running" ? "运行中" :
+        status.status === "done" ? "完成" :
+        status.status === "interrupted" ? "中断" :
+        status.status === "failed" ? "失败" :
+        status.status === "stopped" ? "已停止" : "空闲";
+      poTranslationStatusPill.className = `pill ${status.status === "running" ? "fix" : "keep"}${poTranslationIsLoading ? " is-loading" : ""}`;
+      poTranslationStartBtn.disabled = status.status === "running" || Boolean(terminology.error);
+      poTranslationResumeBtn.disabled = !status.resume_available || Boolean(terminology.error);
+      poTranslationStopBtn.disabled = status.status !== "running";
+      poTranslationInput.disabled = status.status === "running";
+      syncPathClearButtons();
+      poTranslationTotalCount.textContent = String(total);
+      poTranslationProcessedCount.textContent = String(processed);
+      poTranslationPendingCount.textContent = String(counts.pending || 0);
+      poTranslationAcceptedCount.textContent = String(counts.accepted || 0);
+      poTranslationUpdatedCount.textContent = String(counts.updated || 0);
+      poTranslationFilledCount.textContent = String(counts.filled || 0);
+      poTranslationSkippedCount.textContent = String(counts.skipped || 0);
+      poTranslationUnsupportedCount.textContent = String(counts.unsupported || 0);
+      poTranslationProgressBarInner.style.width = `${percent}%`;
+      poTranslationCurrentStatus.textContent = (status.current || {}).status || "-";
+      poTranslationCurrentReferences.textContent = ((status.current || {}).references || []).join(" | ") || "-";
+      poTranslationCurrentReferences.title = ((status.current || {}).references || []).join("\\n");
+      poTranslationCurrentMsgid.textContent = (status.current || {}).msgid_preview || "-";
+      poTranslationCurrentMsgid.title = (status.current || {}).msgid_preview || "";
+      poTranslationCurrentEntryId.textContent = (status.current || {}).entry_id || "-";
+      poTranslationCurrentStatus.classList.toggle("is-loading", poTranslationIsLoading && Boolean((status.current || {}).status));
+
+      const events = Array.isArray(poTranslation.events) ? poTranslation.events : [];
+      if (!events.length) {
+        poTranslationEvents.innerHTML = '<div class="translation-empty">当前还没有处理记录。</div>';
+      } else {
+        poTranslationEvents.innerHTML = events.map(item => `
+          <div class="translation-log-item">
+            <div class="translation-log-head">
+              <strong>${escapeHtml(item.label || "-")}</strong>
+              <span class="muted">${escapeHtml(item.at || "")}</span>
+            </div>
+            <div class="translation-log-key">${escapeHtml(item.entry_id || "-")}</div>
+            <div class="muted">${escapeHtml(((item.references || []).join(" | ")) || "-")}</div>
+            <div class="muted">${escapeHtml(item.source_text || "-")}</div>
+            ${item.target_text ? `<div><code>${escapeHtml(item.target_text)}</code></div>` : ""}
+          </div>
+        `).join("");
+      }
+
+      const pendingItems = Array.isArray(poTranslation.pending_items) ? poTranslation.pending_items : [];
+      pruneItemOps(state.poTranslationItemOps, pendingItems);
+      poTranslationPendingEmpty.classList.toggle("hidden", pendingItems.length > 0);
+      poTranslationPendingList.classList.toggle("hidden", pendingItems.length === 0);
+      poTranslationPendingList.innerHTML = pendingItems.map(item => {
+        const itemOp = state.poTranslationItemOps[item.id] || null;
+        const isBusy = Boolean(itemOp);
+        const acceptTitle = isBusy
+          ? (itemOp.message || "正在处理当前条目")
+          : (item.validation_message || "校验未通过，请重新生成");
+        return `
+        <div class="translation-log-item${isBusy ? " is-busy" : ""}">
+          <div class="translation-item-stack">
+            <strong>${escapeHtml(item.entry_id || "-")}</strong>
+            <div><span class="muted">引用：</span>${escapeHtml(((item.references || []).join(" | ")) || "-")}</div>
+            <div><span class="muted">msgid：</span>${escapeHtml(item.source_text || "-")}</div>
+            <div><span class="muted">当前 msgstr：</span><code>${escapeHtml(item.target_text || "(空)")}</code></div>
+            <div><span class="muted">候选 msgstr：</span><code>${escapeHtml(item.candidate_text || "-")}</code></div>
+            <div><span class="muted">RST 保护：</span>${escapeHtml(item.protected_summary || "-")}</div>
+            ${item.validation_message ? `<div class="translation-validation-note ${item.validation_state === "failed" ? "is-error" : ""}">${escapeHtml(item.validation_message)}</div>` : ""}
+            ${itemOp ? `<div class="translation-validation-note is-progress">${escapeHtml(itemOp.message || "正在处理当前条目...")}</div>` : ""}
+            <div class="translation-call-budget">重试轮次：${escapeHtml(String(item.generation_attempts_used || 0))}/${escapeHtml(String(5))}</div>
+            <div class="translation-tags">
+              ${(item.locked_terms || []).map(term => `<span class="translation-tag">${escapeHtml(`${term.source} => ${term.target}`)}</span>`).join("")}
+            </div>
+          </div>
+          <div class="translation-actions">
+            <button class="primary-btn${itemOp && itemOp.action === "accept" ? " is-loading" : ""}" type="button" data-action="po-translation-accept" data-id="${escapeAttr(item.id)}" ${isBusy || item.can_accept === false ? `disabled title="${escapeAttr(acceptTitle)}"` : ""}>${escapeHtml(itemOp && itemOp.action === "accept" ? "接受中..." : "接受")}</button>
+            <input class="field-input translation-inline-input" data-po-prompt-id="${escapeAttr(item.id)}" value="${escapeAttr(state.poTranslationPromptDrafts[item.id] || "")}" placeholder="可选：输入额外 prompt 后重新生成" ${isBusy ? "disabled" : ""}>
+            <button class="secondary-btn${itemOp && itemOp.action === "regenerate" ? " is-loading" : ""}" type="button" data-action="po-translation-regenerate" data-id="${escapeAttr(item.id)}" ${isBusy ? `disabled title="${escapeAttr(itemOp.message || "正在处理当前条目")}"` : ""}>${escapeHtml(itemOp && itemOp.action === "regenerate" ? "重新生成中..." : "重新生成")}</button>
+            <button class="danger-btn${itemOp && itemOp.action === "reject" ? " is-loading" : ""}" type="button" data-action="po-translation-reject" data-id="${escapeAttr(item.id)}" ${isBusy ? `disabled title="${escapeAttr(itemOp.message || "正在处理当前条目")}"` : ""}>${escapeHtml(itemOp && itemOp.action === "reject" ? "忽略中..." : "忽略")}</button>
+          </div>
+        </div>
+      `;
+      }).join("");
     }
 
     function sqlTranslationBannerText(status, terminology) {
@@ -2185,6 +2637,7 @@ __REPORT_COMPONENT_BUNDLE__
       renderResultsPage();
       renderCustomKeep();
       renderTranslation();
+      renderPoTranslation();
       renderSqlTranslation();
       renderSettings();
     }
@@ -2268,6 +2721,7 @@ __REPORT_COMPONENT_BUNDLE__
       saveCustomKeepRulesBtn.textContent = "保存中...";
       try {
         const data = await requestJson(CLIENT_CONFIG.config_api_path, payload);
+        clearCustomKeepDraft();
         applyBootstrap(data);
         state.customKeepDirty = false;
         setCustomKeepStatus("", { isError: false });
@@ -2275,7 +2729,7 @@ __REPORT_COMPONENT_BUNDLE__
       } finally {
         saveCustomKeepRulesBtn.textContent = "保存规则";
         saveCustomKeepRulesBtn.classList.remove("is-loading");
-        saveCustomKeepRulesBtn.disabled = !(state.draftConfig.custom_keep_categories || []).length;
+        saveCustomKeepRulesBtn.disabled = !(state.draftConfig.custom_keep_categories || []).length && !state.customKeepDirty;
       }
     }
 
@@ -2335,6 +2789,63 @@ __REPORT_COMPONENT_BUNDLE__
       delete state.translationPromptDrafts[itemId];
       state.translation = data;
       renderTranslation();
+    }
+
+    function buildPoTranslationPayload() {
+      return {
+        po_path: poTranslationInput.value.trim(),
+        auto_accept: poTranslationAutoAccept.checked,
+      };
+    }
+
+    async function savePoTranslationConfig() {
+      const data = await requestJson(CLIENT_CONFIG.config_api_path, {
+        po_translation_config: buildPoTranslationPayload(),
+      });
+      applyBootstrap(data, true);
+    }
+
+    async function startPoTranslation() {
+      const data = await requestJson(CLIENT_CONFIG.po_translation_start_api_path, buildPoTranslationPayload());
+      state.poTranslation = data;
+      renderPoTranslation();
+      startPoTranslationPolling();
+    }
+
+    async function resumePoTranslation() {
+      const data = await requestJson(CLIENT_CONFIG.po_translation_resume_api_path, {});
+      state.poTranslation = data;
+      renderPoTranslation();
+      startPoTranslationPolling();
+    }
+
+    async function stopPoTranslation() {
+      const data = await requestJson(CLIENT_CONFIG.po_translation_stop_api_path, {});
+      state.poTranslation = data;
+      renderPoTranslation();
+    }
+
+    async function acceptPoTranslation(itemId) {
+      const data = await requestJson(CLIENT_CONFIG.po_translation_accept_api_path, { item_id: itemId });
+      delete state.poTranslationPromptDrafts[itemId];
+      state.poTranslation = data;
+      renderPoTranslation();
+    }
+
+    async function regeneratePoTranslation(itemId, prompt) {
+      const data = await requestJson(CLIENT_CONFIG.po_translation_regenerate_api_path, {
+        item_id: itemId,
+        prompt: prompt,
+      });
+      state.poTranslation = data;
+      renderPoTranslation();
+    }
+
+    async function rejectPoTranslation(itemId) {
+      const data = await requestJson(CLIENT_CONFIG.po_translation_reject_api_path, { item_id: itemId });
+      delete state.poTranslationPromptDrafts[itemId];
+      state.poTranslation = data;
+      renderPoTranslation();
     }
 
     function buildSqlTranslationPayload() {
@@ -2410,6 +2921,22 @@ __REPORT_COMPONENT_BUNDLE__
       } finally {
         clearItemOp(state.translationItemOps, itemId);
         renderTranslation();
+      }
+    }
+
+    async function runPoTranslationItemAction(itemId, action, runner) {
+      const messages = {
+        accept: "正在接受当前条目，完成后会自动刷新。",
+        regenerate: "正在重新生成当前条目，完成后会自动刷新。",
+        reject: "正在忽略当前条目，完成后会自动刷新。",
+      };
+      setItemOp(state.poTranslationItemOps, itemId, action, messages[action] || "正在处理当前条目，完成后会自动刷新。");
+      renderPoTranslation();
+      try {
+        await runner();
+      } finally {
+        clearItemOp(state.poTranslationItemOps, itemId);
+        renderPoTranslation();
       }
     }
 
@@ -2491,6 +3018,33 @@ __REPORT_COMPONENT_BUNDLE__
       }
     }
 
+    function startPoTranslationPolling() {
+      stopPoTranslationPolling();
+      poTranslationTimer = window.setInterval(async () => {
+        try {
+          const data = await requestJson(CLIENT_CONFIG.po_translation_status_api_path, null, "GET");
+          state.poTranslation = data;
+          renderPoTranslation();
+          if (((data.status || {}).status || "") !== "running") {
+            stopPoTranslationPolling();
+          }
+        } catch (error) {
+          stopPoTranslationPolling();
+          setStatusBannerState(poTranslationStatusBanner, error.message || "获取文档翻译状态失败", {
+            isError: true,
+            isLoading: false,
+          });
+        }
+      }, 1000);
+    }
+
+    function stopPoTranslationPolling() {
+      if (poTranslationTimer !== null) {
+        window.clearInterval(poTranslationTimer);
+        poTranslationTimer = null;
+      }
+    }
+
     function startSqlTranslationPolling() {
       stopSqlTranslationPolling();
       sqlTranslationTimer = window.setInterval(async () => {
@@ -2503,7 +3057,7 @@ __REPORT_COMPONENT_BUNDLE__
           }
         } catch (error) {
           stopSqlTranslationPolling();
-          setStatusBannerState(sqlTranslationStatusBanner, error.message || "获取数据库数据状态失败", {
+          setStatusBannerState(sqlTranslationStatusBanner, error.message || "获取 SQL 翻译状态失败", {
             isError: true,
             isLoading: false,
           });
@@ -2525,17 +3079,22 @@ __REPORT_COMPONENT_BUNDLE__
         updateLocationForTab(resolvedTab);
       }
       renderTabs();
-      if (resolvedTab === "translation" || resolvedTab === "sqlTranslation") {
+      if (resolvedTab === "translation" || resolvedTab === "poTranslation" || resolvedTab === "sqlTranslation") {
         try {
           await refreshBootstrap(true);
         } catch (error) {
           if (resolvedTab === "translation") {
-            setStatusBannerState(translationStatusBanner, error.message || "刷新国际化文件状态失败", {
+            setStatusBannerState(translationStatusBanner, error.message || "刷新配置翻译状态失败", {
+              isError: true,
+              isLoading: false,
+            });
+          } else if (resolvedTab === "poTranslation") {
+            setStatusBannerState(poTranslationStatusBanner, error.message || "刷新文档翻译状态失败", {
               isError: true,
               isLoading: false,
             });
           } else if (resolvedTab === "sqlTranslation") {
-            setStatusBannerState(sqlTranslationStatusBanner, error.message || "刷新数据库数据状态失败", {
+            setStatusBannerState(sqlTranslationStatusBanner, error.message || "刷新 SQL 翻译状态失败", {
               isError: true,
               isLoading: false,
             });
@@ -2544,10 +3103,15 @@ __REPORT_COMPONENT_BUNDLE__
       }
     }
 
-    tabBar.querySelectorAll(".tab-btn").forEach(button => {
-      button.addEventListener("click", async () => {
-        await switchTab(button.dataset.tab || "home");
-      });
+    restoreCustomKeepDraft();
+
+    tabBar.addEventListener("click", event => {
+      const button = event.target instanceof Element ? event.target.closest(".tab-btn") : null;
+      if (!button || !tabBar.contains(button)) {
+        return;
+      }
+      event.preventDefault();
+      switchTab(button.dataset.tab || "home");
     });
 
     window.addEventListener("hashchange", async () => {
@@ -2623,7 +3187,7 @@ __REPORT_COMPONENT_BUNDLE__
       renderCustomKeep();
     });
 
-    customKeepCategoryList.addEventListener("click", async event => {
+    customKeepCategoryList.addEventListener("click", event => {
       const target = event.target instanceof Element ? event.target.closest("[data-action]") : null;
       if (!target) return;
       const index = Number.parseInt(target.dataset.index, 10);
@@ -2653,29 +3217,12 @@ __REPORT_COMPONENT_BUNDLE__
         return;
       }
       if (target.dataset.action === "remove-custom-keep-category") {
-        const previousCategories = JSON.parse(JSON.stringify(categories));
-        const previousSelectedIndex = state.customKeepSelectedIndex;
         categories.splice(index, 1);
         if (state.customKeepSelectedIndex >= categories.length) {
           state.customKeepSelectedIndex = Math.max(0, categories.length - 1);
         }
         markCustomKeepDirty();
         renderCustomKeep();
-        try {
-          await saveCustomKeepRules();
-        } catch (error) {
-          state.draftConfig.custom_keep_categories = previousCategories;
-          if (previousCategories.length) {
-            state.customKeepSelectedIndex = Math.max(
-              0,
-              Math.min(previousSelectedIndex, previousCategories.length - 1),
-            );
-          } else {
-            state.customKeepSelectedIndex = 0;
-          }
-          setCustomKeepStatus(error.message || "删除分组失败", { isError: true });
-          renderCustomKeep();
-        }
       }
     });
 
@@ -2781,7 +3328,7 @@ __REPORT_COMPONENT_BUNDLE__
       try {
         await startTranslation();
       } catch (error) {
-        setStatusBannerState(translationStatusBanner, error.message || "启动国际化文件任务失败", {
+        setStatusBannerState(translationStatusBanner, error.message || "启动配置翻译任务失败", {
           isError: true,
           isLoading: false,
         });
@@ -2792,7 +3339,7 @@ __REPORT_COMPONENT_BUNDLE__
       try {
         await resumeTranslation();
       } catch (error) {
-        setStatusBannerState(translationStatusBanner, error.message || "继续国际化文件任务失败", {
+        setStatusBannerState(translationStatusBanner, error.message || "继续配置翻译任务失败", {
           isError: true,
           isLoading: false,
         });
@@ -2803,7 +3350,7 @@ __REPORT_COMPONENT_BUNDLE__
       try {
         await stopTranslation();
       } catch (error) {
-        setStatusBannerState(translationStatusBanner, error.message || "停止国际化文件任务失败", {
+        setStatusBannerState(translationStatusBanner, error.message || "停止配置翻译任务失败", {
           isError: true,
           isLoading: false,
         });
@@ -2881,13 +3428,87 @@ __REPORT_COMPONENT_BUNDLE__
       );
     });
 
+    poTranslationAutoAccept.addEventListener("change", async () => {
+      try {
+        await savePoTranslationConfig();
+      } catch (error) {
+        setStatusBannerState(poTranslationStatusBanner, error.message || "保存自动接受配置失败", {
+          isError: true,
+          isLoading: false,
+        });
+      }
+    });
+
+    poTranslationInput.addEventListener("change", async () => {
+      try {
+        await savePoTranslationConfig();
+      } catch (error) {
+        setStatusBannerState(poTranslationStatusBanner, error.message || "保存 PO 文件路径失败", {
+          isError: true,
+          isLoading: false,
+        });
+      }
+    });
+    poTranslationInput.addEventListener("input", () => {
+      syncClearableInput(poTranslationInput, poTranslationClearBtn);
+    });
+
+    poTranslationClearBtn.addEventListener("click", async () => {
+      const previousValue = poTranslationInput.value;
+      await clearFieldValue(
+        poTranslationInput,
+        poTranslationClearBtn,
+        savePoTranslationConfig,
+        error => {
+          setStatusBannerState(poTranslationStatusBanner, error.message || "清空 PO 文件路径失败", {
+            isError: true,
+            isLoading: false,
+          });
+        },
+        previousValue,
+      );
+    });
+
+    poTranslationStartBtn.addEventListener("click", async () => {
+      try {
+        await startPoTranslation();
+      } catch (error) {
+        setStatusBannerState(poTranslationStatusBanner, error.message || "启动文档翻译任务失败", {
+          isError: true,
+          isLoading: false,
+        });
+      }
+    });
+
+    poTranslationResumeBtn.addEventListener("click", async () => {
+      try {
+        await resumePoTranslation();
+      } catch (error) {
+        setStatusBannerState(poTranslationStatusBanner, error.message || "继续文档翻译任务失败", {
+          isError: true,
+          isLoading: false,
+        });
+      }
+    });
+
+    poTranslationStopBtn.addEventListener("click", async () => {
+      try {
+        await stopPoTranslation();
+      } catch (error) {
+        setStatusBannerState(poTranslationStatusBanner, error.message || "停止文档翻译任务失败", {
+          isError: true,
+          isLoading: false,
+        });
+      }
+    });
+
     [sqlTranslationDirectoryInput, sqlTranslationTableInput, sqlTranslationPrimaryKeyInput, sqlTranslationSourceFieldInput, sqlTranslationTargetFieldInput]
       .forEach(input => {
         input.addEventListener("change", async () => {
           try {
             await saveSqlTranslationConfig();
           } catch (error) {
-            setStatusBannerState(sqlTranslationStatusBanner, error.message || "保存数据库数据配置失败", {
+            setStatusBannerState(sqlTranslationStatusBanner, error.message || "保存 SQL 翻译配置失败", {
               isError: true,
               isLoading: false,
             });
@@ -2918,7 +3539,7 @@ __REPORT_COMPONENT_BUNDLE__
       try {
         await startSqlTranslation();
       } catch (error) {
-        setStatusBannerState(sqlTranslationStatusBanner, error.message || "启动数据库数据任务失败", {
+        setStatusBannerState(sqlTranslationStatusBanner, error.message || "启动 SQL 翻译任务失败", {
           isError: true,
           isLoading: false,
         });
@@ -2929,7 +3550,7 @@ __REPORT_COMPONENT_BUNDLE__
       try {
         await resumeSqlTranslation();
       } catch (error) {
-        setStatusBannerState(sqlTranslationStatusBanner, error.message || "继续数据库数据任务失败", {
+        setStatusBannerState(sqlTranslationStatusBanner, error.message || "继续 SQL 翻译任务失败", {
           isError: true,
           isLoading: false,
         });
@@ -2940,7 +3561,7 @@ __REPORT_COMPONENT_BUNDLE__
       try {
         await stopSqlTranslation();
       } catch (error) {
-        setStatusBannerState(sqlTranslationStatusBanner, error.message || "停止数据库数据任务失败", {
+        setStatusBannerState(sqlTranslationStatusBanner, error.message || "停止 SQL 翻译任务失败", {
           isError: true,
           isLoading: false,
         });
@@ -3003,6 +3624,38 @@ __REPORT_COMPONENT_BUNDLE__
       state.translationPromptDrafts[target.dataset.promptId || ""] = target.value;
     });
 
+    poTranslationPendingList.addEventListener("click", async event => {
+      const target = event.target instanceof Element ? event.target.closest("[data-action]") : null;
+      if (!target) return;
+      const itemId = target.dataset.id || "";
+      try {
+        if (target.dataset.action === "po-translation-accept") {
+          await runPoTranslationItemAction(itemId, "accept", () => acceptPoTranslation(itemId));
+          return;
+        }
+        if (target.dataset.action === "po-translation-regenerate") {
+          const promptInput = poTranslationPendingList.querySelector(`[data-po-prompt-id="${itemId}"]`);
+          const prompt = promptInput ? promptInput.value : "";
+          await runPoTranslationItemAction(itemId, "regenerate", () => regeneratePoTranslation(itemId, prompt));
+          return;
+        }
+        if (target.dataset.action === "po-translation-reject") {
+          await runPoTranslationItemAction(itemId, "reject", () => rejectPoTranslation(itemId));
+        }
+      } catch (error) {
+        setStatusBannerState(poTranslationStatusBanner, error.message || "处理文档翻译审批条目失败", {
+          isError: true,
+          isLoading: false,
+        });
+      }
+    });
+
+    poTranslationPendingList.addEventListener("input", event => {
+      const target = event.target instanceof Element ? event.target.closest("[data-po-prompt-id]") : null;
+      if (!target) return;
+      state.poTranslationPromptDrafts[target.dataset.poPromptId || ""] = target.value;
+    });
+
     sqlTranslationPendingList.addEventListener("click", async event => {
       const target = event.target instanceof Element ? event.target.closest("[data-action]") : null;
       if (!target) return;
@@ -3022,7 +3675,7 @@ __REPORT_COMPONENT_BUNDLE__
           await runSqlTranslationItemAction(itemId, "reject", () => rejectSqlTranslation(itemId));
         }
       } catch (error) {
-        setStatusBannerState(sqlTranslationStatusBanner, error.message || "处理数据库数据审批条目失败", {
+        setStatusBannerState(sqlTranslationStatusBanner, error.message || "处理 SQL 翻译审批条目失败", {
           isError: true,
           isLoading: false,
         });
@@ -3052,6 +3705,9 @@ __REPORT_COMPONENT_BUNDLE__
     }
     if (((state.translation || {}).status || {}).status === "running") {
       startTranslationPolling();
+    }
+    if (((state.poTranslation || {}).status || {}).status === "running") {
+      startPoTranslationPolling();
     }
     if (((state.sqlTranslation || {}).status || {}).status === "running") {
       startSqlTranslationPolling();

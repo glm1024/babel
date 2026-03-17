@@ -35,6 +35,7 @@ def default_app_state():
         "model_config_overrides": {},
         "custom_keep_categories": default_custom_keep_categories(),
         "translation_config": default_translation_config(),
+        "po_translation_config": default_po_translation_config(),
         "sql_translation_config": default_sql_translation_config(),
     }
 
@@ -78,6 +79,7 @@ def normalize_app_state(payload, path=None):
         path=path,
     )
     translation_config = normalize_translation_config(payload.get("translation_config", {}), path=path)
+    po_translation_config = normalize_po_translation_config(payload.get("po_translation_config", {}), path=path)
     sql_translation_config = normalize_sql_translation_config(payload.get("sql_translation_config", {}), path=path)
     return {
         "version": APP_STATE_VERSION,
@@ -86,6 +88,7 @@ def normalize_app_state(payload, path=None):
         "model_config_overrides": model_config_overrides,
         "custom_keep_categories": custom_keep_categories,
         "translation_config": translation_config,
+        "po_translation_config": po_translation_config,
         "sql_translation_config": sql_translation_config,
     }
 
@@ -169,6 +172,13 @@ def default_translation_config():
 
 def default_custom_keep_categories():
     return []
+
+
+def default_po_translation_config():
+    return {
+        "po_path": "",
+        "auto_accept": False,
+    }
 
 
 def normalize_custom_keep_categories(raw_categories, path=None):
@@ -273,6 +283,18 @@ def normalize_translation_config(raw_config, path=None):
     return {
         "source_path": _normalize_model_text(raw_config.get("source_path", defaults["source_path"])),
         "target_path": _normalize_model_text(raw_config.get("target_path", defaults["target_path"])),
+        "auto_accept": bool(raw_config.get("auto_accept", defaults["auto_accept"])),
+    }
+
+
+def normalize_po_translation_config(raw_config, path=None):
+    defaults = default_po_translation_config()
+    if raw_config is None:
+        return dict(defaults)
+    if not isinstance(raw_config, dict):
+        raise ValueError(_format_error(path, "po_translation_config must be an object."))
+    return {
+        "po_path": _normalize_model_text(raw_config.get("po_path", defaults["po_path"])),
         "auto_accept": bool(raw_config.get("auto_accept", defaults["auto_accept"])),
     }
 

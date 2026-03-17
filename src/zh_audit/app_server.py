@@ -9,12 +9,14 @@ from urllib.parse import urlparse
 from zh_audit.app_state import (
     default_custom_keep_categories,
     default_app_state,
+    default_po_translation_config,
     default_sql_translation_config,
     default_translation_config,
     diff_model_config_overrides,
     load_app_state,
     merge_model_config,
     normalize_custom_keep_categories,
+    normalize_po_translation_config,
     normalize_scan_policy,
     normalize_scan_roots,
     normalize_sql_translation_config,
@@ -38,6 +40,13 @@ from zh_audit.remediation_state import (
 )
 from zh_audit.report import render_report
 from zh_audit.session_store import load_json_file, write_json_atomically
+from zh_audit.po_translation_workflow import (
+    PoTranslationSession,
+    build_po_translation_review_system_prompt,
+    build_po_translation_review_user_prompt,
+    build_po_translation_system_prompt,
+    build_po_translation_user_prompt,
+)
 from zh_audit.sql_translation_workflow import (
     SqlTranslationSession,
     build_sql_translation_review_system_prompt,
@@ -63,24 +72,28 @@ class AppServiceState(object):
         self.report_path = self.out_dir / "report.html"
         self.remediation_state_path = self.out_dir / "remediation_state.json"
         self.translation_session_path = self.out_dir / "translation_session.json"
+        self.po_translation_session_path = self.out_dir / "po_translation_session.json"
         self.sql_translation_session_path = self.out_dir / "sql_translation_session.json"
         self.app_state_path = Path(app_state_path) if app_state_path is not None else (self.out_dir / "app_state.json")
         self.project_config_path = Path(project_config_path) if project_config_path is not None else None
         self.lock = threading.RLock()
         self.scan_thread = None
         self.translation_thread = None
+        self.po_translation_thread = None
         self.sql_translation_thread = None
         self.results_revision = 0
         self.summary = {}
         self.findings = []
         self.remediation_state = default_remediation_state()
         self.translation_session = None
+        self.po_translation_session = None
         self.sql_translation_session = None
         self.project_model_config = (
             load_project_model_config(self.project_config_path) if self.project_config_path is not None else {}
         )
         self.app_state = load_app_state(self.app_state_path)
         self.translation_auto_accept = bool(self.app_state.get("translation_config", {}).get("auto_accept", False))
+        self.po_translation_auto_accept = bool(self.app_state.get("po_translation_config", {}).get("auto_accept", False))
         self.scan_status = self._idle_scan_status()
         self.terminology_path = ensure_default_terminology_xlsx(
             Path(__file__).resolve().parents[2] / "resources" / "terminology.xlsx"
@@ -91,6 +104,7 @@ class AppServiceState(object):
         self._restore_remediation_state()
         self._restore_results()
         self._restore_translation_session()
+        self._restore_po_translation_session()
         self._restore_sql_translation_session()
 
     def render_home(self):
@@ -110,6 +124,13 @@ class AppServiceState(object):
                 "translation_accept_api_path": "/api/translation/accept",
                 "translation_regenerate_api_path": "/api/translation/regenerate",
                 "translation_reject_api_path": "/api/translation/reject",
+                "po_translation_start_api_path": "/api/po-translation/start",
+                "po_translation_stop_api_path": "/api/po-translation/stop",
+                "po_translation_resume_api_path": "/api/po-translation/resume",
+                "po_translation_status_api_path": "/api/po-translation/status",
+                "po_translation_accept_api_path": "/api/po-translation/accept",
+                "po_translation_regenerate_api_path": "/api/po-translation/regenerate",
+                "po_translation_reject_api_path": "/api/po-translation/reject",
                 "sql_translation_start_api_path": "/api/sql-translation/start",
                 "sql_translation_stop_api_path": "/api/sql-translation/stop",
                 "sql_translation_resume_api_path": "/api/sql-translation/resume",
@@ -130,6 +151,7 @@ class AppServiceState(object):
                 "has_results": bool(self.findings),
                 "results_revision": self.results_revision,
                 "translation": self.translation_payload_locked(),
+                "po_translation": self.po_translation_payload_locked(),
                 "sql_translation": self.sql_translation_payload_locked(),
             }
 
@@ -168,6 +190,7 @@ class AppServiceState(object):
                 self._validate_model_config(next_app_state)
             self.app_state = next_app_state
             self.translation_auto_accept = bool(self.app_state["translation_config"].get("auto_accept", False))
+            self.po_translation_auto_accept = bool(self.app_state["po_translation_config"].get("auto_accept", False))
             self._persist_app_state()
             return self.bootstrap_payload()
 
@@ -242,6 +265,8 @@ class AppServiceState(object):
                 raise ValueError("A scan is already running.")
             if self.sql_translation_session is not None and self._session_status(self.sql_translation_session) == "running":
                 raise ValueError("A SQL translation task is already running.")
+            if self.po_translation_session is not None and self._session_status(self.po_translation_session) == "running":
+                raise ValueError("A PO translation task is already running.")
             session = self._require_translation_session()
             model_config = self._require_model_config()
             self._reload_terminology()
@@ -282,6 +307,85 @@ class AppServiceState(object):
     def translation_payload(self):
         with self.lock:
             return self.translation_payload_locked()
+
+    def start_po_translation(self, payload):
+        with self.lock:
+            if self.scan_status["status"] == "running":
+                raise ValueError("A scan is already running.")
+            if self._has_running_task_locked():
+                raise ValueError("A translation task is already running.")
+            self._update_config({"po_translation_config": payload})
+            self._persist_app_state()
+            po_config = self.app_state.get("po_translation_config", default_po_translation_config())
+            po_path = Path(po_config.get("po_path", "")).expanduser()
+            if not po_path.exists():
+                raise ValueError("PO file does not exist: {}".format(po_path))
+            if po_path.is_dir():
+                raise ValueError("PO path must point to a file, not a directory.")
+            model_config = self._require_model_config()
+            self._reload_terminology()
+            if self.terminology_error:
+                raise ValueError(self.terminology_error)
+            self.po_translation_session = PoTranslationSession(
+                po_path=po_path.resolve(),
+                glossary=self.terminology,
+                model_config=model_config,
+                model_runner=self._po_translation_model_runner,
+                reviewer_runner=self._po_translation_reviewer_runner,
+                persist_callback=self._persist_po_translation_session,
+            )
+            self.po_translation_session.start()
+            self._start_po_translation_thread_locked(self.po_translation_session)
+            return self.po_translation_payload_locked()
+
+    def resume_po_translation(self):
+        with self.lock:
+            if self.scan_status["status"] == "running":
+                raise ValueError("A scan is already running.")
+            if self.translation_session is not None and self._session_status(self.translation_session) == "running":
+                raise ValueError("An i18n translation task is already running.")
+            if self.sql_translation_session is not None and self._session_status(self.sql_translation_session) == "running":
+                raise ValueError("A SQL translation task is already running.")
+            session = self._require_po_translation_session()
+            model_config = self._require_model_config()
+            self._reload_terminology()
+            if self.terminology_error:
+                raise ValueError(self.terminology_error)
+            with session.lock:
+                session.model_config = dict(model_config)
+                session.glossary = self.terminology
+                session.reviewer_runner = self._po_translation_reviewer_runner
+            session.resume()
+            self._start_po_translation_thread_locked(session)
+            return self.po_translation_payload_locked()
+
+    def stop_po_translation(self):
+        with self.lock:
+            session = self._require_po_translation_session()
+            session.stop()
+            return self.po_translation_payload_locked()
+
+    def po_translation_accept(self, item_id):
+        with self.lock:
+            session = self._require_po_translation_session()
+        session.accept(item_id)
+        return self.po_translation_payload()
+
+    def po_translation_regenerate(self, item_id, prompt):
+        with self.lock:
+            session = self._require_po_translation_session()
+        session.regenerate(item_id, prompt)
+        return self.po_translation_payload()
+
+    def po_translation_reject(self, item_id):
+        with self.lock:
+            session = self._require_po_translation_session()
+        session.reject(item_id)
+        return self.po_translation_payload()
+
+    def po_translation_payload(self):
+        with self.lock:
+            return self.po_translation_payload_locked()
 
     def start_sql_translation(self, payload):
         with self.lock:
@@ -329,6 +433,8 @@ class AppServiceState(object):
                 raise ValueError("A scan is already running.")
             if self.translation_session is not None and self._session_status(self.translation_session) == "running":
                 raise ValueError("A translation task is already running.")
+            if self.po_translation_session is not None and self._session_status(self.po_translation_session) == "running":
+                raise ValueError("A PO translation task is already running.")
             session = self._require_sql_translation_session()
             model_config = self._require_model_config()
             self._reload_terminology()
@@ -424,6 +530,16 @@ class AppServiceState(object):
                 if self.translation_session is session:
                     self.translation_thread = None
 
+    def _run_po_translation_job(self, session):
+        try:
+            session.run(should_auto_accept=self._po_translation_auto_accept)
+        except Exception as exc:
+            session.interrupt(str(exc))
+        finally:
+            with self.lock:
+                if self.po_translation_session is session:
+                    self.po_translation_thread = None
+
     def _run_sql_translation_job(self, session):
         try:
             session.run()
@@ -469,6 +585,7 @@ class AppServiceState(object):
             self.app_state.get("custom_keep_categories", default_custom_keep_categories()),
         )
         translation_config = payload.get("translation_config", self.app_state.get("translation_config", {}))
+        po_translation_config = payload.get("po_translation_config", self.app_state.get("po_translation_config", {}))
         sql_translation_config = payload.get("sql_translation_config", self.app_state.get("sql_translation_config", {}))
         model_config_overrides = dict(self.app_state.get("model_config_overrides", {}))
         if "model_config" in payload:
@@ -485,12 +602,14 @@ class AppServiceState(object):
             "model_config_overrides": model_config_overrides,
             "custom_keep_categories": normalize_custom_keep_categories(custom_keep_categories),
             "translation_config": normalize_translation_config(translation_config),
+            "po_translation_config": normalize_po_translation_config(po_translation_config),
             "sql_translation_config": normalize_sql_translation_config(sql_translation_config),
         }
 
     def _update_config(self, payload):
         self.app_state = self._build_updated_app_state(payload)
         self.translation_auto_accept = bool(self.app_state["translation_config"].get("auto_accept", False))
+        self.po_translation_auto_accept = bool(self.app_state["po_translation_config"].get("auto_accept", False))
 
     def _persist_app_state(self):
         write_app_state(self.app_state_path, self.app_state)
@@ -522,6 +641,9 @@ class AppServiceState(object):
     def _persist_translation_session(self, payload):
         write_json_atomically(self.translation_session_path, payload)
 
+    def _persist_po_translation_session(self, payload):
+        write_json_atomically(self.po_translation_session_path, payload)
+
     def _persist_sql_translation_session(self, payload):
         write_json_atomically(self.sql_translation_session_path, payload)
 
@@ -547,6 +669,9 @@ class AppServiceState(object):
                 self.app_state.get("custom_keep_categories", default_custom_keep_categories())
             ),
             "translation_config": dict(self.app_state.get("translation_config", default_translation_config())),
+            "po_translation_config": dict(
+                self.app_state.get("po_translation_config", default_po_translation_config())
+            ),
             "sql_translation_config": dict(
                 self.app_state.get("sql_translation_config", default_sql_translation_config())
             ),
@@ -607,6 +732,23 @@ class AppServiceState(object):
             self._persist_translation_session(self.translation_session.save_state())
         except Exception:
             self.translation_session = None
+
+    def _restore_po_translation_session(self):
+        payload = load_json_file(self.po_translation_session_path)
+        if not isinstance(payload, dict):
+            return
+        try:
+            self.po_translation_session = PoTranslationSession.from_saved_state(
+                payload=payload,
+                glossary=self.terminology,
+                model_config=self._effective_model_config(),
+                model_runner=self._po_translation_model_runner,
+                reviewer_runner=self._po_translation_reviewer_runner,
+                persist_callback=self._persist_po_translation_session,
+            )
+            self._persist_po_translation_session(self.po_translation_session.save_state())
+        except Exception:
+            self.po_translation_session = None
 
     def _restore_remediation_state(self):
         try:
@@ -690,6 +832,24 @@ class AppServiceState(object):
         self._attach_resume_status(session_snapshot["status"])
         return session_snapshot
 
+    def po_translation_payload_locked(self):
+        self._reload_terminology()
+        session_snapshot = None
+        if self.po_translation_session is not None:
+            session_snapshot = self.po_translation_session.snapshot()
+        if session_snapshot is None:
+            session_snapshot = _default_po_translation_payload()
+        session_snapshot["config"] = dict(
+            self.app_state.get("po_translation_config", default_po_translation_config())
+        )
+        session_snapshot["terminology"] = {
+            "path": str(self.terminology_path),
+            "count": len(self.terminology),
+            "error": self.terminology_error,
+        }
+        self._attach_resume_status(session_snapshot["status"])
+        return session_snapshot
+
     def sql_translation_payload_locked(self):
         self._reload_terminology()
         session_snapshot = None
@@ -747,6 +907,66 @@ class AppServiceState(object):
                 source_text=source_text,
                 target_text=target_text,
                 candidate_text=candidate_text,
+                locked_terms=locked_terms,
+                target_missing=target_missing,
+                extra_prompt=extra_prompt,
+            ),
+            max_tokens=model_config.get("max_tokens"),
+        )
+        return response
+
+    def _po_translation_model_runner(
+        self,
+        entry_id,
+        references,
+        source_text,
+        target_text,
+        protected_source,
+        locked_terms,
+        model_config,
+        extra_prompt,
+        target_missing,
+    ):
+        response = call_openai_compatible_json(
+            model_config=model_config,
+            system_prompt=build_po_translation_system_prompt(),
+            user_prompt=build_po_translation_user_prompt(
+                entry_id=entry_id,
+                references=references,
+                source_text=source_text,
+                target_text=target_text,
+                protected_source=protected_source,
+                locked_terms=locked_terms,
+                extra_prompt=extra_prompt,
+                target_missing=target_missing,
+            ),
+            max_tokens=model_config.get("max_tokens"),
+        )
+        return response
+
+    def _po_translation_reviewer_runner(
+        self,
+        entry_id,
+        references,
+        source_text,
+        target_text,
+        candidate_text,
+        protected_source,
+        locked_terms,
+        model_config,
+        target_missing,
+        extra_prompt,
+    ):
+        response = call_openai_compatible_json(
+            model_config=model_config,
+            system_prompt=build_po_translation_review_system_prompt(),
+            user_prompt=build_po_translation_review_user_prompt(
+                entry_id=entry_id,
+                references=references,
+                source_text=source_text,
+                target_text=target_text,
+                candidate_text=candidate_text,
+                protected_source=protected_source,
                 locked_terms=locked_terms,
                 target_missing=target_missing,
                 extra_prompt=extra_prompt,
@@ -834,6 +1054,9 @@ class AppServiceState(object):
     def _translation_auto_accept(self):
         return bool(self.translation_auto_accept)
 
+    def _po_translation_auto_accept(self):
+        return bool(self.po_translation_auto_accept)
+
     def _start_translation_thread_locked(self, session):
         self.translation_thread = threading.Thread(
             target=self._run_translation_job,
@@ -842,6 +1065,15 @@ class AppServiceState(object):
             daemon=True,
         )
         self.translation_thread.start()
+
+    def _start_po_translation_thread_locked(self, session):
+        self.po_translation_thread = threading.Thread(
+            target=self._run_po_translation_job,
+            args=(session,),
+            name="zh-audit-po-translation",
+            daemon=True,
+        )
+        self.po_translation_thread.start()
 
     def _start_sql_translation_thread_locked(self, session):
         self.sql_translation_thread = threading.Thread(
@@ -857,6 +1089,11 @@ class AppServiceState(object):
             raise ValueError("No translation task has been created yet.")
         return self.translation_session
 
+    def _require_po_translation_session(self):
+        if self.po_translation_session is None:
+            raise ValueError("No PO translation task has been created yet.")
+        return self.po_translation_session
+
     def _require_sql_translation_session(self):
         if self.sql_translation_session is None:
             raise ValueError("No SQL translation task has been created yet.")
@@ -865,6 +1102,8 @@ class AppServiceState(object):
     def _has_running_task_locked(self):
         return (
             self.translation_session is not None and self._session_status(self.translation_session) == "running"
+        ) or (
+            self.po_translation_session is not None and self._session_status(self.po_translation_session) == "running"
         ) or (
             self.sql_translation_session is not None and self._session_status(self.sql_translation_session) == "running"
         )
@@ -936,6 +1175,36 @@ def _default_sql_translation_payload():
     }
 
 
+def _default_po_translation_payload():
+    return {
+        "config": dict(default_po_translation_config()),
+        "status": {
+            "status": "idle",
+            "message": "等待校译",
+            "error": "",
+            "started_at": "",
+            "finished_at": "",
+            "current": {"entry_id": "", "references": [], "msgid_preview": "", "status": ""},
+            "counts": {
+                "total": 0,
+                "processed": 0,
+                "pending": 0,
+                "accepted": 0,
+                "updated": 0,
+                "filled": 0,
+                "skipped": 0,
+                "unsupported": 0,
+                "failed": 0,
+                "rejected": 0,
+                "regenerated": 0,
+            },
+        },
+        "pending_items": [],
+        "recent_items": [],
+        "events": [],
+    }
+
+
 class _ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
 
@@ -956,6 +1225,9 @@ class AppRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/translation/status":
             self._send_json(200, self.server.app_state.translation_payload())
+            return
+        if parsed.path == "/api/po-translation/status":
+            self._send_json(200, self.server.app_state.po_translation_payload())
             return
         if parsed.path == "/api/sql-translation/status":
             self._send_json(200, self.server.app_state.sql_translation_payload())
@@ -998,6 +1270,27 @@ class AppRequestHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/translation/reject":
                 self._send_json(200, self.server.app_state.translation_reject(payload.get("item_id", "")))
+                return
+            if parsed.path == "/api/po-translation/start":
+                self._send_json(200, self.server.app_state.start_po_translation(payload))
+                return
+            if parsed.path == "/api/po-translation/stop":
+                self._send_json(200, self.server.app_state.stop_po_translation())
+                return
+            if parsed.path == "/api/po-translation/resume":
+                self._send_json(200, self.server.app_state.resume_po_translation())
+                return
+            if parsed.path == "/api/po-translation/accept":
+                self._send_json(200, self.server.app_state.po_translation_accept(payload.get("item_id", "")))
+                return
+            if parsed.path == "/api/po-translation/regenerate":
+                self._send_json(
+                    200,
+                    self.server.app_state.po_translation_regenerate(payload.get("item_id", ""), payload.get("prompt", "")),
+                )
+                return
+            if parsed.path == "/api/po-translation/reject":
+                self._send_json(200, self.server.app_state.po_translation_reject(payload.get("item_id", "")))
                 return
             if parsed.path == "/api/sql-translation/start":
                 self._send_json(200, self.server.app_state.start_sql_translation(payload))
