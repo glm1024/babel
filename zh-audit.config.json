@@ -1,7 +1,7 @@
 {
   "model_config": {
     "base_url": "http://100.7.132.102:3001/v1",
-    "api_key": "",
+    "api_key": "sk-0VW9P9wqso46EwcRE303007e671c475c930a022d26F4494e",
     "model": "deepseek-v3",
     "max_tokens": 4096
   }

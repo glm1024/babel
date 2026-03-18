@@ -77,16 +77,15 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             self.assertIn("仅支持 INSERT ... VALUES 语句。", reasons)
             self.assertIn("INSERT 未写列名，且未能推导当前表结构，请粘贴当前建表 SQL。", reasons)
 
-    def test_scan_sql_translation_directory_marks_duplicate_primary_keys(self):
+    def test_scan_sql_translation_directory_keeps_latest_duplicate_by_script_order(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            (root / "a.sql").write_text(
+            (root / "V6.10.0.20230721.0__seed.sql").write_text(
                 "INSERT INTO t_demo (id, name_zh, name_en) VALUES ('1', '资源池', 'wrong');\n",
                 encoding="utf-8",
             )
-            (root / "nested").mkdir()
-            (root / "nested" / "b.sql").write_text(
-                "INSERT INTO t_demo (id, name_zh, name_en) VALUES ('1', '资源池', 'wrong again');\n",
+            (root / "V6.10.0.20230830.0__seed.sql").write_text(
+                "INSERT INTO t_demo (id, name_zh, name_en) VALUES ('1', '资源池', 'newest value');\n",
                 encoding="utf-8",
             )
 
@@ -99,7 +98,12 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             )
 
             self.assertEqual(len(parsed["rows"]), 2)
-            self.assertTrue(all(item["skip_reason"] == "定位字段值重复，无法唯一定位 update。" for item in parsed["rows"]))
+            skipped = [item for item in parsed["rows"] if item["skip_reason"]]
+            kept = [item for item in parsed["rows"] if not item["skip_reason"]]
+            self.assertEqual(len(skipped), 1)
+            self.assertEqual(len(kept), 1)
+            self.assertEqual(kept[0]["target_text"], "newest value")
+            self.assertIn("V6.10.0.20230830.0__seed.sql", skipped[0]["skip_reason"])
 
     def test_parse_sql_translation_file_keeps_statement_preview_for_skip_events(self):
         with tempfile.TemporaryDirectory() as temp_dir:

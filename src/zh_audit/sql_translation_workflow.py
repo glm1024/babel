@@ -1100,8 +1100,15 @@ def scan_sql_translation_directory(directory_path, table_name, primary_key_field
     for duplicate_rows in duplicates.values():
         if len(duplicate_rows) < 2:
             continue
-        for row in duplicate_rows:
-            row["skip_reason"] = "定位字段值重复，无法唯一定位 update。"
+        ordered_rows = sorted(duplicate_rows, key=_sql_row_precedence_key)
+        latest_row = ordered_rows[-1]
+        for row in ordered_rows[:-1]:
+            row["skip_reason"] = (
+                "定位字段值重复，已按脚本顺序保留较新的语句：{}:{}".format(
+                    latest_row.get("source_path", ""),
+                    latest_row.get("line", 0),
+                )
+            )
     return {
         "rows": rows,
         "events": events,
@@ -2110,6 +2117,25 @@ def _split_simple_csv(text):
         token.append(char)
     parts.append("".join(token))
     return parts
+
+
+def _sql_row_precedence_key(row):
+    source_path = Path(str(row.get("source_path", "") or ""))
+    file_name_key = _natural_sort_key(source_path.name)
+    full_path_key = _natural_sort_key(str(source_path))
+    line = int(row.get("line", 0) or 0)
+    return (file_name_key, full_path_key, line)
+
+
+def _natural_sort_key(value):
+    parts = re.findall(r"\d+|[A-Za-z]+|[^A-Za-z\d]+", str(value or ""))
+    key = []
+    for part in parts:
+        if part.isdigit():
+            key.append((0, int(part)))
+        else:
+            key.append((1, part.lower()))
+    return tuple(key)
 
 
 def _split_sql_csv(text):
