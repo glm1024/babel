@@ -387,9 +387,27 @@ def render_app_shell(bootstrap_payload, client_config):
       overflow-y: scroll;
       overflow-x: hidden;
       scrollbar-gutter: stable;
+      scrollbar-width: auto;
+      scrollbar-color: rgba(159,61,42,0.42) rgba(244,239,232,0.92);
       padding-top: 9px;
       padding-bottom: 9px;
       line-height: normal;
+    }
+    .sql-schema-input::-webkit-scrollbar {
+      width: 12px;
+    }
+    .sql-schema-input::-webkit-scrollbar-track {
+      background: rgba(244,239,232,0.92);
+      border-left: 1px solid rgba(216,203,189,0.72);
+      border-radius: 0 14px 14px 0;
+    }
+    .sql-schema-input::-webkit-scrollbar-thumb {
+      background: rgba(159,61,42,0.42);
+      border-radius: 999px;
+      border: 2px solid rgba(244,239,232,0.92);
+    }
+    .sql-schema-input::-webkit-scrollbar-thumb:hover {
+      background: rgba(159,61,42,0.58);
     }
     .sql-schema-label {
       display: block;
@@ -1944,18 +1962,67 @@ __REPORT_COMPONENT_BUNDLE__
       return key;
     }
 
-    function syncPendingListScroll(listElement, orderedItems) {
-      const nextTopItemId = orderedItems.length ? String((orderedItems[0] || {}).id || "") : "";
-      const previousTopItemId = String(listElement.dataset.topItemId || "");
-      if (!nextTopItemId) {
-        listElement.dataset.topItemId = "";
+    function buildViewportKey(parts) {
+      return parts.map(part => String(part ?? "")).join("||");
+    }
+
+    function buildEventViewportKey(item) {
+      return buildViewportKey([
+        item.at,
+        item.label,
+        item.source_path,
+        item.line,
+        item.primary_key_value,
+        item.source_text,
+        item.target_text,
+        item.reason,
+      ]);
+    }
+
+    function captureListViewport(listElement) {
+      const scrollTop = Number(listElement.scrollTop || 0);
+      const atTop = scrollTop <= 4;
+      const children = Array.from(listElement.children || []);
+      let anchorKey = "";
+      let anchorOffset = 0;
+      if (!atTop) {
+        const anchor = children.find(child => (child.offsetTop + child.offsetHeight) > (scrollTop + 1)) || children[0] || null;
+        if (anchor) {
+          anchorKey = String(anchor.dataset.viewportKey || "");
+          anchorOffset = scrollTop - anchor.offsetTop;
+        }
+      }
+      return {
+        atTop,
+        scrollTop,
+        anchorKey,
+        anchorOffset,
+      };
+    }
+
+    function restoreListViewport(listElement, viewport, topViewportKey) {
+      const nextTopKey = String(topViewportKey || "");
+      const previousTopKey = String(listElement.dataset.topViewportKey || "");
+      if (!nextTopKey) {
+        listElement.dataset.topViewportKey = "";
         listElement.scrollTop = 0;
         return;
       }
-      if (previousTopItemId && previousTopItemId !== nextTopItemId) {
-        listElement.scrollTop = 0;
+      if (!viewport || viewport.atTop) {
+        if (!previousTopKey || previousTopKey !== nextTopKey) {
+          listElement.scrollTop = 0;
+        }
+        listElement.dataset.topViewportKey = nextTopKey;
+        return;
       }
-      listElement.dataset.topItemId = nextTopItemId;
+      const children = Array.from(listElement.children || []);
+      const anchor = children.find(child => String(child.dataset.viewportKey || "") === viewport.anchorKey) || null;
+      if (anchor) {
+        listElement.scrollTop = Math.max(0, anchor.offsetTop + Number(viewport.anchorOffset || 0));
+      } else {
+        listElement.scrollTop = Math.max(0, Number(viewport.scrollTop || 0));
+      }
+      listElement.dataset.topViewportKey = nextTopKey;
     }
 
     function escapeHtml(value) {
@@ -2468,9 +2535,12 @@ __REPORT_COMPONENT_BUNDLE__
       const events = Array.isArray(translation.events) ? translation.events : [];
       if (!events.length) {
         translationEvents.innerHTML = '<div class="translation-empty">当前还没有处理记录。</div>';
+        translationEvents.dataset.topViewportKey = "";
+        translationEvents.scrollTop = 0;
       } else {
+        const eventsViewport = captureListViewport(translationEvents);
         translationEvents.innerHTML = events.map(item => `
-          <div class="translation-log-item">
+          <div class="translation-log-item" data-viewport-key="${escapeAttr(buildEventViewportKey(item))}">
             <div class="translation-log-head">
               <strong>${escapeHtml(item.label || "-")}</strong>
               <span class="muted">${escapeHtml(item.at || "")}</span>
@@ -2480,6 +2550,7 @@ __REPORT_COMPONENT_BUNDLE__
             ${item.target_text ? `<div><code>${escapeHtml(item.target_text)}</code></div>` : ""}
           </div>
         `).join("");
+        restoreListViewport(translationEvents, eventsViewport, buildEventViewportKey(events[0]));
       }
 
       const pendingItems = Array.isArray(translation.pending_items) ? translation.pending_items : [];
@@ -2488,7 +2559,7 @@ __REPORT_COMPONENT_BUNDLE__
       const orderedPendingItems = pendingItems.slice().reverse();
       translationPendingEmpty.classList.toggle("hidden", pendingItems.length > 0);
       translationPendingList.classList.toggle("hidden", pendingItems.length === 0);
-      syncPendingListScroll(translationPendingList, orderedPendingItems);
+      const pendingViewport = orderedPendingItems.length ? captureListViewport(translationPendingList) : null;
       translationPendingList.innerHTML = orderedPendingItems.map(item => {
         const itemOp = state.translationItemOps[item.id] || null;
         const isBusy = Boolean(itemOp);
@@ -2496,7 +2567,7 @@ __REPORT_COMPONENT_BUNDLE__
           ? (itemOp.message || "正在处理当前条目")
           : (item.validation_message ? `校验未通过，但你仍可直接接受或手动修改后接受：${item.validation_message}` : "接受当前候选英文");
         return `
-        <div class="translation-log-item${isBusy ? " is-busy" : ""}">
+        <div class="translation-log-item${isBusy ? " is-busy" : ""}" data-viewport-key="${escapeAttr(String(item.id || ""))}">
           <div class="translation-item-stack">
             <strong>${escapeHtml(item.key || "-")}</strong>
             <div><span class="muted">中文：</span>${escapeHtml(item.source_text || "-")}</div>
@@ -2507,7 +2578,7 @@ __REPORT_COMPONENT_BUNDLE__
             ${renderModelDebugInfo(item)}
             ${item.validation_message ? `<div class="translation-validation-note ${item.validation_state === "failed" ? "is-error" : ""}">${escapeHtml(item.validation_message)}</div>` : ""}
             ${itemOp ? `<div class="translation-validation-note is-progress">${escapeHtml(itemOp.message || "正在处理当前条目...")}</div>` : ""}
-            <div class="translation-call-budget">本次生成重试：${escapeHtml(String(item.generation_attempts_used || 0))}/${escapeHtml(String(5))}</div>
+            <div class="translation-call-budget">本次生成重试：${escapeHtml(String(item.generation_attempts_used || 0))}/${escapeHtml(String(3))}</div>
             <div class="translation-tags">
               ${(item.locked_terms || []).map(term => `<span class="translation-tag">${escapeHtml(`${term.source} => ${term.target}`)}</span>`).join("")}
             </div>
@@ -2521,6 +2592,12 @@ __REPORT_COMPONENT_BUNDLE__
         </div>
       `;
       }).join("");
+      if (!orderedPendingItems.length) {
+        translationPendingList.dataset.topViewportKey = "";
+        translationPendingList.scrollTop = 0;
+      } else {
+        restoreListViewport(translationPendingList, pendingViewport, String((orderedPendingItems[0] || {}).id || ""));
+      }
 
     }
 
@@ -2594,9 +2671,12 @@ __REPORT_COMPONENT_BUNDLE__
       const events = Array.isArray(poTranslation.events) ? poTranslation.events : [];
       if (!events.length) {
         poTranslationEvents.innerHTML = '<div class="translation-empty">当前还没有处理记录。</div>';
+        poTranslationEvents.dataset.topViewportKey = "";
+        poTranslationEvents.scrollTop = 0;
       } else {
+        const eventsViewport = captureListViewport(poTranslationEvents);
         poTranslationEvents.innerHTML = events.map(item => `
-          <div class="translation-log-item">
+          <div class="translation-log-item" data-viewport-key="${escapeAttr(buildEventViewportKey(item))}">
             <div class="translation-log-head">
               <strong>${escapeHtml(item.label || "-")}</strong>
               <span class="muted">${escapeHtml(item.at || "")}</span>
@@ -2607,6 +2687,7 @@ __REPORT_COMPONENT_BUNDLE__
             ${item.target_text ? `<div><code>${escapeHtml(item.target_text)}</code></div>` : ""}
           </div>
         `).join("");
+        restoreListViewport(poTranslationEvents, eventsViewport, buildEventViewportKey(events[0]));
       }
 
       const pendingItems = Array.isArray(poTranslation.pending_items) ? poTranslation.pending_items : [];
@@ -2615,7 +2696,7 @@ __REPORT_COMPONENT_BUNDLE__
       const orderedPendingItems = pendingItems.slice().reverse();
       poTranslationPendingEmpty.classList.toggle("hidden", pendingItems.length > 0);
       poTranslationPendingList.classList.toggle("hidden", pendingItems.length === 0);
-      syncPendingListScroll(poTranslationPendingList, orderedPendingItems);
+      const pendingViewport = orderedPendingItems.length ? captureListViewport(poTranslationPendingList) : null;
       poTranslationPendingList.innerHTML = orderedPendingItems.map(item => {
         const itemOp = state.poTranslationItemOps[item.id] || null;
         const isBusy = Boolean(itemOp);
@@ -2623,7 +2704,7 @@ __REPORT_COMPONENT_BUNDLE__
           ? (itemOp.message || "正在处理当前条目")
           : (item.validation_message ? `校验未通过，但你仍可直接接受或手动修改后接受：${item.validation_message}` : "接受当前候选英文");
         return `
-        <div class="translation-log-item${isBusy ? " is-busy" : ""}">
+        <div class="translation-log-item${isBusy ? " is-busy" : ""}" data-viewport-key="${escapeAttr(String(item.id || ""))}">
           <div class="translation-item-stack">
             <strong>${escapeHtml(item.entry_id || "-")}</strong>
             <div><span class="muted">引用：</span>${escapeHtml(((item.references || []).join(" | ")) || "-")}</div>
@@ -2637,7 +2718,7 @@ __REPORT_COMPONENT_BUNDLE__
             <div><span class="muted">前端术语：</span>${escapeHtml(item.frontend_glossary_enabled ? `已启用（${((item.frontend_ui_slots || []).join(", ")) || "slot"}）` : "未启用")}</div>
             ${item.validation_message ? `<div class="translation-validation-note ${item.validation_state === "failed" ? "is-error" : ""}">${escapeHtml(item.validation_message)}</div>` : ""}
             ${itemOp ? `<div class="translation-validation-note is-progress">${escapeHtml(itemOp.message || "正在处理当前条目...")}</div>` : ""}
-            <div class="translation-call-budget">本次生成重试：${escapeHtml(String(item.generation_attempts_used || 0))}/${escapeHtml(String(5))}</div>
+            <div class="translation-call-budget">本次生成重试：${escapeHtml(String(item.generation_attempts_used || 0))}/${escapeHtml(String(3))}</div>
             <div class="translation-tags">
               ${(item.locked_terms || []).map(term => `<span class="translation-tag">${escapeHtml(`${term.source} => ${term.target}`)}</span>`).join("")}
             </div>
@@ -2652,6 +2733,12 @@ __REPORT_COMPONENT_BUNDLE__
         </div>
       `;
       }).join("");
+      if (!orderedPendingItems.length) {
+        poTranslationPendingList.dataset.topViewportKey = "";
+        poTranslationPendingList.scrollTop = 0;
+      } else {
+        restoreListViewport(poTranslationPendingList, pendingViewport, String((orderedPendingItems[0] || {}).id || ""));
+      }
     }
 
     function sqlTranslationBannerText(status, terminology) {
@@ -2737,9 +2824,12 @@ __REPORT_COMPONENT_BUNDLE__
       const events = Array.isArray(sqlTranslation.events) ? sqlTranslation.events : [];
       if (!events.length) {
         sqlTranslationEvents.innerHTML = '<div class="translation-empty">当前还没有处理记录。</div>';
+        sqlTranslationEvents.dataset.topViewportKey = "";
+        sqlTranslationEvents.scrollTop = 0;
       } else {
+        const eventsViewport = captureListViewport(sqlTranslationEvents);
         sqlTranslationEvents.innerHTML = events.map(item => `
-          <div class="translation-log-item">
+          <div class="translation-log-item" data-viewport-key="${escapeAttr(buildEventViewportKey(item))}">
             <div class="translation-log-head">
               <strong>${escapeHtml(item.label || "-")}</strong>
               <span class="muted">${escapeHtml(item.at || "")}</span>
@@ -2753,6 +2843,7 @@ __REPORT_COMPONENT_BUNDLE__
             ${item.target_text && !item.reason ? `<div><code>${escapeHtml(item.target_text)}</code></div>` : ""}
           </div>
         `).join("");
+        restoreListViewport(sqlTranslationEvents, eventsViewport, buildEventViewportKey(events[0]));
       }
 
       const pendingItems = Array.isArray(sqlTranslation.pending_items) ? sqlTranslation.pending_items : [];
@@ -2761,7 +2852,7 @@ __REPORT_COMPONENT_BUNDLE__
       const orderedPendingItems = pendingItems.slice().reverse();
       sqlTranslationPendingEmpty.classList.toggle("hidden", pendingItems.length > 0);
       sqlTranslationPendingList.classList.toggle("hidden", pendingItems.length === 0);
-      syncPendingListScroll(sqlTranslationPendingList, orderedPendingItems);
+      const pendingViewport = orderedPendingItems.length ? captureListViewport(sqlTranslationPendingList) : null;
       sqlTranslationPendingList.innerHTML = orderedPendingItems.map(item => {
         const itemOp = state.sqlTranslationItemOps[item.id] || null;
         const isBusy = Boolean(itemOp);
@@ -2769,7 +2860,7 @@ __REPORT_COMPONENT_BUNDLE__
           ? (itemOp.message || "正在处理当前条目")
           : (item.validation_message ? `校验未通过，但你仍可直接接受或手动修改后接受：${item.validation_message}` : "接受当前候选英文");
         return `
-        <div class="translation-log-item${isBusy ? " is-busy" : ""}">
+        <div class="translation-log-item${isBusy ? " is-busy" : ""}" data-viewport-key="${escapeAttr(String(item.id || ""))}">
           <div class="translation-item-stack">
             <strong>${escapeHtml(`${item.source_path || "-"}:${item.line || "-"}`)}</strong>
             <div><span class="muted">定位值：</span>${escapeHtml(item.primary_key_value || "-")}</div>
@@ -2781,7 +2872,7 @@ __REPORT_COMPONENT_BUNDLE__
             ${renderModelDebugInfo(item)}
             ${item.validation_message ? `<div class="translation-validation-note ${item.validation_state === "failed" ? "is-error" : ""}">${escapeHtml(item.validation_message)}</div>` : ""}
             ${itemOp ? `<div class="translation-validation-note is-progress">${escapeHtml(itemOp.message || "正在处理当前条目...")}</div>` : ""}
-            <div class="translation-call-budget">本次生成重试：${escapeHtml(String(item.generation_attempts_used || 0))}/${escapeHtml(String(5))}</div>
+            <div class="translation-call-budget">本次生成重试：${escapeHtml(String(item.generation_attempts_used || 0))}/${escapeHtml(String(3))}</div>
             <div class="translation-tags">
               ${(item.locked_terms || []).map(term => `<span class="translation-tag">${escapeHtml(`${term.source} => ${term.target}`)}</span>`).join("")}
             </div>
@@ -2795,6 +2886,12 @@ __REPORT_COMPONENT_BUNDLE__
         </div>
       `;
       }).join("");
+      if (!orderedPendingItems.length) {
+        sqlTranslationPendingList.dataset.topViewportKey = "";
+        sqlTranslationPendingList.scrollTop = 0;
+      } else {
+        restoreListViewport(sqlTranslationPendingList, pendingViewport, String((orderedPendingItems[0] || {}).id || ""));
+      }
 
     }
 

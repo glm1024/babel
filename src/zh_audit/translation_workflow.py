@@ -988,6 +988,7 @@ def build_translation_review_system_prompt():
         "current_target_text is only the existing English value and may be wrong or outdated.\n"
         "Do not fail merely because candidate_text differs from current_target_text.\n"
         "Judge candidate_text against source_text, placeholders, locked_terms, and extra_prompt when extra_prompt is provided.\n"
+        "Do not fail solely because a locked term uses different capitalization. Treat locked_terms matching as case-insensitive.\n"
         "extra_prompt is a high-priority additional instruction unless it conflicts with source_text meaning, placeholders, or locked_terms.\n"
         "Only report spelling or wording problems that actually appear in candidate_text.\n"
         "Fail when the candidate is not natural English, still contains untranslated Chinese, omits source meaning, or breaks placeholders.\n"

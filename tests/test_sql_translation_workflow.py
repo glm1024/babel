@@ -6,6 +6,7 @@ from zh_audit.model_client import ModelResponseFormatError
 from zh_audit.sql_translation_workflow import (
     SqlTranslationSession,
     build_sql_translation_review_system_prompt,
+    build_sql_translation_review_user_prompt,
     parse_sql_translation_file,
     scan_sql_translation_directory,
 )
@@ -20,11 +21,30 @@ def _pass_review(**kwargs):
 
 
 class SqlTranslationWorkflowTest(unittest.TestCase):
-    def test_sql_translation_review_prompt_treats_current_target_as_context_only(self):
+    def test_sql_translation_review_prompt_ignores_previous_english_value(self):
         prompt = build_sql_translation_review_system_prompt()
-        self.assertIn("current_target_text is only the existing English value", prompt)
-        self.assertIn("Do not fail merely because candidate_text differs from current_target_text.", prompt)
         self.assertIn("Judge candidate_text against source_text, placeholders, locked_terms, and extra_prompt", prompt)
+        self.assertIn("Ignore any previous English wording.", prompt)
+        self.assertNotIn("current_target_text", prompt)
+        self.assertIn("Treat locked_terms matching as case-insensitive.", prompt)
+
+    def test_sql_translation_review_user_prompt_does_not_include_current_target_text(self):
+        prompt = build_sql_translation_review_user_prompt(
+            source_path="demo.sql",
+            line=12,
+            table_name="t_demo",
+            primary_key_field="id",
+            primary_key_value="1",
+            source_field="name_zh",
+            source_text="删除云物理机",
+            target_field="name_en",
+            candidate_text="delete cloud physical machine instance",
+            target_missing=False,
+            locked_terms=[{"source": "云物理机", "target": "cloud physical machine"}],
+            extra_prompt="",
+        )
+        self.assertIn('"candidate_text": "delete cloud physical machine instance"', prompt)
+        self.assertNotIn("current_target_text", prompt)
 
     def test_parse_sql_translation_file_handles_schema_multiline_and_escaped_strings(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -383,8 +403,8 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             pending = snapshot["pending_items"][0]
             self.assertEqual(pending["validation_state"], "failed")
             self.assertFalse(pending["can_accept"])
-            self.assertEqual(pending["generation_attempts_used"], 5)
-            self.assertIn("已重试 5 次仍未通过", pending["validation_message"])
+            self.assertEqual(pending["generation_attempts_used"], 3)
+            self.assertIn("已重试 3 次仍未通过", pending["validation_message"])
             self.assertIn("失败原因：候选仍含中文", pending["validation_message"])
             accepted = session.accept(pending["id"], candidate_text="Adapter service API not found.")
             self.assertEqual(accepted["status"]["counts"]["accepted"], 1)
@@ -458,6 +478,43 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             self.assertTrue(pending["can_accept"])
             self.assertEqual(pending["candidate_text"], "Host group exception")
 
+    def test_sql_translation_session_ignores_case_only_terminology_review_issue(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sql_dir = root / "sql"
+            sql_dir.mkdir()
+            (sql_dir / "demo.sql").write_text(
+                "INSERT INTO t_demo (id, name_zh, name_en) VALUES ('1', '删除镜像', '');\n",
+                encoding="utf-8",
+            )
+
+            session = SqlTranslationSession(
+                directory_path=sql_dir,
+                table_name="t_demo",
+                primary_key_field="id",
+                source_field="name_zh",
+                target_field="name_en",
+                glossary={"镜像": "Image"},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": "delete image",
+                    "reason": "ok",
+                },
+                reviewer_runner=lambda **kwargs: {
+                    "decision": "fail",
+                    "issues": ["术语不一致：'镜像'应翻译为'Image'，但'Image'未大写"],
+                },
+            )
+            session.start()
+            session.run(lambda: False)
+
+            snapshot = session.snapshot()
+            pending = snapshot["pending_items"][0]
+            self.assertEqual(pending["validation_state"], "passed")
+            self.assertTrue(pending["can_accept"])
+            self.assertEqual(pending["candidate_text"], "delete image")
+
     def test_sql_translation_session_ignores_reviewer_issue_about_target_mismatch(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -526,7 +583,7 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(snapshot["status"]["status"], "done")
             self.assertEqual(pending["validation_state"], "failed")
             self.assertFalse(pending["can_accept"])
-            self.assertEqual(pending["generation_attempts_used"], 5)
+            self.assertEqual(pending["generation_attempts_used"], 3)
             self.assertIn("模型返回格式不规范", pending["validation_message"])
             self.assertIn("候选未通过校验：模型返回格式不规范", snapshot["events"][0]["label"])
 

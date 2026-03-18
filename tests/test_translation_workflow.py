@@ -430,6 +430,7 @@ class TranslationWorkflowTest(unittest.TestCase):
         self.assertIn("current_target_text is only the existing English value", review_prompt)
         self.assertIn("Do not fail merely because candidate_text differs from current_target_text.", review_prompt)
         self.assertIn("Judge candidate_text against source_text, placeholders, locked_terms, and extra_prompt", review_prompt)
+        self.assertIn("Treat locked_terms matching as case-insensitive.", review_prompt)
 
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "zh.properties"
@@ -570,8 +571,8 @@ class TranslationWorkflowTest(unittest.TestCase):
             pending = snapshot["pending_items"][0]
             self.assertEqual(pending["validation_state"], "failed")
             self.assertFalse(pending["can_accept"])
-            self.assertEqual(pending["generation_attempts_used"], 5)
-            self.assertIn("已重试 5 次仍未通过", pending["validation_message"])
+            self.assertEqual(pending["generation_attempts_used"], 3)
+            self.assertIn("已重试 3 次仍未通过", pending["validation_message"])
             self.assertIn("失败原因：候选仍含中文", pending["validation_message"])
             self.assertIn("候选未通过校验：候选仍含中文", snapshot["events"][0]["label"])
             accepted = session.accept(pending["id"])
@@ -602,7 +603,7 @@ class TranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(snapshot["status"]["status"], "done")
             self.assertEqual(pending["validation_state"], "failed")
             self.assertFalse(pending["can_accept"])
-            self.assertEqual(pending["generation_attempts_used"], 5)
+            self.assertEqual(pending["generation_attempts_used"], 3)
             self.assertIn("模型返回格式不规范", pending["validation_message"])
             self.assertIn("候选未通过校验：模型返回格式不规范", snapshot["events"][0]["label"])
 

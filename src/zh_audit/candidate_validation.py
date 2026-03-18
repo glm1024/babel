@@ -5,7 +5,7 @@ import re
 from zh_audit.utils import contains_han, decode_unicode_escapes
 
 
-MAX_GENERATION_ATTEMPTS_PER_ITEM = 5
+MAX_GENERATION_ATTEMPTS_PER_ITEM = 3
 # Backward compatibility for older imports and serialized state readers.
 MAX_MODEL_CALLS_PER_ITEM = MAX_GENERATION_ATTEMPTS_PER_ITEM
 PLACEHOLDER_PATTERN = re.compile(
@@ -181,4 +181,28 @@ def _should_ignore_review_issue(issue, *, source_text="", target_text="", candid
         if "目标文本" in value and any(token in lower_issue for token in ("mismatch", "different")):
             return True
 
+    if candidate_value and _is_case_only_terminology_issue(value, candidate_value):
+        return True
+
+    return False
+
+
+def _is_case_only_terminology_issue(issue, candidate_text):
+    value = decode_unicode_escapes(str(issue or "")).strip()
+    candidate_value = decode_unicode_escapes(str(candidate_text or ""))
+    if not value or not candidate_value:
+        return False
+    if not any(token in value for token in ("术语", "大写", "小写", "大小写", "首字母")):
+        return False
+
+    quoted_tokens = [match.group(1).strip() for match in QUOTED_REVIEW_TOKEN_PATTERN.finditer(value)]
+    latin_tokens = [token for token in quoted_tokens if token and re.search(r"[A-Za-z]", token)]
+    if not latin_tokens:
+        return False
+
+    candidate_folded = candidate_value.casefold()
+    for token in latin_tokens:
+        token_folded = token.casefold()
+        if token_folded and token_folded in candidate_folded and token not in candidate_value:
+            return True
     return False

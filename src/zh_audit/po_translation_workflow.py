@@ -1231,6 +1231,7 @@ def build_po_translation_review_system_prompt():
         "issues must be an array of short Simplified Chinese strings.\n"
         "current_target_text may be wrong or outdated. Do not fail merely because candidate_text differs from current_target_text.\n"
         "Protected rst structure is checked by the system separately. Focus on translation accuracy, natural English, placeholders, locked_terms, and extra_prompt.\n"
+        "Do not fail solely because a locked term uses different capitalization. Treat locked_terms matching as case-insensitive.\n"
         "Fail when candidate_text still contains untranslated Chinese, omits source meaning, or is not natural English.\n"
         "Pass only when candidate_text is a complete and accurate English translation of the source text."
     )

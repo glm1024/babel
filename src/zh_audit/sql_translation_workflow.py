@@ -584,7 +584,6 @@ class SqlTranslationSession(object):
                         source_field=item.get("source_field", self.source_field),
                         source_text=item.get("source_text", ""),
                         target_field=item.get("target_field", self.target_field),
-                        target_text=item.get("target_text", ""),
                         candidate_text=candidate_text,
                         target_missing=item.get("target_missing", False),
                         locked_terms=list(item.get("locked_terms", [])),
@@ -1803,7 +1802,6 @@ def build_sql_translation_review_user_prompt(
     source_field,
     source_text,
     target_field,
-    target_text,
     candidate_text,
     target_missing,
     locked_terms,
@@ -1818,7 +1816,6 @@ def build_sql_translation_review_user_prompt(
         "source_field": source_field,
         "source_text": source_text,
         "target_field": target_field,
-        "current_target_text": target_text,
         "candidate_text": candidate_text,
         "target_missing": bool(target_missing),
         "locked_terms": [
@@ -1849,9 +1846,9 @@ def build_sql_translation_review_system_prompt():
         "Return JSON only with keys: decision, issues.\n"
         "decision must be either pass or fail.\n"
         "issues must be an array of short Simplified Chinese strings.\n"
-        "current_target_text is only the existing English value and may be wrong or outdated.\n"
-        "Do not fail merely because candidate_text differs from current_target_text.\n"
         "Judge candidate_text against source_text, placeholders, locked_terms, and extra_prompt when extra_prompt is provided.\n"
+        "Ignore any previous English wording. Review candidate_text on its own merits against source_text.\n"
+        "Do not fail solely because a locked term uses different capitalization. Treat locked_terms matching as case-insensitive.\n"
         "extra_prompt is a high-priority additional instruction unless it conflicts with source_text meaning, placeholders, or locked_terms.\n"
         "Only report spelling or wording problems that actually appear in candidate_text.\n"
         "Fail when the candidate is not natural English, still contains untranslated Chinese, omits source meaning, or breaks placeholders.\n"

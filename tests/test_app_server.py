@@ -286,7 +286,8 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("可进行手动修改", html)
             self.assertIn("强制接受", html)
             self.assertIn("function renderModelDebugInfo(item)", html)
-            self.assertIn("function syncPendingListScroll(listElement, orderedItems)", html)
+            self.assertIn("function captureListViewport(listElement)", html)
+            self.assertIn("function restoreListViewport(listElement, viewport, topViewportKey)", html)
             self.assertIn("模型原始候选", html)
             self.assertIn("原始说明", html)
             self.assertIn("解析错误", html)
@@ -340,6 +341,9 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("resize: none;", html)
             self.assertIn("overflow-y: scroll;", html)
             self.assertIn("scrollbar-gutter: stable;", html)
+            self.assertIn("scrollbar-width: auto;", html)
+            self.assertIn(".sql-schema-input::-webkit-scrollbar {", html)
+            self.assertIn(".sql-schema-input::-webkit-scrollbar-thumb {", html)
             self.assertIn(".settings-workspace {", html)
             self.assertIn("height: calc(100vh - 124px);", html)
             self.assertIn(".translation-page-shell {", html)
@@ -941,7 +945,7 @@ class AppServerSmokeTest(unittest.TestCase):
             pending = latest["pending_items"][0]
             self.assertEqual(pending["validation_state"], "failed")
             self.assertFalse(pending["can_accept"])
-            self.assertEqual(pending["generation_attempts_used"], 5)
+            self.assertEqual(pending["generation_attempts_used"], 3)
             self.assertIn("模型返回格式不规范", pending["validation_message"])
 
     def test_translation_session_restores_and_resumes_after_model_error(self) -> None:
