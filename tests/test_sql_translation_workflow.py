@@ -75,7 +75,7 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             reasons = [item["target_text"] for item in parsed["events"]]
             self.assertIn("REPLACE INTO 暂不支持。", reasons)
             self.assertIn("仅支持 INSERT ... VALUES 语句。", reasons)
-            self.assertIn("未显式声明列名，暂不支持。", reasons)
+            self.assertIn("INSERT 未写列名，且未能推导当前表结构，请粘贴当前建表 SQL。", reasons)
 
     def test_scan_sql_translation_directory_marks_duplicate_primary_keys(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -117,9 +117,135 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
                 target_field="name_en",
             )
 
-            self.assertEqual(parsed["events"][0]["reason"], "未显式声明列名，暂不支持。")
-            self.assertEqual(parsed["events"][0]["parse_phase"], "列名识别")
+            self.assertEqual(parsed["events"][0]["reason"], "INSERT 未写列名，且未能推导当前表结构，请粘贴当前建表 SQL。")
+            self.assertEqual(parsed["events"][0]["parse_phase"], "DDL 自动推导")
             self.assertIn("INSERT INTO t_demo VALUES", parsed["events"][0]["statement_preview"])
+
+    def test_scan_sql_translation_directory_inferrs_schema_for_insert_without_columns(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "001_schema.sql").write_text(
+                "CREATE TABLE t_demo (\n"
+                "  id varchar(32) NOT NULL,\n"
+                "  name_zh varchar(255) NOT NULL,\n"
+                "  name_en varchar(255) DEFAULT NULL,\n"
+                "  PRIMARY KEY (id)\n"
+                ");\n",
+                encoding="utf-8",
+            )
+            (root / "002_data.sql").write_text(
+                "INSERT INTO t_demo VALUES ('1', '资源池', 'resource pool');\n",
+                encoding="utf-8",
+            )
+
+            parsed = scan_sql_translation_directory(
+                directory_path=root,
+                table_name="t_demo",
+                primary_key_field="id",
+                source_field="name_zh",
+                target_field="name_en",
+            )
+
+            self.assertEqual(parsed["schema_source"], "目录自动推导")
+            self.assertEqual(parsed["schema_error"], "")
+            self.assertEqual(len(parsed["rows"]), 1)
+            self.assertEqual(parsed["rows"][0]["primary_key_display"], "1")
+            self.assertEqual(parsed["rows"][0]["source_text"], "资源池")
+            self.assertEqual(parsed["rows"][0]["target_text"], "resource pool")
+            self.assertTrue(any(item["label"] == "Schema 已就绪" for item in parsed["events"]))
+
+    def test_scan_sql_translation_directory_replays_alter_table_column_order(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "001_schema.sql").write_text(
+                "CREATE TABLE t_demo (\n"
+                "  id varchar(32) NOT NULL,\n"
+                "  name_zh varchar(255) NOT NULL,\n"
+                "  name_en varchar(255) DEFAULT NULL,\n"
+                ");\n",
+                encoding="utf-8",
+            )
+            (root / "002_alter.sql").write_text(
+                "ALTER TABLE t_demo ADD COLUMN code varchar(32) AFTER id;\n"
+                "ALTER TABLE t_demo CHANGE COLUMN name_zh zh_name varchar(255) AFTER code;\n"
+                "ALTER TABLE t_demo MODIFY COLUMN name_en varchar(255) AFTER zh_name;\n",
+                encoding="utf-8",
+            )
+            (root / "003_data.sql").write_text(
+                "INSERT INTO t_demo VALUES ('1', 'C1', '中文名', 'English name');\n",
+                encoding="utf-8",
+            )
+
+            parsed = scan_sql_translation_directory(
+                directory_path=root,
+                table_name="t_demo",
+                primary_key_field="id",
+                source_field="zh_name",
+                target_field="name_en",
+            )
+
+            self.assertEqual(parsed["schema_error"], "")
+            self.assertEqual(len(parsed["rows"]), 1)
+            self.assertEqual(parsed["rows"][0]["primary_key_display"], "1")
+            self.assertEqual(parsed["rows"][0]["source_text"], "中文名")
+            self.assertEqual(parsed["rows"][0]["target_text"], "English name")
+
+    def test_scan_sql_translation_directory_prefers_manual_schema_sql(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "001_data.sql").write_text(
+                "INSERT INTO t_demo VALUES ('1', '资源池', 'resource pool');\n",
+                encoding="utf-8",
+            )
+
+            parsed = scan_sql_translation_directory(
+                directory_path=root,
+                table_name="t_demo",
+                primary_key_field="id",
+                source_field="name_zh",
+                target_field="name_en",
+                schema_sql=(
+                    "CREATE TABLE t_demo (\n"
+                    "  id varchar(32) NOT NULL,\n"
+                    "  name_zh varchar(255) NOT NULL,\n"
+                    "  name_en varchar(255) DEFAULT NULL\n"
+                    ");"
+                ),
+            )
+
+            self.assertEqual(parsed["schema_source"], "手工建表 SQL")
+            self.assertEqual(parsed["schema_error"], "")
+            self.assertEqual(len(parsed["rows"]), 1)
+            self.assertEqual(parsed["rows"][0]["source_text"], "资源池")
+
+    def test_scan_sql_translation_directory_reports_schema_inference_failure(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "001_schema.sql").write_text(
+                "CREATE TABLE t_demo (id varchar(32), name_zh varchar(255), name_en varchar(255));\n",
+                encoding="utf-8",
+            )
+            (root / "002_alter.sql").write_text(
+                "ALTER TABLE t_demo ADD INDEX idx_name_zh (name_zh);\n",
+                encoding="utf-8",
+            )
+            (root / "003_data.sql").write_text(
+                "INSERT INTO t_demo VALUES ('1', '资源池', 'resource pool');\n",
+                encoding="utf-8",
+            )
+
+            parsed = scan_sql_translation_directory(
+                directory_path=root,
+                table_name="t_demo",
+                primary_key_field="id",
+                source_field="name_zh",
+                target_field="name_en",
+            )
+
+            self.assertEqual(parsed["schema_source"], "")
+            self.assertIn("不支持的索引或约束变更", parsed["schema_error"])
+            self.assertTrue(any("不支持的索引或约束变更" in item["reason"] for item in parsed["events"]))
+            self.assertTrue(any("INSERT 未写列名" in item["reason"] for item in parsed["events"]))
 
     def test_sql_translation_session_creates_output_and_appends_only_on_accept(self):
         with tempfile.TemporaryDirectory() as temp_dir:

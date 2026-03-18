@@ -306,6 +306,7 @@ def default_sql_translation_config():
         "primary_key_field": "",
         "source_field": "",
         "target_field": "",
+        "schema_sql": "",
         "auto_accept": False,
     }
 
@@ -316,14 +317,28 @@ def normalize_sql_translation_config(raw_config, path=None):
         return dict(defaults)
     if not isinstance(raw_config, dict):
         raise ValueError(_format_error(path, "sql_translation_config must be an object."))
-    return {
+    normalized = {
         "directory_path": _normalize_model_text(raw_config.get("directory_path", defaults["directory_path"])),
         "table_name": _normalize_model_text(raw_config.get("table_name", defaults["table_name"])),
         "primary_key_field": _normalize_model_text(raw_config.get("primary_key_field", defaults["primary_key_field"])),
         "source_field": _normalize_model_text(raw_config.get("source_field", defaults["source_field"])),
         "target_field": _normalize_model_text(raw_config.get("target_field", defaults["target_field"])),
+        "schema_sql": str(raw_config.get("schema_sql", defaults["schema_sql"]) or "").strip(),
         "auto_accept": bool(raw_config.get("auto_accept", defaults["auto_accept"])),
     }
+    # Backward compatibility: older builds persisted the implicit default "id"
+    # even before the user configured any SQL translation fields. Treat that
+    # legacy placeholder as empty so the input no longer appears prefilled.
+    if (
+        normalized["primary_key_field"] == "id"
+        and not normalized["directory_path"]
+        and not normalized["table_name"]
+        and not normalized["source_field"]
+        and not normalized["target_field"]
+        and not normalized["schema_sql"]
+    ):
+        normalized["primary_key_field"] = ""
+    return normalized
 
 
 def diff_model_config_overrides(model_config, baseline_config):

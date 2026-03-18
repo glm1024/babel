@@ -404,6 +404,7 @@ class AppServiceState(object):
             source_field = str(sql_config.get("source_field", "") or "").strip()
             target_field = str(sql_config.get("target_field", "") or "").strip()
             primary_key_field = str(sql_config.get("primary_key_field", "") or "id").strip() or "id"
+            schema_sql = str(sql_config.get("schema_sql", "") or "")
             if not directory_path.exists():
                 raise ValueError("SQL directory does not exist: {}".format(directory_path))
             if not directory_path.is_dir():
@@ -420,6 +421,7 @@ class AppServiceState(object):
                 primary_key_field=primary_key_field,
                 source_field=source_field,
                 target_field=target_field,
+                schema_sql=schema_sql,
                 glossary=self._sql_translation_glossary(),
                 model_config=model_config,
                 model_runner=self._sql_translation_model_runner,
@@ -1191,6 +1193,8 @@ def _default_sql_translation_payload():
             "started_at": "",
             "finished_at": "",
             "output_path": "",
+            "schema_source": "",
+            "schema_error": "",
             "current": {"file_path": "", "primary_key_value": "", "source_text": "", "status": ""},
             "counts": {
                 "total": 0,

@@ -1419,6 +1419,10 @@ def render_app_shell(bootstrap_payload, client_config):
               </label>
             </div>
             <div class="muted">定位字段用于生成 UPDATE 的 WHERE 条件，不要求一定是主键；留空时按 `id` 处理。</div>
+            <label>
+              <textarea id="sqlTranslationSchemaInput" class="field-textarea" rows="6" placeholder="请粘贴当前建表 SQL（可选）" aria-label="当前建表 SQL（可选）"></textarea>
+            </label>
+            <div class="muted">优先使用这里粘贴的建表 SQL；留空时系统先尝试从当前目录自动推导。</div>
             <div class="translation-control-row">
               <label class="checkbox-row">
                 <input id="sqlTranslationAutoAccept" type="checkbox">
@@ -1474,6 +1478,8 @@ def render_app_shell(bootstrap_payload, client_config):
                 <summary>更多进度</summary>
                 <div class="translation-details-content">
                   <div class="readonly-output">当前文件：<span id="sqlTranslationCurrentFile">-</span></div>
+                  <div class="readonly-output">表结构来源：<span id="sqlTranslationSchemaSource">-</span></div>
+                  <div class="readonly-output">推导状态：<span id="sqlTranslationSchemaStatus">-</span></div>
                 </div>
               </details>
             </div>
@@ -1693,6 +1699,7 @@ __REPORT_COMPONENT_BUNDLE__
     const sqlTranslationPrimaryKeyInput = document.getElementById("sqlTranslationPrimaryKeyInput");
     const sqlTranslationSourceFieldInput = document.getElementById("sqlTranslationSourceFieldInput");
     const sqlTranslationTargetFieldInput = document.getElementById("sqlTranslationTargetFieldInput");
+    const sqlTranslationSchemaInput = document.getElementById("sqlTranslationSchemaInput");
     const sqlTranslationAutoAccept = document.getElementById("sqlTranslationAutoAccept");
     const sqlTranslationStartBtn = document.getElementById("sqlTranslationStartBtn");
     const sqlTranslationResumeBtn = document.getElementById("sqlTranslationResumeBtn");
@@ -1713,6 +1720,8 @@ __REPORT_COMPONENT_BUNDLE__
     const sqlTranslationCurrentPrimaryKey = document.getElementById("sqlTranslationCurrentPrimaryKey");
     const sqlTranslationCurrentSource = document.getElementById("sqlTranslationCurrentSource");
     const sqlTranslationCurrentStatus = document.getElementById("sqlTranslationCurrentStatus");
+    const sqlTranslationSchemaSource = document.getElementById("sqlTranslationSchemaSource");
+    const sqlTranslationSchemaStatus = document.getElementById("sqlTranslationSchemaStatus");
     const sqlTranslationPendingEmpty = document.getElementById("sqlTranslationPendingEmpty");
     const sqlTranslationPendingList = document.getElementById("sqlTranslationPendingList");
     const providerValue = document.getElementById("providerValue");
@@ -1775,6 +1784,7 @@ __REPORT_COMPONENT_BUNDLE__
           primary_key_field: "",
           source_field: "",
           target_field: "",
+          schema_sql: "",
           auto_accept: false,
         },
         status: {
@@ -1784,6 +1794,8 @@ __REPORT_COMPONENT_BUNDLE__
           started_at: "",
           finished_at: "",
           output_path: "",
+          schema_source: "",
+          schema_error: "",
           current: { file_path: "", primary_key_value: "", source_text: "", status: "" },
           counts: {
             total: 0,
@@ -2626,6 +2638,7 @@ __REPORT_COMPONENT_BUNDLE__
       sqlTranslationPrimaryKeyInput.value = config.primary_key_field || "";
       sqlTranslationSourceFieldInput.value = config.source_field || "";
       sqlTranslationTargetFieldInput.value = config.target_field || "";
+      sqlTranslationSchemaInput.value = config.schema_sql || "";
       sqlTranslationAutoAccept.checked = !!config.auto_accept;
       setStatusBannerState(
         sqlTranslationStatusBanner,
@@ -2650,6 +2663,7 @@ __REPORT_COMPONENT_BUNDLE__
       sqlTranslationPrimaryKeyInput.disabled = status.status === "running";
       sqlTranslationSourceFieldInput.disabled = status.status === "running";
       sqlTranslationTargetFieldInput.disabled = status.status === "running";
+      sqlTranslationSchemaInput.disabled = status.status === "running";
       sqlTranslationCopyPathBtn.disabled = !status.output_path;
       syncPathClearButtons();
       sqlTranslationOutputPathText.textContent = status.output_path || "-";
@@ -2666,6 +2680,9 @@ __REPORT_COMPONENT_BUNDLE__
       sqlTranslationCurrentPrimaryKey.textContent = (status.current || {}).primary_key_value || "-";
       sqlTranslationCurrentSource.textContent = (status.current || {}).source_text || "-";
       sqlTranslationCurrentStatus.textContent = (status.current || {}).status || "-";
+      sqlTranslationSchemaSource.textContent = status.schema_source || "-";
+      sqlTranslationSchemaStatus.textContent =
+        status.schema_error || (status.schema_source ? "已就绪" : "-");
       sqlTranslationCurrentStatus.classList.toggle("is-loading", sqlTranslationIsLoading && Boolean((status.current || {}).status));
       sqlTranslationCurrentFile.title = (status.current || {}).file_path || "";
 
@@ -2989,6 +3006,7 @@ __REPORT_COMPONENT_BUNDLE__
         primary_key_field: sqlTranslationPrimaryKeyInput.value.trim(),
         source_field: sqlTranslationSourceFieldInput.value.trim(),
         target_field: sqlTranslationTargetFieldInput.value.trim(),
+        schema_sql: sqlTranslationSchemaInput.value.trim(),
         auto_accept: sqlTranslationAutoAccept.checked,
       };
     }
@@ -3651,7 +3669,7 @@ __REPORT_COMPONENT_BUNDLE__
       }
     });
 
-    [sqlTranslationDirectoryInput, sqlTranslationTableInput, sqlTranslationPrimaryKeyInput, sqlTranslationSourceFieldInput, sqlTranslationTargetFieldInput]
+    [sqlTranslationDirectoryInput, sqlTranslationTableInput, sqlTranslationPrimaryKeyInput, sqlTranslationSourceFieldInput, sqlTranslationTargetFieldInput, sqlTranslationSchemaInput]
       .forEach(input => {
         input.addEventListener("change", async () => {
           try {

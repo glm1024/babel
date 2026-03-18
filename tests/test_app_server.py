@@ -271,10 +271,14 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn('placeholder="请输入定位字段名"', html)
             self.assertIn('placeholder="请输入中文文案字段名"', html)
             self.assertIn('placeholder="请输入英文文案字段名"', html)
+            self.assertIn('placeholder="请粘贴当前建表 SQL（可选）"', html)
             self.assertIn('id="sqlTranslationAutoAccept"', html)
             self.assertIn('placeholder="请填写待翻译 PO 文件绝对路径..."', html)
             self.assertIn("输出文件", html)
             self.assertIn("定位字段用于生成 UPDATE 的 WHERE 条件，不要求一定是主键；留空时按 `id` 处理。", html)
+            self.assertIn("优先使用这里粘贴的建表 SQL；留空时系统先尝试从当前目录自动推导。", html)
+            self.assertIn("表结构来源", html)
+            self.assertIn("推导状态", html)
             self.assertIn("接受后的候选英文会直接覆盖原 `.po` 文件中的相邻 `msgstr`。", html)
             self.assertIn("本次生成重试：", html)
             self.assertIn("手动输入", html)
@@ -398,15 +402,58 @@ class AppServerSmokeTest(unittest.TestCase):
                         "primary_key_field": "id",
                         "source_field": "name_zh",
                         "target_field": "name_en",
+                        "schema_sql": "CREATE TABLE t_demo (id varchar(32), name_zh varchar(255), name_en varchar(255));",
                         "auto_accept": True,
                     }
                 }
             )
 
             self.assertTrue(payload["config"]["sql_translation_config"]["auto_accept"])
+            self.assertIn("CREATE TABLE t_demo", payload["config"]["sql_translation_config"]["schema_sql"])
 
             reloaded = AppServiceState(out_dir=out_dir)
             self.assertTrue(reloaded.bootstrap_payload()["config"]["sql_translation_config"]["auto_accept"])
+            self.assertIn(
+                "CREATE TABLE t_demo",
+                reloaded.bootstrap_payload()["config"]["sql_translation_config"]["schema_sql"],
+            )
+
+    def test_legacy_empty_sql_translation_config_does_not_prefill_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            out_dir = root / "results"
+            out_dir.mkdir()
+            (out_dir / "app_state.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "scan_roots": [],
+                        "scan_policy": {
+                            "max_file_size_bytes": 5 * 1024 * 1024,
+                            "context_lines": 1,
+                            "exclude_globs": ["**/target/**"],
+                        },
+                        "model_config_overrides": {},
+                        "custom_keep_categories": [],
+                        "translation_config": {"source_path": "", "target_path": "", "auto_accept": False},
+                        "po_translation_config": {"po_path": "", "auto_accept": False},
+                        "sql_translation_config": {
+                            "directory_path": "",
+                            "table_name": "",
+                            "primary_key_field": "id",
+                            "source_field": "",
+                            "target_field": "",
+                            "schema_sql": "",
+                            "auto_accept": False,
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            state = AppServiceState(out_dir=out_dir)
+            self.assertEqual(state.bootstrap_payload()["config"]["sql_translation_config"]["primary_key_field"], "")
 
     def test_resolve_and_reopen_persist_across_restart(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
