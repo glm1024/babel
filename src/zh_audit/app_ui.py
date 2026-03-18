@@ -384,8 +384,9 @@ def render_app_shell(bootstrap_payload, client_config):
       height: 44px;
       display: block;
       resize: none;
-      overflow: hidden;
-      white-space: nowrap;
+      overflow-y: scroll;
+      overflow-x: hidden;
+      scrollbar-gutter: stable;
       padding-top: 9px;
       padding-bottom: 9px;
       line-height: normal;
@@ -1943,6 +1944,20 @@ __REPORT_COMPONENT_BUNDLE__
       return key;
     }
 
+    function syncPendingListScroll(listElement, orderedItems) {
+      const nextTopItemId = orderedItems.length ? String((orderedItems[0] || {}).id || "") : "";
+      const previousTopItemId = String(listElement.dataset.topItemId || "");
+      if (!nextTopItemId) {
+        listElement.dataset.topItemId = "";
+        listElement.scrollTop = 0;
+        return;
+      }
+      if (previousTopItemId && previousTopItemId !== nextTopItemId) {
+        listElement.scrollTop = 0;
+      }
+      listElement.dataset.topItemId = nextTopItemId;
+    }
+
     function escapeHtml(value) {
       return String(value ?? "")
         .replaceAll("&", "&amp;")
@@ -2473,6 +2488,7 @@ __REPORT_COMPONENT_BUNDLE__
       const orderedPendingItems = pendingItems.slice().reverse();
       translationPendingEmpty.classList.toggle("hidden", pendingItems.length > 0);
       translationPendingList.classList.toggle("hidden", pendingItems.length === 0);
+      syncPendingListScroll(translationPendingList, orderedPendingItems);
       translationPendingList.innerHTML = orderedPendingItems.map(item => {
         const itemOp = state.translationItemOps[item.id] || null;
         const isBusy = Boolean(itemOp);
@@ -2486,7 +2502,7 @@ __REPORT_COMPONENT_BUNDLE__
             <div><span class="muted">中文：</span>${escapeHtml(item.source_text || "-")}</div>
             <div><span class="muted">当前英文：</span><code>${escapeHtml(item.target_text || "(空)")}</code></div>
             <div><span class="muted">候选英文：</span><code>${escapeHtml(item.candidate_text || "-")}</code></div>
-            <div><span class="muted">手动输入：</span></div>
+            <div><span class="muted">可进行手动修改：</span></div>
             <input class="field-input translation-inline-input" data-candidate-id="${escapeAttr(item.id)}" value="${escapeAttr(draftValue(state.translationCandidateDrafts, item.id, item.candidate_text || ""))}" placeholder="可直接修改候选英文，点击接受后写入" ${isBusy ? "disabled" : ""}>
             ${renderModelDebugInfo(item)}
             ${item.validation_message ? `<div class="translation-validation-note ${item.validation_state === "failed" ? "is-error" : ""}">${escapeHtml(item.validation_message)}</div>` : ""}
@@ -2599,6 +2615,7 @@ __REPORT_COMPONENT_BUNDLE__
       const orderedPendingItems = pendingItems.slice().reverse();
       poTranslationPendingEmpty.classList.toggle("hidden", pendingItems.length > 0);
       poTranslationPendingList.classList.toggle("hidden", pendingItems.length === 0);
+      syncPendingListScroll(poTranslationPendingList, orderedPendingItems);
       poTranslationPendingList.innerHTML = orderedPendingItems.map(item => {
         const itemOp = state.poTranslationItemOps[item.id] || null;
         const isBusy = Boolean(itemOp);
@@ -2744,6 +2761,7 @@ __REPORT_COMPONENT_BUNDLE__
       const orderedPendingItems = pendingItems.slice().reverse();
       sqlTranslationPendingEmpty.classList.toggle("hidden", pendingItems.length > 0);
       sqlTranslationPendingList.classList.toggle("hidden", pendingItems.length === 0);
+      syncPendingListScroll(sqlTranslationPendingList, orderedPendingItems);
       sqlTranslationPendingList.innerHTML = orderedPendingItems.map(item => {
         const itemOp = state.sqlTranslationItemOps[item.id] || null;
         const isBusy = Boolean(itemOp);
@@ -2758,7 +2776,7 @@ __REPORT_COMPONENT_BUNDLE__
             <div><span class="muted">中文：</span>${escapeHtml(item.source_text || "-")}</div>
             <div><span class="muted">当前英文：</span><code>${escapeHtml(item.target_text || "(空)")}</code></div>
             <div><span class="muted">候选英文：</span><code>${escapeHtml(item.candidate_text || "-")}</code></div>
-            <div><span class="muted">手动输入：</span></div>
+            <div><span class="muted">可进行手动修改：</span></div>
             <input class="field-input translation-inline-input" data-sql-candidate-id="${escapeAttr(item.id)}" value="${escapeAttr(draftValue(state.sqlTranslationCandidateDrafts, item.id, item.candidate_text || ""))}" placeholder="可直接修改候选英文，点击接受后写入" ${isBusy ? "disabled" : ""}>
             ${renderModelDebugInfo(item)}
             ${item.validation_message ? `<div class="translation-validation-note ${item.validation_state === "failed" ? "is-error" : ""}">${escapeHtml(item.validation_message)}</div>` : ""}
