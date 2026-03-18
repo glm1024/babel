@@ -23,6 +23,12 @@ class PoTranslationWorkflowTest(unittest.TestCase):
         prompt = build_po_translation_review_system_prompt()
         self.assertIn("Ignore any previous English wording.", prompt)
         self.assertNotIn("current_target_text", prompt)
+        self.assertIn(
+            "issues must be either an array of short Simplified Chinese strings or an array of objects with keys code, message, severity, evidence, and expected_term.",
+            prompt,
+        )
+        self.assertIn("Do not report that a term should be X if candidate_text already contains X.", prompt)
+        self.assertIn("Do not treat style-only suggestions such as 'could be more natural' as hard failures.", prompt)
 
     def test_po_translation_review_user_prompt_does_not_include_current_target_text(self):
         prompt = build_po_translation_review_user_prompt(
@@ -273,6 +279,102 @@ class PoTranslationWorkflowTest(unittest.TestCase):
             restored_pending = restored.snapshot()["pending_items"][0]
             self.assertTrue(restored_pending["frontend_glossary_enabled"])
             self.assertEqual(restored_pending["frontend_ui_slots"], ["slot_1"])
+
+    def test_po_translation_session_downgrades_style_review_suggestion_to_warning(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            po_path = Path(temp_dir) / "doc.po"
+            po_path.write_text(
+                'msgid ""\n'
+                'msgstr ""\n'
+                '"Project-Id-Version: Demo\\\\n"\n'
+                '\n'
+                '#: ../../source/demo.rst:8\n'
+                'msgid "删除目录"\n'
+                'msgstr ""\n',
+                encoding="utf-8",
+            )
+
+            session = PoTranslationSession(
+                po_path=po_path,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 200},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "slot_translations": [
+                        {
+                            "slot_id": kwargs["protected_source"]["translatable_slots"][0]["slot_id"],
+                            "translation": "Delete directory",
+                            "frontend_ui_context": False,
+                        }
+                    ],
+                    "reason": "ok",
+                },
+                reviewer_runner=lambda **kwargs: {
+                    "decision": "fail",
+                    "issues": [
+                        {
+                            "code": "style",
+                            "message": "表达可更自然，建议调整措辞",
+                            "severity": "warning",
+                        }
+                    ],
+                },
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(pending["validation_state"], "passed")
+            self.assertTrue(pending["can_accept"])
+            self.assertEqual(pending["warnings"], ["表达可更自然，建议调整措辞"])
+
+    def test_po_translation_session_ignores_expected_term_issue_when_term_already_present(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            po_path = Path(temp_dir) / "doc.po"
+            po_path.write_text(
+                'msgid ""\n'
+                'msgstr ""\n'
+                '"Project-Id-Version: Demo\\\\n"\n'
+                '\n'
+                '#: ../../source/demo.rst:9\n'
+                'msgid "删除云物理机"\n'
+                'msgstr ""\n',
+                encoding="utf-8",
+            )
+
+            session = PoTranslationSession(
+                po_path=po_path,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 200},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "slot_translations": [
+                        {
+                            "slot_id": kwargs["protected_source"]["translatable_slots"][0]["slot_id"],
+                            "translation": "Delete Cloud Physical Server instance",
+                            "frontend_ui_context": False,
+                        }
+                    ],
+                    "reason": "ok",
+                },
+                reviewer_runner=lambda **kwargs: {
+                    "decision": "fail",
+                    "issues": [
+                        {
+                            "code": "missing_term",
+                            "message": "未准确翻译，'云物理机'应为'Cloud Physical Server'",
+                            "expected_term": "Cloud Physical Server",
+                        }
+                    ],
+                },
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(pending["validation_state"], "passed")
+            self.assertTrue(pending["can_accept"])
+            self.assertEqual(pending["candidate_text"], "Delete Cloud Physical Server instance")
 
     def test_po_translation_session_allows_manual_accept_after_failed_validation(self):
         with tempfile.TemporaryDirectory() as temp_dir:

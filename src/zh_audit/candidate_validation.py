@@ -17,6 +17,10 @@ SQL_POLLUTION_PATTERN = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 QUOTED_REVIEW_TOKEN_PATTERN = re.compile(r"[\"'“”‘’]([^\"'“”‘’]{2,})[\"'“”‘’]")
+ENGLISH_PROSE_HINT_PATTERN = re.compile(
+    r"\b(?:the|a|an|and|or|to|be|as|per|for|with|should|must|could|would|match|source|target|text|candidate|translation|term|because|also|not|is|are|was|were|use|using|translated|translate|capitalized|capitalize|capitalization|wording|natural|style|suggestion|accurate|accuracy|action|replace|review)\b",
+    re.IGNORECASE,
+)
 RETRY_STRATEGY_NAMES = {
     1: "标准生成",
     2: "结构化修复",
@@ -169,6 +173,15 @@ def normalize_review_result(result, *, source_text="", target_text="", candidate
         "issue_details": filtered_issues,
         "warning_details": warning_issues,
     }
+
+
+def is_chinese_explanation_text(value):
+    text = decode_unicode_escapes(str(value or "")).strip()
+    if not text or not contains_han(text):
+        return False
+    stripped = QUOTED_REVIEW_TOKEN_PATTERN.sub(" ", text)
+    stripped = PLACEHOLDER_PATTERN.sub(" ", stripped)
+    return len(ENGLISH_PROSE_HINT_PATTERN.findall(stripped)) < 2
 
 
 def validation_message(issue):
@@ -330,15 +343,20 @@ def build_attempt_history_entry(
 
 def _normalize_review_issue(issue):
     if isinstance(issue, dict):
-        message = decode_unicode_escapes(str(issue.get("message", "") or "")).strip()
+        expected_term = decode_unicode_escapes(str(issue.get("expected_term", "") or "")).strip()
+        message = _normalize_review_message(
+            issue.get("message", ""),
+            code=issue.get("code", ""),
+            expected_term=expected_term,
+        )
         return {
             "code": decode_unicode_escapes(str(issue.get("code", "") or "")).strip(),
             "message": message,
             "severity": decode_unicode_escapes(str(issue.get("severity", "") or "")).strip().lower(),
-            "evidence": decode_unicode_escapes(str(issue.get("evidence", "") or "")).strip(),
-            "expected_term": decode_unicode_escapes(str(issue.get("expected_term", "") or "")).strip(),
+            "evidence": _normalize_review_evidence(issue.get("evidence", "")),
+            "expected_term": expected_term,
         }
-    value = decode_unicode_escapes(str(issue or "")).strip()
+    value = _normalize_review_message(issue)
     return {
         "code": "",
         "message": value,
@@ -381,7 +399,12 @@ def _should_ignore_review_issue(issue, *, source_text="", target_text="", candid
 
     if candidate_value and locked_terms and contains_locked_terms(candidate_value, locked_terms):
         if "术语" in value and any(token in value for token in ("缺失", "不一致", "未满足", "未翻译")):
-            return True
+            expected_terms = _extract_expected_terms(issue)
+            if not expected_terms or all(
+                term and decode_unicode_escapes(term).casefold() in candidate_value.casefold()
+                for term in expected_terms
+            ):
+                return True
 
     if candidate_value and _is_case_only_terminology_issue(value, candidate_value):
         return True
@@ -428,6 +451,45 @@ def _is_warning_review_issue(issue):
     if any(token in value for token in ("术语", "占位符", "未翻译", "缺失", "遗漏", "破坏", "错误", "不准确", "不完整")):
         return False
     return any(token in value for token in ("更自然", "可更自然", "更简洁", "可更简洁", "可优化", "更地道", "更顺畅", "建议", "风格", "措辞"))
+
+
+def _normalize_review_message(message, *, code="", expected_term=""):
+    value = decode_unicode_escapes(str(message or "")).strip()
+    if not value:
+        return ""
+    if is_chinese_explanation_text(value):
+        return value
+
+    lower_value = value.lower()
+    normalized_code = decode_unicode_escapes(str(code or "")).strip().lower()
+    expected = decode_unicode_escapes(str(expected_term or "")).strip()
+
+    if normalized_code == "style" or any(
+        token in lower_value for token in ("style", "natural", "wording", "concise", "fluent", "read better", "readability")
+    ):
+        return "表达可更自然，建议调整措辞"
+    if any(token in lower_value for token in ("placeholder", "placeholders")):
+        return "候选未保留占位符"
+    if any(token in lower_value for token in ("contains chinese", "still contains chinese", "untranslated chinese")):
+        return "候选仍含中文"
+    if expected:
+        return "术语不一致：应使用'{}'".format(expected)
+
+    quoted_terms = [term for term in _extract_quoted_terms(value) if re.search(r"[A-Za-z]", term)]
+    if "term" in lower_value and "should" in lower_value and quoted_terms:
+        return "术语不一致：应使用'{}'".format(quoted_terms[-1])
+    if any(token in lower_value for token in ("missing", "omits", "omit", "incomplete", "not accurate", "inaccurate")):
+        return "译文未完整覆盖源文语义"
+    return "AI复核未通过"
+
+
+def _normalize_review_evidence(evidence):
+    value = decode_unicode_escapes(str(evidence or "")).strip()
+    if not value:
+        return ""
+    if is_chinese_explanation_text(value):
+        return value
+    return ""
 
 
 def _extract_expected_terms(issue):

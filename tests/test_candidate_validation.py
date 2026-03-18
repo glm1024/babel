@@ -70,3 +70,22 @@ class CandidateValidationTest(unittest.TestCase):
         self.assertEqual(normalized["decision"], "pass")
         self.assertEqual(normalized["issues"], [])
         self.assertEqual(normalized["warnings"], ["表达可更自然，建议调整措辞"])
+
+    def test_normalize_review_result_normalizes_english_term_issue_to_chinese(self):
+        normalized = normalize_review_result(
+            {
+                "decision": "fail",
+                "issues": [
+                    {
+                        "code": "terminology",
+                        "message": "The term 'Floating IP' should be 'EIP' as per standard terminology.",
+                        "expected_term": "EIP",
+                    }
+                ],
+            },
+            source_text="云主机解绑浮动ip",
+            candidate_text="Elastic Compute Service unbind Floating IP",
+        )
+
+        self.assertEqual(normalized["decision"], "fail")
+        self.assertEqual(normalized["issues"], ["术语不一致：应使用'EIP'"])

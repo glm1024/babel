@@ -7,6 +7,7 @@ from zh_audit.sql_translation_workflow import (
     SqlTranslationSession,
     build_sql_translation_review_system_prompt,
     build_sql_translation_review_user_prompt,
+    build_sql_translation_system_prompt,
     build_sql_translation_user_prompt,
     parse_sql_translation_file,
     scan_sql_translation_directory,
@@ -30,10 +31,17 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
         self.assertIn("Treat locked_terms matching as case-insensitive.", prompt)
         self.assertIn("Do not report that a term should be X if candidate_text already contains X.", prompt)
         self.assertIn("Do not treat style-only suggestions such as 'could be more natural' as hard failures.", prompt)
+        self.assertIn("For object issues, message and evidence must be written in Simplified Chinese.", prompt)
+        self.assertIn("Do not output English in message or evidence unless it is a required technical term", prompt)
         self.assertIn(
             "issues must be either an array of short Simplified Chinese strings or an array of objects with keys code, message, severity, evidence, and expected_term.",
             prompt,
         )
+
+    def test_sql_translation_system_prompt_requires_chinese_reason(self):
+        prompt = build_sql_translation_system_prompt()
+        self.assertIn("reason must be written in Simplified Chinese.", prompt)
+        self.assertIn("Do not output English in reason unless it is a required technical term quoted", prompt)
 
     def test_sql_translation_user_prompt_omits_sql_trace_fields(self):
         prompt = build_sql_translation_user_prompt(
@@ -590,6 +598,81 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(pending["validation_state"], "passed")
             self.assertTrue(pending["can_accept"])
             self.assertEqual(pending["generation_attempts_used"], 1)
+
+    def test_sql_translation_session_falls_back_to_chinese_reason_for_english_prose(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sql_dir = root / "sql"
+            sql_dir.mkdir()
+            (sql_dir / "demo.sql").write_text(
+                "INSERT INTO t_demo (id, name_zh, name_en) VALUES ('1', '云主机解绑浮动ip', 'VM remove floating ip');\n",
+                encoding="utf-8",
+            )
+
+            session = SqlTranslationSession(
+                directory_path=sql_dir,
+                table_name="t_demo",
+                primary_key_field="id",
+                source_field="name_zh",
+                target_field="name_en",
+                glossary={"云主机": "Elastic Compute Service"},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": "Elastic Compute Service unbind Floating IP",
+                    "reason": "The term '云主机' must be translated as 'Elastic Compute Service' per locked_terms. Also, 'remove' should be 'unbind'.",
+                },
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(pending["reason"], "模型建议更新英文翻译。")
+            self.assertEqual(pending["attempt_history"][0]["reason"], "模型建议更新英文翻译。")
+
+    def test_sql_translation_session_normalizes_english_review_issue_to_chinese(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sql_dir = root / "sql"
+            sql_dir.mkdir()
+            (sql_dir / "demo.sql").write_text(
+                "INSERT INTO t_demo (id, name_zh, name_en) VALUES ('1', '云主机解绑浮动ip', 'VM remove floating ip');\n",
+                encoding="utf-8",
+            )
+
+            session = SqlTranslationSession(
+                directory_path=sql_dir,
+                table_name="t_demo",
+                primary_key_field="id",
+                source_field="name_zh",
+                target_field="name_en",
+                glossary={"云主机": "Elastic Compute Service"},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": "Elastic Compute Service unbind Floating IP",
+                    "reason": "建议更新术语。",
+                },
+                reviewer_runner=lambda **kwargs: {
+                    "decision": "fail",
+                    "issues": [
+                        {
+                            "code": "terminology",
+                            "message": "The term 'Floating IP' should be 'EIP' as per standard terminology.",
+                            "expected_term": "EIP",
+                        }
+                    ],
+                },
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(pending["validation_state"], "failed")
+            self.assertIn("术语不一致：应使用'EIP'，请重新生成", pending["validation_message"])
+            self.assertEqual(pending["retry_context_preview"], "AI复核：术语不一致：应使用'EIP'")
+            self.assertEqual(pending["attempt_history"][0]["failure_issue"], "术语不一致：应使用'EIP'")
 
     def test_sql_translation_session_downgrades_style_review_suggestion_to_warning(self):
         with tempfile.TemporaryDirectory() as temp_dir:

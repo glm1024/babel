@@ -16,6 +16,7 @@ from zh_audit.candidate_validation import (
     contains_locked_terms,
     exhausted_validation_message,
     has_matching_placeholders,
+    is_chinese_explanation_text,
     normalize_review_result,
     retry_context_preview,
     sanitize_candidate_text,
@@ -1904,6 +1905,8 @@ def build_sql_translation_system_prompt():
         "candidate_translation must contain only the translated English field text, never return SQL.\n"
         "candidate_translation must be natural English and must not directly copy the Chinese source text.\n"
         "candidate_translation must not include Chinese explanations, SQL, JSON, or multiple lines.\n"
+        "reason must be written in Simplified Chinese.\n"
+        "Do not output English in reason unless it is a required technical term quoted from the source or candidate text.\n"
         "Preserve placeholders exactly, including {0}, {}, %s, ${name} and similar forms.\n"
         "If locked_terms are provided, candidate_translation must use the target terms exactly as given, while sentence-initial capitalization is allowed.\n"
         "If extra_prompt is provided, treat it as a high-priority additional instruction and apply it unless it conflicts with source_text meaning, placeholders, or locked_terms.\n"
@@ -1954,12 +1957,14 @@ def build_sql_translation_review_system_prompt():
         "Return JSON only with keys: decision, issues.\n"
         "decision must be either pass or fail.\n"
         "issues must be either an array of short Simplified Chinese strings or an array of objects with keys code, message, severity, evidence, and expected_term.\n"
+        "For object issues, message and evidence must be written in Simplified Chinese. expected_term may contain English terminology.\n"
         "Ignore any previous English wording. Review candidate_text on its own merits against source_text.\n"
         "Judge candidate_text against source_text, placeholders, locked_terms, and extra_prompt when extra_prompt is provided.\n"
         "Do not fail solely because a locked term uses different capitalization. Treat locked_terms matching as case-insensitive.\n"
         "Do not report that a term should be X if candidate_text already contains X.\n"
         "Do not treat style-only suggestions such as 'could be more natural' as hard failures.\n"
         "extra_prompt is a high-priority additional instruction unless it conflicts with source_text meaning, placeholders, or locked_terms.\n"
+        "Do not output English in message or evidence unless it is a required technical term quoted from source_text, candidate_text, or locked_terms.\n"
         "Only report spelling or wording problems that actually appear in candidate_text.\n"
         "Fail when the candidate is not natural English, still contains untranslated Chinese, omits source meaning, or breaks placeholders.\n"
         "Pass only when the candidate is a complete and accurate English translation of the source text."
@@ -2352,7 +2357,7 @@ def _display_text(value):
 
 def _normalize_reason(reason, fallback):
     value = _display_text(reason).strip()
-    if contains_han(value):
+    if is_chinese_explanation_text(value):
         return value
     return str(fallback or "").strip()
 
