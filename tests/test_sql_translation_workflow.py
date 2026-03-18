@@ -322,7 +322,9 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(by_source["创建对等连接：{0}"]["candidate_text"], "create link: {0}")
             self.assertEqual(by_source["创建对等连接：{0}"]["validation_state"], "passed")
             self.assertTrue(by_source["创建对等连接：{0}"]["can_accept"])
-            self.assertIn("上一版候选未通过系统校验，请严格修复这个问题：", calls[-1]["extra_prompt"])
+            self.assertIn("retry_context JSON:", calls[-1]["extra_prompt"])
+            self.assertIn('"phase": "local_validation"', calls[-1]["extra_prompt"])
+            self.assertIn('"must_use_terms"', calls[-1]["extra_prompt"])
 
             session.accept(by_source["资源池"]["id"])
             session.reject(by_source["创建对等连接：{0}"]["id"])
@@ -585,7 +587,7 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             self.assertFalse(pending["can_accept"])
             self.assertEqual(pending["generation_attempts_used"], 3)
             self.assertIn("模型返回格式不规范", pending["validation_message"])
-            self.assertIn("候选未通过校验：模型返回格式不规范", snapshot["events"][0]["label"])
+            self.assertIn("候选生成失败：模型返回格式不规范", snapshot["events"][0]["label"])
 
     def test_sql_translation_session_keeps_raw_model_debug_text_for_format_errors(self):
         with tempfile.TemporaryDirectory() as temp_dir:

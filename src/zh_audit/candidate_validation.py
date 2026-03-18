@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 
+import json
 import re
 
 from zh_audit.utils import contains_han, decode_unicode_escapes
@@ -16,6 +17,21 @@ SQL_POLLUTION_PATTERN = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 QUOTED_REVIEW_TOKEN_PATTERN = re.compile(r"[\"'“”‘’]([^\"'“”‘’]{2,})[\"'“”‘’]")
+RETRY_STRATEGY_NAMES = {
+    1: "标准生成",
+    2: "结构化修复",
+    3: "保守最小修改",
+}
+VALIDATION_ISSUE_CODES = {
+    "候选为空": "candidate_empty",
+    "候选包含多行内容": "candidate_multiline",
+    "候选包含 key": "candidate_contains_key",
+    "候选包含 SQL 内容": "candidate_contains_sql",
+    "候选未满足术语词典要求": "terminology_mismatch",
+    "候选未保留占位符": "placeholders_mismatch",
+    "候选仍含中文": "candidate_contains_han",
+    "候选与中文源文相同": "candidate_same_as_source",
+}
 
 
 def sanitize_candidate_text(value):
@@ -43,6 +59,22 @@ def contains_locked_terms(candidate, locked_terms):
         if target and target.casefold() not in lowered_value:
             return False
     return True
+
+
+def missing_locked_terms(candidate, locked_terms):
+    value = decode_unicode_escapes(str(candidate or ""))
+    lowered_value = value.casefold()
+    missing = []
+    for term in locked_terms or []:
+        target = decode_unicode_escapes(str(term.get("target", "") or "")).strip()
+        if target and target.casefold() not in lowered_value:
+            missing.append(
+                {
+                    "source": decode_unicode_escapes(str(term.get("source", "") or "")).strip(),
+                    "target": target,
+                }
+            )
+    return missing
 
 
 def validate_candidate_text(
@@ -76,7 +108,7 @@ def validate_candidate_text(
     return ""
 
 
-def normalize_review_result(result, *, source_text="", target_text="", candidate_text=""):
+def normalize_review_result(result, *, source_text="", target_text="", candidate_text="", locked_terms=None):
     payload = dict(result or {})
     decision = str(payload.get("decision", "") or payload.get("verdict", "") or "").strip().lower()
     issues = payload.get("issues", [])
@@ -86,37 +118,56 @@ def normalize_review_result(result, *, source_text="", target_text="", candidate
         issues = []
     normalized_issues = []
     for issue in issues:
-        value = decode_unicode_escapes(str(issue or "")).strip()
-        if value:
-            normalized_issues.append(value)
-    filtered_issues = [
-        issue
-        for issue in normalized_issues
-        if not _should_ignore_review_issue(
+        normalized = _normalize_review_issue(issue)
+        if normalized.get("message"):
+            normalized_issues.append(normalized)
+    filtered_issues = []
+    warning_issues = []
+    for issue in normalized_issues:
+        if _should_ignore_review_issue(
             issue,
             source_text=source_text,
             target_text=target_text,
             candidate_text=candidate_text,
-        )
-    ]
+            locked_terms=locked_terms,
+        ):
+            continue
+        if _is_warning_review_issue(issue):
+            warning_issues.append(issue)
+            continue
+        filtered_issues.append(issue)
+    filtered_messages = [issue["message"] for issue in filtered_issues]
+    warning_messages = [issue["message"] for issue in warning_issues]
     if decision in {"pass", "passed", "approve", "approved", "ok"}:
         return {
             "decision": "pass",
-            "issues": filtered_issues,
+            "issues": filtered_messages,
+            "warnings": warning_messages,
+            "issue_details": filtered_issues,
+            "warning_details": warning_issues,
         }
     if decision in {"fail", "failed", "reject", "rejected"}:
         if normalized_issues and not filtered_issues:
             return {
                 "decision": "pass",
                 "issues": [],
+                "warnings": warning_messages,
+                "issue_details": [],
+                "warning_details": warning_issues,
             }
         return {
             "decision": "fail",
-            "issues": filtered_issues or ["AI复核未通过"],
+            "issues": filtered_messages or ["AI复核未通过"],
+            "warnings": warning_messages,
+            "issue_details": filtered_issues,
+            "warning_details": warning_issues,
         }
     return {
         "decision": "fail",
-        "issues": filtered_issues or ["AI复核未返回有效结论"],
+        "issues": filtered_messages or ["AI复核未返回有效结论"],
+        "warnings": warning_messages,
+        "issue_details": filtered_issues,
+        "warning_details": warning_issues,
     }
 
 
@@ -150,8 +201,155 @@ def _strip_placeholders(text):
     return value.strip()
 
 
-def _should_ignore_review_issue(issue, *, source_text="", target_text="", candidate_text=""):
+def retry_strategy_name(attempt_number):
+    try:
+        attempt = int(attempt_number or 1)
+    except (TypeError, ValueError):
+        attempt = 1
+    return RETRY_STRATEGY_NAMES.get(attempt, "结构化修复")
+
+
+def build_retry_context(
+    *,
+    phase,
+    issue_code,
+    issue_message,
+    previous_candidate="",
+    source_text="",
+    locked_terms=None,
+    candidate_text="",
+    must_keep_placeholders=None,
+    missing_meaning="",
+    expected_term="",
+    forbidden_rewrite="",
+    style_warning="",
+):
+    terms = missing_locked_terms(candidate_text, locked_terms)
+    return {
+        "phase": str(phase or ""),
+        "issue_code": str(issue_code or ""),
+        "issue_message": str(issue_message or "").strip(),
+        "previous_candidate": sanitize_candidate_text(previous_candidate),
+        "must_use_terms": terms,
+        "missing_meaning": str(missing_meaning or "").strip(),
+        "must_keep_placeholders": list(must_keep_placeholders or extract_placeholders(source_text)),
+        "expected_term": str(expected_term or "").strip(),
+        "forbidden_rewrite": str(forbidden_rewrite or "").strip(),
+        "style_warning": str(style_warning or "").strip(),
+    }
+
+
+def retry_context_preview(retry_context):
+    payload = dict(retry_context or {})
+    message = str(payload.get("issue_message", "") or "").strip()
+    phase = str(payload.get("phase", "") or "").strip()
+    phase = {
+        "model_format": "模型格式",
+        "local_validation": "本地校验",
+        "ai_review": "AI复核",
+    }.get(phase, phase)
+    if phase and message:
+        return "{}：{}".format(phase, message)
+    if message:
+        return message
+    return ""
+
+
+def structured_retry_prompt(base_extra_prompt, retry_context, attempt_number):
+    parts = []
+    strategy = retry_strategy_name(attempt_number)
+    if retry_context:
+        parts.append("当前重试策略：{}。".format(strategy))
+        if int(attempt_number or 1) == 2:
+            parts.append("请仅修复 retry_context 指出的硬失败问题，不要改动已经正确的片段。")
+        elif int(attempt_number or 1) >= 3:
+            parts.append("请以 previous_candidate 为基底做最小修改，只修补术语、缺失语义、占位符或短语表达问题。")
+        parts.append("retry_context JSON:")
+        parts.append(json.dumps(retry_context, ensure_ascii=False, indent=2, sort_keys=True))
+    if base_extra_prompt:
+        parts.append(str(base_extra_prompt).strip())
+    return "\n".join(part for part in parts if part).strip()
+
+
+def validation_issue_code(issue):
+    return VALIDATION_ISSUE_CODES.get(str(issue or "").strip(), "validation_failed")
+
+
+def build_validation_retry_context(source_text, previous_candidate, locked_terms, issue_message):
+    return build_retry_context(
+        phase="local_validation",
+        issue_code=validation_issue_code(issue_message),
+        issue_message=issue_message,
+        previous_candidate=previous_candidate,
+        source_text=source_text,
+        locked_terms=locked_terms,
+        candidate_text=previous_candidate,
+    )
+
+
+def build_review_retry_context(source_text, previous_candidate, locked_terms, issue_detail, warning_details=None):
+    detail = _normalize_review_issue(issue_detail)
+    warnings = [_normalize_review_issue(item).get("message", "") for item in (warning_details or [])]
+    return build_retry_context(
+        phase="ai_review",
+        issue_code=detail.get("code", "") or "ai_review_failed",
+        issue_message=detail.get("message", "") or "AI复核未通过",
+        previous_candidate=previous_candidate,
+        source_text=source_text,
+        locked_terms=locked_terms,
+        candidate_text=previous_candidate,
+        missing_meaning=_extract_missing_meaning(detail, source_text),
+        expected_term=_first_expected_term(detail),
+        forbidden_rewrite=_extract_forbidden_rewrite(detail),
+        style_warning="；".join(message for message in warnings if message)[:300],
+    )
+
+
+def build_attempt_history_entry(
+    attempt_number,
+    candidate_text,
+    *,
+    failure_phase="",
+    failure_issue="",
+    warnings=None,
+    reason="",
+    retry_context=None,
+):
+    return {
+        "attempt": int(attempt_number or 0),
+        "strategy": retry_strategy_name(attempt_number),
+        "candidate_text": sanitize_candidate_text(candidate_text),
+        "failure_phase": str(failure_phase or ""),
+        "failure_issue": str(failure_issue or ""),
+        "warnings": [str(message or "").strip() for message in (warnings or []) if str(message or "").strip()],
+        "reason": str(reason or "").strip(),
+        "retry_context_preview": retry_context_preview(retry_context),
+        "status": "failed" if failure_issue else "passed",
+    }
+
+
+def _normalize_review_issue(issue):
+    if isinstance(issue, dict):
+        message = decode_unicode_escapes(str(issue.get("message", "") or "")).strip()
+        return {
+            "code": decode_unicode_escapes(str(issue.get("code", "") or "")).strip(),
+            "message": message,
+            "severity": decode_unicode_escapes(str(issue.get("severity", "") or "")).strip().lower(),
+            "evidence": decode_unicode_escapes(str(issue.get("evidence", "") or "")).strip(),
+            "expected_term": decode_unicode_escapes(str(issue.get("expected_term", "") or "")).strip(),
+        }
     value = decode_unicode_escapes(str(issue or "")).strip()
+    return {
+        "code": "",
+        "message": value,
+        "severity": "",
+        "evidence": "",
+        "expected_term": "",
+    }
+
+
+def _should_ignore_review_issue(issue, *, source_text="", target_text="", candidate_text="", locked_terms=None):
+    value = decode_unicode_escapes(str(issue.get("message", "") or "")).strip()
     candidate_value = decode_unicode_escapes(str(candidate_text or ""))
     lower_issue = value.lower()
 
@@ -181,8 +379,20 @@ def _should_ignore_review_issue(issue, *, source_text="", target_text="", candid
         if "目标文本" in value and any(token in lower_issue for token in ("mismatch", "different")):
             return True
 
+    if candidate_value and locked_terms and contains_locked_terms(candidate_value, locked_terms):
+        if "术语" in value and any(token in value for token in ("缺失", "不一致", "未满足", "未翻译")):
+            return True
+
     if candidate_value and _is_case_only_terminology_issue(value, candidate_value):
         return True
+
+    expected_terms = _extract_expected_terms(issue)
+    if expected_terms and any(
+        term and decode_unicode_escapes(term).casefold() in candidate_value.casefold()
+        for term in expected_terms
+    ):
+        if any(token in value for token in ("应为", "应包含", "未准确翻译", "术语", "缺失")):
+            return True
 
     return False
 
@@ -206,3 +416,63 @@ def _is_case_only_terminology_issue(issue, candidate_text):
         if token_folded and token_folded in candidate_folded and token not in candidate_value:
             return True
     return False
+
+
+def _is_warning_review_issue(issue):
+    severity = str(issue.get("severity", "") or "").strip().lower()
+    if severity in {"warning", "warn", "info", "suggestion", "minor"}:
+        return True
+    value = decode_unicode_escapes(str(issue.get("message", "") or "")).strip()
+    if not value:
+        return False
+    if any(token in value for token in ("术语", "占位符", "未翻译", "缺失", "遗漏", "破坏", "错误", "不准确", "不完整")):
+        return False
+    return any(token in value for token in ("更自然", "可更自然", "更简洁", "可更简洁", "可优化", "更地道", "更顺畅", "建议", "风格", "措辞"))
+
+
+def _extract_expected_terms(issue):
+    expected = decode_unicode_escapes(str(issue.get("expected_term", "") or "")).strip()
+    if expected:
+        return [expected]
+    value = decode_unicode_escapes(str(issue.get("message", "") or "")).strip()
+    for marker in ("应翻译为", "应为", "应包含"):
+        if marker in value:
+            suffix = value.split(marker, 1)[1]
+            terms = [token for token in _extract_quoted_terms(suffix) if re.search(r"[A-Za-z]", token)]
+            if terms:
+                return [terms[0]]
+    return [token for token in _extract_quoted_terms(value) if re.search(r"[A-Za-z]", token)]
+
+
+def _extract_quoted_terms(value):
+    return [match.group(1).strip() for match in QUOTED_REVIEW_TOKEN_PATTERN.finditer(str(value or ""))]
+
+
+def _first_expected_term(issue):
+    for term in _extract_expected_terms(issue):
+        if term:
+            return term
+    return ""
+
+
+def _extract_missing_meaning(issue, source_text):
+    evidence = decode_unicode_escapes(str(issue.get("evidence", "") or "")).strip()
+    if evidence:
+        return evidence
+    value = decode_unicode_escapes(str(issue.get("message", "") or "")).strip()
+    quoted_terms = _extract_quoted_terms(value)
+    han_terms = [term for term in quoted_terms if contains_han(term)]
+    if han_terms:
+        return han_terms[0]
+    if "源文本" in value and source_text:
+        return decode_unicode_escapes(str(source_text or "")).strip()
+    return ""
+
+
+def _extract_forbidden_rewrite(issue):
+    value = decode_unicode_escapes(str(issue.get("message", "") or "")).strip()
+    if not value:
+        return ""
+    if "不要" in value or "不应" in value:
+        return value
+    return ""

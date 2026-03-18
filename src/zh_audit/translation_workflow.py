@@ -8,11 +8,17 @@ from pathlib import Path
 
 from zh_audit.candidate_validation import (
     MAX_GENERATION_ATTEMPTS_PER_ITEM,
+    build_attempt_history_entry,
+    build_retry_context,
+    build_review_retry_context,
+    build_validation_retry_context,
     contains_locked_terms,
     exhausted_validation_message,
     has_matching_placeholders,
     normalize_review_result,
+    retry_context_preview,
     sanitize_candidate_text,
+    structured_retry_prompt,
     validate_candidate_text,
     validation_message,
 )
@@ -385,6 +391,9 @@ class TranslationSession(object):
             raw_reason_text=normalized.get("raw_reason_text", ""),
             parse_error_detail=normalized.get("parse_error_detail", ""),
             failure_phase=normalized.get("failure_phase", ""),
+            warnings=normalized.get("warnings", []),
+            attempt_history=normalized.get("attempt_history", []),
+            retry_context_preview=normalized.get("retry_context_preview", ""),
         )
         with self.lock:
             self._finalize_item(item, should_auto_accept=should_auto_accept(), force_accept=False, event_label="待审批")
@@ -392,7 +401,8 @@ class TranslationSession(object):
     def _build_candidate_with_guardrails(self, key, source_text, current_target, locked_terms, target_missing, base_extra_prompt):
         generation_attempts_used = 0
         model_calls_used = 0
-        retry_issue = ""
+        retry_context = {}
+        attempt_history = []
         last_result = {
             "verdict": "needs_update",
             "candidate_text": sanitize_candidate_text(current_target),
@@ -403,6 +413,9 @@ class TranslationSession(object):
             "parse_error_detail": "",
             "failure_phase": "",
             "reason": "",
+            "warnings": [],
+            "attempt_history": [],
+            "retry_context_preview": "",
             "validation_state": "failed",
             "validation_message": validation_message("校验未通过"),
             "validation_issue": "校验未通过",
@@ -411,6 +424,7 @@ class TranslationSession(object):
             "model_calls_used": 0,
         }
         while generation_attempts_used < MAX_GENERATION_ATTEMPTS_PER_ITEM:
+            attempt_number = generation_attempts_used + 1
             try:
                 raw_result = self.model_runner(
                     key=key,
@@ -418,7 +432,7 @@ class TranslationSession(object):
                     target_text=current_target,
                     locked_terms=locked_terms,
                     model_config=self.model_config,
-                    extra_prompt=self._build_retry_prompt(base_extra_prompt, retry_issue),
+                    extra_prompt=self._build_retry_prompt(base_extra_prompt, retry_context, attempt_number),
                     target_missing=target_missing,
                 )
             except Exception as exc:
@@ -430,6 +444,25 @@ class TranslationSession(object):
                 debug_payload = model_response_debug_payload(exc)
                 extracted_candidate = sanitize_candidate_text(debug_payload.get("extracted_candidate_text", ""))
                 extracted_reason = _display_text(debug_payload.get("extracted_reason", "")).strip()
+                retry_context = build_retry_context(
+                    phase="model_format",
+                    issue_code="model_format_invalid",
+                    issue_message=retry_issue,
+                    previous_candidate=extracted_candidate or sanitize_candidate_text(current_target),
+                    source_text=source_text,
+                    locked_terms=locked_terms,
+                    candidate_text=extracted_candidate or sanitize_candidate_text(current_target),
+                )
+                attempt_history.append(
+                    build_attempt_history_entry(
+                        generation_attempts_used,
+                        extracted_candidate or sanitize_candidate_text(current_target),
+                        failure_phase="模型",
+                        failure_issue=retry_issue,
+                        reason=extracted_reason,
+                        retry_context=retry_context,
+                    )
+                )
                 last_result = {
                     "verdict": "needs_update",
                     "candidate_text": extracted_candidate or sanitize_candidate_text(current_target),
@@ -440,6 +473,9 @@ class TranslationSession(object):
                     "parse_error_detail": _display_text(debug_payload.get("parse_error_detail", "")).strip(),
                     "failure_phase": "模型",
                     "reason": extracted_reason,
+                    "warnings": [],
+                    "attempt_history": list(attempt_history),
+                    "retry_context_preview": retry_context_preview(retry_context),
                     "validation_state": "failed",
                     "validation_message": validation_message(retry_issue),
                     "validation_issue": retry_issue,
@@ -472,7 +508,22 @@ class TranslationSession(object):
                 enforce_placeholders=True,
             )
             if validation_issue:
-                retry_issue = validation_issue
+                retry_context = build_validation_retry_context(
+                    source_text,
+                    candidate_text,
+                    locked_terms,
+                    validation_issue,
+                )
+                attempt_history.append(
+                    build_attempt_history_entry(
+                        generation_attempts_used,
+                        candidate_text,
+                        failure_phase="本地校验",
+                        failure_issue=validation_issue,
+                        reason=normalized["reason"],
+                        retry_context=retry_context,
+                    )
+                )
                 last_result = {
                     "verdict": "needs_update",
                     "candidate_text": candidate_text,
@@ -481,8 +532,11 @@ class TranslationSession(object):
                     "raw_failure_response": "",
                     "raw_reason_text": "",
                     "parse_error_detail": "",
-                    "failure_phase": "",
+                    "failure_phase": "本地校验",
                     "reason": normalized["reason"],
+                    "warnings": [],
+                    "attempt_history": list(attempt_history),
+                    "retry_context_preview": retry_context_preview(retry_context),
                     "validation_state": "failed",
                     "validation_message": validation_message(validation_issue),
                     "validation_issue": validation_issue,
@@ -496,7 +550,6 @@ class TranslationSession(object):
                     review_result = self.reviewer_runner(
                         key=key,
                         source_text=source_text,
-                        target_text=current_target,
                         candidate_text=candidate_text,
                         locked_terms=locked_terms,
                         model_config=self.model_config,
@@ -510,6 +563,25 @@ class TranslationSession(object):
                         raise
                     debug_payload = model_response_debug_payload(exc)
                     extracted_reason = _display_text(debug_payload.get("extracted_reason", "")).strip()
+                    retry_context = build_retry_context(
+                        phase="model_format",
+                        issue_code="review_model_format_invalid",
+                        issue_message=retry_issue,
+                        previous_candidate=candidate_text,
+                        source_text=source_text,
+                        locked_terms=locked_terms,
+                        candidate_text=candidate_text,
+                    )
+                    attempt_history.append(
+                        build_attempt_history_entry(
+                            generation_attempts_used,
+                            candidate_text,
+                            failure_phase="AI复核",
+                            failure_issue=retry_issue,
+                            reason=extracted_reason or normalized["reason"],
+                            retry_context=retry_context,
+                        )
+                    )
                     last_result = {
                         "verdict": "needs_update",
                         "candidate_text": candidate_text,
@@ -520,6 +592,9 @@ class TranslationSession(object):
                         "parse_error_detail": _display_text(debug_payload.get("parse_error_detail", "")).strip(),
                         "failure_phase": "AI复核",
                         "reason": extracted_reason or normalized["reason"],
+                        "warnings": [],
+                        "attempt_history": list(attempt_history),
+                        "retry_context_preview": retry_context_preview(retry_context),
                         "validation_state": "failed",
                         "validation_message": validation_message(retry_issue),
                         "validation_issue": retry_issue,
@@ -532,11 +607,30 @@ class TranslationSession(object):
                 reviewed = normalize_review_result(
                     review_result,
                     source_text=source_text,
-                    target_text=current_target,
                     candidate_text=candidate_text,
+                    locked_terms=locked_terms,
                 )
+                warning_messages = list(reviewed.get("warnings", []))
                 if reviewed["decision"] != "pass":
                     retry_issue = reviewed["issues"][0]
+                    retry_context = build_review_retry_context(
+                        source_text,
+                        candidate_text,
+                        locked_terms,
+                        (reviewed.get("issue_details") or [{}])[0],
+                        reviewed.get("warning_details", []),
+                    )
+                    attempt_history.append(
+                        build_attempt_history_entry(
+                            generation_attempts_used,
+                            candidate_text,
+                            failure_phase="AI复核",
+                            failure_issue=retry_issue,
+                            warnings=warning_messages,
+                            reason=normalized["reason"],
+                            retry_context=retry_context,
+                        )
+                    )
                     last_result = {
                         "verdict": "needs_update",
                         "candidate_text": candidate_text,
@@ -547,6 +641,9 @@ class TranslationSession(object):
                         "parse_error_detail": "",
                         "failure_phase": "AI复核",
                         "reason": normalized["reason"],
+                        "warnings": warning_messages,
+                        "attempt_history": list(attempt_history),
+                        "retry_context_preview": retry_context_preview(retry_context),
                         "validation_state": "failed",
                         "validation_message": validation_message(retry_issue),
                         "validation_issue": retry_issue,
@@ -555,6 +652,14 @@ class TranslationSession(object):
                         "model_calls_used": model_calls_used,
                     }
                     continue
+            attempt_history.append(
+                build_attempt_history_entry(
+                    generation_attempts_used,
+                    candidate_text,
+                    warnings=list(reviewed.get("warnings", [])) if self.reviewer_runner is not None else [],
+                    reason=normalized["reason"],
+                )
+            )
             return {
                 "verdict": normalized["verdict"],
                 "candidate_text": candidate_text,
@@ -565,6 +670,9 @@ class TranslationSession(object):
                 "parse_error_detail": "",
                 "failure_phase": "",
                 "reason": normalized["reason"],
+                "warnings": list(reviewed.get("warnings", [])) if self.reviewer_runner is not None else [],
+                "attempt_history": list(attempt_history),
+                "retry_context_preview": "",
                 "validation_state": "passed",
                 "validation_message": "",
                 "validation_issue": "",
@@ -572,7 +680,7 @@ class TranslationSession(object):
                 "generation_attempts_used": generation_attempts_used,
                 "model_calls_used": model_calls_used,
             }
-        failure_issue = retry_issue or last_result.get("validation_issue") or "校验未通过"
+        failure_issue = (last_result.get("validation_issue") or "校验未通过")
         last_result["validation_state"] = "failed"
         last_result["validation_message"] = exhausted_validation_message(
             failure_issue,
@@ -618,13 +726,8 @@ class TranslationSession(object):
             ),
         }
 
-    def _build_retry_prompt(self, base_extra_prompt, retry_issue):
-        parts = []
-        if retry_issue:
-            parts.append("上一版候选未通过系统校验，请严格修复这个问题：{}。".format(retry_issue))
-        if base_extra_prompt:
-            parts.append(str(base_extra_prompt).strip())
-        return "\n".join(part for part in parts if part).strip()
+    def _build_retry_prompt(self, base_extra_prompt, retry_context, attempt_number):
+        return structured_retry_prompt(base_extra_prompt, retry_context, attempt_number)
 
     def _create_item(
         self,
@@ -648,6 +751,9 @@ class TranslationSession(object):
         raw_reason_text="",
         parse_error_detail="",
         failure_phase="",
+        warnings=None,
+        attempt_history=None,
+        retry_context_preview="",
     ):
         with self.lock:
             item_id = "tx-{}".format(self.next_id)
@@ -664,6 +770,9 @@ class TranslationSession(object):
                 "raw_reason_text": str(raw_reason_text or ""),
                 "parse_error_detail": str(parse_error_detail or ""),
                 "failure_phase": str(failure_phase or ""),
+                "warnings": [str(message or "").strip() for message in (warnings or []) if str(message or "").strip()],
+                "attempt_history": [dict(entry) for entry in (attempt_history or [])],
+                "retry_context_preview": str(retry_context_preview or ""),
                 "locked_terms": [dict(term) for term in locked_terms],
                 "reason": reason,
                 "verdict": verdict,
@@ -689,6 +798,9 @@ class TranslationSession(object):
         item["raw_reason_text"] = str(normalized.get("raw_reason_text", ""))
         item["parse_error_detail"] = str(normalized.get("parse_error_detail", ""))
         item["failure_phase"] = str(normalized.get("failure_phase", ""))
+        item["warnings"] = [str(message or "").strip() for message in normalized.get("warnings", []) if str(message or "").strip()]
+        item["attempt_history"] = [dict(entry) for entry in normalized.get("attempt_history", [])]
+        item["retry_context_preview"] = str(normalized.get("retry_context_preview", ""))
         item["reason"] = normalized["reason"]
         item["verdict"] = normalized["verdict"]
         item["validation_state"] = normalized["validation_state"]
@@ -717,7 +829,14 @@ class TranslationSession(object):
 
     def _pending_event_label(self, item, default_label):
         if item.get("validation_state") == "failed":
-            return "候选未通过校验：{}".format(item.get("validation_issue") or "请重新生成")
+            phase = str(item.get("failure_phase", "") or "本地校验")
+            if phase == "模型":
+                prefix = "候选生成失败"
+            elif phase == "AI复核":
+                prefix = "候选通过 AI复核失败"
+            else:
+                prefix = "候选通过本地校验失败"
+            return "{}：{}".format(prefix, item.get("validation_issue") or "请重新生成")
         return default_label
 
     def _apply_item(self, item, status, reason):
@@ -787,6 +906,9 @@ class TranslationSession(object):
             "raw_reason_text": item.get("raw_reason_text", ""),
             "parse_error_detail": item.get("parse_error_detail", ""),
             "failure_phase": item.get("failure_phase", ""),
+            "warnings": list(item.get("warnings", [])),
+            "attempt_history": [dict(entry) for entry in item.get("attempt_history", [])],
+            "retry_context_preview": item.get("retry_context_preview", ""),
             "locked_terms": [dict(term) for term in item.get("locked_terms", [])],
             "reason": item.get("reason", ""),
             "verdict": item.get("verdict", ""),
@@ -858,6 +980,9 @@ class TranslationSession(object):
             restored.setdefault("raw_reason_text", "")
             restored.setdefault("parse_error_detail", "")
             restored.setdefault("failure_phase", "")
+            restored.setdefault("warnings", [])
+            restored.setdefault("attempt_history", [])
+            restored.setdefault("retry_context_preview", "")
             restored.setdefault("can_accept", True)
             restored.setdefault(
                 "generation_attempts_used",
@@ -953,11 +1078,10 @@ def build_translation_system_prompt():
     )
 
 
-def build_translation_review_user_prompt(key, source_text, target_text, candidate_text, locked_terms, target_missing, extra_prompt):
+def build_translation_review_user_prompt(key, source_text, candidate_text, locked_terms, target_missing, extra_prompt):
     payload = {
         "key": key,
         "source_text": source_text,
-        "current_target_text": target_text,
         "candidate_text": candidate_text,
         "target_missing": bool(target_missing),
         "locked_terms": [
@@ -984,11 +1108,12 @@ def build_translation_review_system_prompt():
         "You are a strict QA reviewer for English i18n properties translations.\n"
         "Return JSON only with keys: decision, issues.\n"
         "decision must be either pass or fail.\n"
-        "issues must be an array of short Simplified Chinese strings.\n"
-        "current_target_text is only the existing English value and may be wrong or outdated.\n"
-        "Do not fail merely because candidate_text differs from current_target_text.\n"
+        "issues must be either an array of short Simplified Chinese strings or an array of objects with keys code, message, severity, evidence, and expected_term.\n"
+        "Ignore any previous English wording. Review candidate_text on its own merits against source_text.\n"
         "Judge candidate_text against source_text, placeholders, locked_terms, and extra_prompt when extra_prompt is provided.\n"
         "Do not fail solely because a locked term uses different capitalization. Treat locked_terms matching as case-insensitive.\n"
+        "Do not report that a term should be X if candidate_text already contains X.\n"
+        "Do not treat style-only suggestions such as 'could be more natural' as hard failures.\n"
         "extra_prompt is a high-priority additional instruction unless it conflicts with source_text meaning, placeholders, or locked_terms.\n"
         "Only report spelling or wording problems that actually appear in candidate_text.\n"
         "Fail when the candidate is not natural English, still contains untranslated Chinese, omits source meaning, or breaks placeholders.\n"

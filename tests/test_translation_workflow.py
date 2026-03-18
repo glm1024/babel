@@ -15,6 +15,7 @@ from zh_audit.terminology_xlsx import (
 )
 from zh_audit.translation_workflow import (
     TranslationSession,
+    build_translation_review_user_prompt,
     build_translation_review_system_prompt,
     build_translation_system_prompt,
 )
@@ -28,6 +29,19 @@ def _pass_review(**kwargs):
 
 
 class TranslationWorkflowTest(unittest.TestCase):
+    def test_translation_review_user_prompt_does_not_include_current_target_text(self):
+        prompt = build_translation_review_user_prompt(
+            key="API_NOT_FOUND",
+            source_text="适配服务接口不存在。",
+            candidate_text="Adapter server interface not found.",
+            locked_terms=[],
+            target_missing=False,
+            extra_prompt="",
+        )
+
+        self.assertIn('"candidate_text": "Adapter server interface not found."', prompt)
+        self.assertNotIn("current_target_text", prompt)
+
     def test_terminology_xlsx_roundtrip_and_longest_match(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             glossary_path = Path(temp_dir) / "terminology.xlsx"
@@ -427,8 +441,8 @@ class TranslationWorkflowTest(unittest.TestCase):
         self.assertIn("reason must be written in Simplified Chinese.", prompt)
         self.assertIn("If extra_prompt is provided, treat it as a high-priority additional instruction", prompt)
         review_prompt = build_translation_review_system_prompt()
-        self.assertIn("current_target_text is only the existing English value", review_prompt)
-        self.assertIn("Do not fail merely because candidate_text differs from current_target_text.", review_prompt)
+        self.assertIn("Ignore any previous English wording.", review_prompt)
+        self.assertNotIn("current_target_text", review_prompt)
         self.assertIn("Judge candidate_text against source_text, placeholders, locked_terms, and extra_prompt", review_prompt)
         self.assertIn("Treat locked_terms matching as case-insensitive.", review_prompt)
 
@@ -574,7 +588,10 @@ class TranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(pending["generation_attempts_used"], 3)
             self.assertIn("已重试 3 次仍未通过", pending["validation_message"])
             self.assertIn("失败原因：候选仍含中文", pending["validation_message"])
-            self.assertIn("候选未通过校验：候选仍含中文", snapshot["events"][0]["label"])
+            self.assertIn("候选通过本地校验失败：候选仍含中文", snapshot["events"][0]["label"])
+            self.assertEqual(pending["failure_phase"], "本地校验")
+            self.assertEqual(len(pending["attempt_history"]), 3)
+            self.assertIn("本地校验", pending["retry_context_preview"])
             accepted = session.accept(pending["id"])
             self.assertEqual(accepted["status"]["counts"]["accepted"], 1)
 
@@ -605,7 +622,7 @@ class TranslationWorkflowTest(unittest.TestCase):
             self.assertFalse(pending["can_accept"])
             self.assertEqual(pending["generation_attempts_used"], 3)
             self.assertIn("模型返回格式不规范", pending["validation_message"])
-            self.assertIn("候选未通过校验：模型返回格式不规范", snapshot["events"][0]["label"])
+            self.assertIn("候选生成失败：模型返回格式不规范", snapshot["events"][0]["label"])
 
     def test_translation_session_keeps_raw_model_debug_text_for_format_errors(self):
         with tempfile.TemporaryDirectory() as temp_dir:

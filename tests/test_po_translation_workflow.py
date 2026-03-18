@@ -3,7 +3,11 @@ import unittest
 from pathlib import Path
 
 from zh_audit.po_rst_protection import protect_rst_text, validate_protected_candidate
-from zh_audit.po_translation_workflow import PoTranslationSession
+from zh_audit.po_translation_workflow import (
+    PoTranslationSession,
+    build_po_translation_review_system_prompt,
+    build_po_translation_review_user_prompt,
+)
 from zh_audit.terminology_xlsx import normalize_terminology_catalog
 
 
@@ -15,6 +19,26 @@ def _pass_review(**kwargs):
 
 
 class PoTranslationWorkflowTest(unittest.TestCase):
+    def test_po_translation_review_prompt_ignores_previous_english_value(self):
+        prompt = build_po_translation_review_system_prompt()
+        self.assertIn("Ignore any previous English wording.", prompt)
+        self.assertNotIn("current_target_text", prompt)
+
+    def test_po_translation_review_user_prompt_does_not_include_current_target_text(self):
+        prompt = build_po_translation_review_user_prompt(
+            entry_id="po-1",
+            references=["../../source/demo.rst:1"],
+            source_text="单击“是”按钮。",
+            candidate_text='Click the "Yes" button.',
+            protected_source={"summary": "rst protected", "frontend_glossary_enabled": False, "frontend_ui_slots": [], "active_frontend_terms": []},
+            locked_terms=[{"source": "按钮", "target": "button"}],
+            target_missing=True,
+            extra_prompt="",
+        )
+
+        self.assertIn('"candidate_text": "Click the \\"Yes\\" button."', prompt)
+        self.assertNotIn("current_target_text", prompt)
+
     def test_validate_protected_candidate_detects_anchor_change(self):
         protected = protect_rst_text('详见 :ref:`增加主机<5.2.1-addHost>` 章节。')
         issue = validate_protected_candidate(

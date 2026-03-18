@@ -933,14 +933,13 @@ class AppServiceState(object):
         )
         return response
 
-    def _translation_reviewer_runner(self, key, source_text, target_text, candidate_text, locked_terms, model_config, target_missing, extra_prompt):
+    def _translation_reviewer_runner(self, key, source_text, candidate_text, locked_terms, model_config, target_missing, extra_prompt):
         response = call_openai_compatible_json(
             model_config=model_config,
             system_prompt=build_translation_review_system_prompt(),
             user_prompt=build_translation_review_user_prompt(
                 key=key,
                 source_text=source_text,
-                target_text=target_text,
                 candidate_text=candidate_text,
                 locked_terms=locked_terms,
                 target_missing=target_missing,
@@ -984,7 +983,6 @@ class AppServiceState(object):
         entry_id,
         references,
         source_text,
-        target_text,
         candidate_text,
         protected_source,
         locked_terms,
@@ -999,7 +997,6 @@ class AppServiceState(object):
                 entry_id=entry_id,
                 references=references,
                 source_text=source_text,
-                target_text=target_text,
                 candidate_text=candidate_text,
                 protected_source=protected_source,
                 locked_terms=locked_terms,

@@ -1006,6 +1006,43 @@ def render_app_shell(bootstrap_payload, client_config):
       font-size: var(--text-xs);
       color: var(--muted);
     }
+    .translation-attempt-history {
+      display: grid;
+      gap: 6px;
+    }
+    .translation-attempt-row {
+      display: grid;
+      gap: 4px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.72);
+    }
+    .translation-attempt-head {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .translation-attempt-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      font-size: var(--text-xs);
+      color: var(--muted);
+      background: rgba(255,255,255,0.82);
+    }
+    .translation-attempt-badge.is-error {
+      color: var(--danger);
+      border-color: rgba(165,44,28,0.24);
+      background: rgba(255,243,240,0.92);
+    }
+    .translation-warning-list {
+      display: grid;
+      gap: 4px;
+    }
     .translation-log-item.is-busy {
       border-color: rgba(159,61,42,0.26);
       background: rgba(255,249,243,0.9);
@@ -2074,6 +2111,61 @@ __REPORT_COMPONENT_BUNDLE__
       return parts.join("");
     }
 
+    function renderWarningList(item) {
+      const warnings = Array.isArray(item.warnings) ? item.warnings.filter(Boolean) : [];
+      if (!warnings.length) {
+        return "";
+      }
+      return `
+        <div class="translation-warning-list">
+          <div class="translation-validation-note"><span class="muted">非阻塞提示：</span>${escapeHtml(warnings.join("；"))}</div>
+        </div>
+      `;
+    }
+
+    function renderRetryContextPreview(item) {
+      const preview = String(item.retry_context_preview || "");
+      if (!preview) {
+        return "";
+      }
+      return `<div class="translation-validation-note"><span class="muted">重试约束：</span>${escapeHtml(preview)}</div>`;
+    }
+
+    function renderFailurePhase(item) {
+      const phase = String(item.failure_phase || "");
+      if (!phase) {
+        return "";
+      }
+      return `<div class="translation-validation-note"><span class="muted">失败来源：</span>${escapeHtml(phase)}</div>`;
+    }
+
+    function renderAttemptHistory(item) {
+      const history = Array.isArray(item.attempt_history) ? item.attempt_history : [];
+      if (!history.length) {
+        return "";
+      }
+      return `
+        <div class="translation-attempt-history">
+          <div class="translation-validation-note"><span class="muted">尝试记录：</span></div>
+          ${history.map(entry => {
+            const warnings = Array.isArray(entry.warnings) ? entry.warnings.filter(Boolean) : [];
+            return `
+              <div class="translation-attempt-row">
+                <div class="translation-attempt-head">
+                  <strong>${escapeHtml(`${entry.attempt || 0}/${3} ${entry.strategy || "-"}`)}</strong>
+                  <span class="translation-attempt-badge${entry.status === "failed" ? " is-error" : ""}">${escapeHtml(entry.status === "failed" ? (entry.failure_phase || "失败") : "通过")}</span>
+                </div>
+                ${entry.candidate_text ? `<div><span class="muted">候选：</span><code>${escapeHtml(entry.candidate_text)}</code></div>` : ""}
+                ${entry.failure_issue ? `<div class="translation-validation-note is-error">${escapeHtml(entry.failure_issue)}</div>` : ""}
+                ${entry.reason ? `<div class="translation-validation-note"><span class="muted">说明：</span>${escapeHtml(entry.reason)}</div>` : ""}
+                ${warnings.length ? `<div class="translation-validation-note"><span class="muted">提示：</span>${escapeHtml(warnings.join("；"))}</div>` : ""}
+              </div>
+            `;
+          }).join("")}
+        </div>
+      `;
+    }
+
     function displaySnippet(item) {
       return item.snippet || item.normalized_text || item.text || "";
     }
@@ -2576,9 +2668,13 @@ __REPORT_COMPONENT_BUNDLE__
             <div><span class="muted">可进行手动修改：</span></div>
             <input class="field-input translation-inline-input" data-candidate-id="${escapeAttr(item.id)}" value="${escapeAttr(draftValue(state.translationCandidateDrafts, item.id, item.candidate_text || ""))}" placeholder="可直接修改候选英文，点击接受后写入" ${isBusy ? "disabled" : ""}>
             ${renderModelDebugInfo(item)}
+            ${renderFailurePhase(item)}
             ${item.validation_message ? `<div class="translation-validation-note ${item.validation_state === "failed" ? "is-error" : ""}">${escapeHtml(item.validation_message)}</div>` : ""}
+            ${renderRetryContextPreview(item)}
+            ${renderWarningList(item)}
             ${itemOp ? `<div class="translation-validation-note is-progress">${escapeHtml(itemOp.message || "正在处理当前条目...")}</div>` : ""}
             <div class="translation-call-budget">本次生成重试：${escapeHtml(String(item.generation_attempts_used || 0))}/${escapeHtml(String(3))}</div>
+            ${renderAttemptHistory(item)}
             <div class="translation-tags">
               ${(item.locked_terms || []).map(term => `<span class="translation-tag">${escapeHtml(`${term.source} => ${term.target}`)}</span>`).join("")}
             </div>
@@ -2716,9 +2812,13 @@ __REPORT_COMPONENT_BUNDLE__
             ${renderModelDebugInfo(item)}
             <div><span class="muted">RST 保护：</span>${escapeHtml(item.protected_summary || "-")}</div>
             <div><span class="muted">前端术语：</span>${escapeHtml(item.frontend_glossary_enabled ? `已启用（${((item.frontend_ui_slots || []).join(", ")) || "slot"}）` : "未启用")}</div>
+            ${renderFailurePhase(item)}
             ${item.validation_message ? `<div class="translation-validation-note ${item.validation_state === "failed" ? "is-error" : ""}">${escapeHtml(item.validation_message)}</div>` : ""}
+            ${renderRetryContextPreview(item)}
+            ${renderWarningList(item)}
             ${itemOp ? `<div class="translation-validation-note is-progress">${escapeHtml(itemOp.message || "正在处理当前条目...")}</div>` : ""}
             <div class="translation-call-budget">本次生成重试：${escapeHtml(String(item.generation_attempts_used || 0))}/${escapeHtml(String(3))}</div>
+            ${renderAttemptHistory(item)}
             <div class="translation-tags">
               ${(item.locked_terms || []).map(term => `<span class="translation-tag">${escapeHtml(`${term.source} => ${term.target}`)}</span>`).join("")}
             </div>
@@ -2870,9 +2970,13 @@ __REPORT_COMPONENT_BUNDLE__
             <div><span class="muted">可进行手动修改：</span></div>
             <input class="field-input translation-inline-input" data-sql-candidate-id="${escapeAttr(item.id)}" value="${escapeAttr(draftValue(state.sqlTranslationCandidateDrafts, item.id, item.candidate_text || ""))}" placeholder="可直接修改候选英文，点击接受后写入" ${isBusy ? "disabled" : ""}>
             ${renderModelDebugInfo(item)}
+            ${renderFailurePhase(item)}
             ${item.validation_message ? `<div class="translation-validation-note ${item.validation_state === "failed" ? "is-error" : ""}">${escapeHtml(item.validation_message)}</div>` : ""}
+            ${renderRetryContextPreview(item)}
+            ${renderWarningList(item)}
             ${itemOp ? `<div class="translation-validation-note is-progress">${escapeHtml(itemOp.message || "正在处理当前条目...")}</div>` : ""}
             <div class="translation-call-budget">本次生成重试：${escapeHtml(String(item.generation_attempts_used || 0))}/${escapeHtml(String(3))}</div>
+            ${renderAttemptHistory(item)}
             <div class="translation-tags">
               ${(item.locked_terms || []).map(term => `<span class="translation-tag">${escapeHtml(`${term.source} => ${term.target}`)}</span>`).join("")}
             </div>

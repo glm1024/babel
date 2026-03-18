@@ -31,3 +31,42 @@ class CandidateValidationTest(unittest.TestCase):
 
         self.assertEqual(normalized["decision"], "fail")
         self.assertEqual(normalized["issues"], ["术语不一致：'镜像'应翻译为'Image'，但候选文本使用了'snapshot'"])
+
+    def test_normalize_review_result_ignores_issue_when_expected_term_already_exists(self):
+        normalized = normalize_review_result(
+            {
+                "decision": "fail",
+                "issues": [
+                    {
+                        "code": "missing_term",
+                        "message": "未准确翻译，'云物理机'应为'Cloud Physical Server'",
+                        "expected_term": "Cloud Physical Server",
+                    }
+                ],
+            },
+            source_text="删除云物理机",
+            candidate_text="Delete Cloud Physical Server instance",
+        )
+
+        self.assertEqual(normalized["decision"], "pass")
+        self.assertEqual(normalized["issues"], [])
+
+    def test_normalize_review_result_downgrades_style_suggestions_to_warnings(self):
+        normalized = normalize_review_result(
+            {
+                "decision": "fail",
+                "issues": [
+                    {
+                        "code": "style",
+                        "message": "表达可更自然，建议调整措辞",
+                        "severity": "warning",
+                    }
+                ],
+            },
+            source_text="删除目录",
+            candidate_text="Delete directory",
+        )
+
+        self.assertEqual(normalized["decision"], "pass")
+        self.assertEqual(normalized["issues"], [])
+        self.assertEqual(normalized["warnings"], ["表达可更自然，建议调整措辞"])
