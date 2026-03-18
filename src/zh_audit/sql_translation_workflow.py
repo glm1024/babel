@@ -147,6 +147,8 @@ class SqlTranslationSession(object):
         reviewer_runner=None,
         persist_callback=None,
     ):
+        if _saved_sql_session_uses_obsolete_duplicate_reason(payload):
+            raise ValueError("Saved SQL translation session uses obsolete duplicate-locator handling.")
         session = cls(
             directory_path=str(payload.get("directory_path", "") or ""),
             table_name=str(payload.get("table_name", "") or ""),
@@ -2246,3 +2248,16 @@ def _normalize_reason(reason, fallback):
     if contains_han(value):
         return value
     return str(fallback or "").strip()
+
+
+def _saved_sql_session_uses_obsolete_duplicate_reason(payload):
+    old_reason = "定位字段值重复，无法唯一定位 update。"
+    if not isinstance(payload, dict):
+        return False
+    for row in payload.get("rows", []):
+        if str((row or {}).get("skip_reason", "") or "") == old_reason:
+            return True
+    for event in payload.get("events", []):
+        if str((event or {}).get("reason", "") or "") == old_reason:
+            return True
+    return False

@@ -455,6 +455,89 @@ class AppServerSmokeTest(unittest.TestCase):
             state = AppServiceState(out_dir=out_dir)
             self.assertEqual(state.bootstrap_payload()["config"]["sql_translation_config"]["primary_key_field"], "")
 
+    def test_legacy_sql_translation_session_with_obsolete_duplicate_reason_is_not_restored(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            out_dir = root / "results"
+            out_dir.mkdir()
+            (out_dir / "sql_translation_session.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "directory_path": "/tmp/sql-demo",
+                        "table_name": "t_demo",
+                        "primary_key_field": "op_type",
+                        "source_field": "zh_language",
+                        "target_field": "en_language",
+                        "rows": [
+                            {
+                                "source_path": "/tmp/sql-demo/V1__seed.sql",
+                                "line": 18,
+                                "table_expression": "t_demo",
+                                "table_name": "t_demo",
+                                "primary_key_field": "op_type",
+                                "primary_key_field_sql": "op_type",
+                                "primary_key_literal": "'JOB_A'",
+                                "primary_key_display": "JOB_A",
+                                "source_field": "zh_language",
+                                "source_text": "序列号监测",
+                                "target_field": "en_language",
+                                "target_field_sql": "en_language",
+                                "target_text": "serial number check",
+                                "skip_reason": "定位字段值重复，无法唯一定位 update。",
+                            }
+                        ],
+                        "counts": {
+                            "total": 1,
+                            "processed": 1,
+                            "skipped": 1,
+                            "pending": 0,
+                            "accepted": 0,
+                            "appended": 0,
+                            "failed": 0,
+                            "rejected": 0,
+                            "regenerated": 0,
+                            "glossary_applied": 0,
+                        },
+                        "items": [],
+                        "pending_ids": [],
+                        "recent_ids": [],
+                        "events": [
+                            {
+                                "at": "2026-03-18T09:04:36+08:00",
+                                "label": "已跳过",
+                                "source_path": "/tmp/sql-demo/V1__seed.sql",
+                                "line": 18,
+                                "primary_key_value": "JOB_A",
+                                "source_text": "序列号监测",
+                                "target_text": "serial number check",
+                                "reason": "定位字段值重复，无法唯一定位 update。",
+                                "parse_phase": "",
+                                "statement_preview": "",
+                            }
+                        ],
+                        "current": {"file_path": "", "primary_key_value": "", "source_text": "", "status": ""},
+                        "status": "done",
+                        "message": "校译完成",
+                        "error": "",
+                        "started_at": "",
+                        "finished_at": "",
+                        "stop_requested": False,
+                        "next_id": 1,
+                        "next_index": 1,
+                        "output_path": "",
+                        "written_item_ids": [],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            state = AppServiceState(out_dir=out_dir)
+            payload = state.bootstrap_payload()["sql_translation"]
+            self.assertEqual(payload["status"]["status"], "idle")
+            self.assertEqual(payload["events"], [])
+
     def test_resolve_and_reopen_persist_across_restart(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
