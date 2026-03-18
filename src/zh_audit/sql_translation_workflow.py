@@ -1874,14 +1874,7 @@ def build_sql_translation_user_prompt(
     extra_prompt,
 ):
     payload = {
-        "source_path": source_path,
-        "line": line,
-        "table_name": table_name,
-        "primary_key_field": primary_key_field,
-        "primary_key_value": primary_key_value,
-        "source_field": source_field,
         "source_text": source_text,
-        "target_field": target_field,
         "target_text": target_text,
         "target_missing": bool(target_missing),
         "locked_terms": [
@@ -1898,9 +1891,6 @@ def build_sql_translation_user_prompt(
                 extra_instruction
             )
         )
-    sections.append(
-        "primary_key_field and primary_key_value identify the row for the future UPDATE WHERE clause. They may refer to a business locator field, not necessarily a real primary key."
-    )
     sections.append("Task payload JSON:")
     sections.append(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
     return "\n".join(sections)
@@ -1936,14 +1926,7 @@ def build_sql_translation_review_user_prompt(
     extra_prompt,
 ):
     payload = {
-        "source_path": source_path,
-        "line": line,
-        "table_name": table_name,
-        "primary_key_field": primary_key_field,
-        "primary_key_value": primary_key_value,
-        "source_field": source_field,
         "source_text": source_text,
-        "target_field": target_field,
         "candidate_text": candidate_text,
         "target_missing": bool(target_missing),
         "locked_terms": [
@@ -1960,9 +1943,6 @@ def build_sql_translation_review_user_prompt(
                 extra_instruction
             )
         )
-    sections.append(
-        "primary_key_field and primary_key_value identify the row for the future UPDATE WHERE clause. They may refer to a business locator field, not necessarily a real primary key."
-    )
     sections.append("Review payload JSON:")
     sections.append(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
     return "\n".join(sections)
@@ -1973,10 +1953,12 @@ def build_sql_translation_review_system_prompt():
         "You are a strict QA reviewer for English SQL seed translations.\n"
         "Return JSON only with keys: decision, issues.\n"
         "decision must be either pass or fail.\n"
-        "issues must be an array of short Simplified Chinese strings.\n"
-        "Judge candidate_text against source_text, placeholders, locked_terms, and extra_prompt when extra_prompt is provided.\n"
+        "issues must be either an array of short Simplified Chinese strings or an array of objects with keys code, message, severity, evidence, and expected_term.\n"
         "Ignore any previous English wording. Review candidate_text on its own merits against source_text.\n"
+        "Judge candidate_text against source_text, placeholders, locked_terms, and extra_prompt when extra_prompt is provided.\n"
         "Do not fail solely because a locked term uses different capitalization. Treat locked_terms matching as case-insensitive.\n"
+        "Do not report that a term should be X if candidate_text already contains X.\n"
+        "Do not treat style-only suggestions such as 'could be more natural' as hard failures.\n"
         "extra_prompt is a high-priority additional instruction unless it conflicts with source_text meaning, placeholders, or locked_terms.\n"
         "Only report spelling or wording problems that actually appear in candidate_text.\n"
         "Fail when the candidate is not natural English, still contains untranslated Chinese, omits source meaning, or breaks placeholders.\n"

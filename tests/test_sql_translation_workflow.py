@@ -7,6 +7,7 @@ from zh_audit.sql_translation_workflow import (
     SqlTranslationSession,
     build_sql_translation_review_system_prompt,
     build_sql_translation_review_user_prompt,
+    build_sql_translation_user_prompt,
     parse_sql_translation_file,
     scan_sql_translation_directory,
 )
@@ -27,6 +28,36 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
         self.assertIn("Ignore any previous English wording.", prompt)
         self.assertNotIn("current_target_text", prompt)
         self.assertIn("Treat locked_terms matching as case-insensitive.", prompt)
+        self.assertIn("Do not report that a term should be X if candidate_text already contains X.", prompt)
+        self.assertIn("Do not treat style-only suggestions such as 'could be more natural' as hard failures.", prompt)
+        self.assertIn(
+            "issues must be either an array of short Simplified Chinese strings or an array of objects with keys code, message, severity, evidence, and expected_term.",
+            prompt,
+        )
+
+    def test_sql_translation_user_prompt_omits_sql_trace_fields(self):
+        prompt = build_sql_translation_user_prompt(
+            source_path="demo.sql",
+            line=12,
+            table_name="t_demo",
+            primary_key_field="id",
+            primary_key_value="1",
+            source_field="name_zh",
+            source_text="删除云物理机",
+            target_field="name_en",
+            target_text="delete cloud host",
+            target_missing=False,
+            locked_terms=[{"source": "云物理机", "target": "cloud physical machine"}],
+            extra_prompt="",
+        )
+        self.assertIn('"source_text": "删除云物理机"', prompt)
+        self.assertIn('"target_text": "delete cloud host"', prompt)
+        self.assertNotIn("source_path", prompt)
+        self.assertNotIn("table_name", prompt)
+        self.assertNotIn("primary_key_field", prompt)
+        self.assertNotIn("primary_key_value", prompt)
+        self.assertNotIn("source_field", prompt)
+        self.assertNotIn("target_field", prompt)
 
     def test_sql_translation_review_user_prompt_does_not_include_current_target_text(self):
         prompt = build_sql_translation_review_user_prompt(
@@ -45,6 +76,12 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
         )
         self.assertIn('"candidate_text": "delete cloud physical machine instance"', prompt)
         self.assertNotIn("current_target_text", prompt)
+        self.assertNotIn("source_path", prompt)
+        self.assertNotIn("table_name", prompt)
+        self.assertNotIn("primary_key_field", prompt)
+        self.assertNotIn("primary_key_value", prompt)
+        self.assertNotIn("source_field", prompt)
+        self.assertNotIn("target_field", prompt)
 
     def test_parse_sql_translation_file_handles_schema_multiline_and_escaped_strings(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -553,6 +590,92 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(pending["validation_state"], "passed")
             self.assertTrue(pending["can_accept"])
             self.assertEqual(pending["generation_attempts_used"], 1)
+
+    def test_sql_translation_session_downgrades_style_review_suggestion_to_warning(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sql_dir = root / "sql"
+            sql_dir.mkdir()
+            (sql_dir / "demo.sql").write_text(
+                "INSERT INTO t_demo (id, name_zh, name_en) VALUES ('1', '删除目录', '');\n",
+                encoding="utf-8",
+            )
+
+            session = SqlTranslationSession(
+                directory_path=sql_dir,
+                table_name="t_demo",
+                primary_key_field="id",
+                source_field="name_zh",
+                target_field="name_en",
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": "Delete directory",
+                    "reason": "ok",
+                },
+                reviewer_runner=lambda **kwargs: {
+                    "decision": "fail",
+                    "issues": [
+                        {
+                            "code": "style",
+                            "message": "表达可更自然，建议调整措辞",
+                            "severity": "warning",
+                        }
+                    ],
+                },
+            )
+            session.start()
+            session.run(lambda: False)
+
+            snapshot = session.snapshot()
+            pending = snapshot["pending_items"][0]
+            self.assertEqual(pending["validation_state"], "passed")
+            self.assertTrue(pending["can_accept"])
+            self.assertEqual(pending["warnings"], ["表达可更自然，建议调整措辞"])
+
+    def test_sql_translation_session_ignores_expected_term_issue_when_term_already_present(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sql_dir = root / "sql"
+            sql_dir.mkdir()
+            (sql_dir / "demo.sql").write_text(
+                "INSERT INTO t_demo (id, name_zh, name_en) VALUES ('1', '删除云物理机', '');\n",
+                encoding="utf-8",
+            )
+
+            session = SqlTranslationSession(
+                directory_path=sql_dir,
+                table_name="t_demo",
+                primary_key_field="id",
+                source_field="name_zh",
+                target_field="name_en",
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": "Delete Cloud Physical Server instance",
+                    "reason": "ok",
+                },
+                reviewer_runner=lambda **kwargs: {
+                    "decision": "fail",
+                    "issues": [
+                        {
+                            "code": "missing_term",
+                            "message": "未准确翻译，'云物理机'应为'Cloud Physical Server'",
+                            "expected_term": "Cloud Physical Server",
+                        }
+                    ],
+                },
+            )
+            session.start()
+            session.run(lambda: False)
+
+            snapshot = session.snapshot()
+            pending = snapshot["pending_items"][0]
+            self.assertEqual(pending["validation_state"], "passed")
+            self.assertTrue(pending["can_accept"])
+            self.assertEqual(pending["candidate_text"], "Delete Cloud Physical Server instance")
 
     def test_sql_translation_session_retries_retryable_model_format_errors_without_interrupting_task(self):
         with tempfile.TemporaryDirectory() as temp_dir:
