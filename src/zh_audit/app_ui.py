@@ -379,6 +379,36 @@ def render_app_shell(bootstrap_payload, client_config):
       min-height: 140px;
       resize: vertical;
     }
+    .sql-schema-input {
+      min-height: 44px;
+      height: 44px;
+      display: block;
+      resize: none;
+      overflow: hidden;
+      white-space: nowrap;
+      padding-top: 9px;
+      padding-bottom: 9px;
+      line-height: normal;
+    }
+    .sql-schema-label {
+      display: block;
+      line-height: 0;
+    }
+    .sql-translation-help {
+      line-height: 1.2;
+      margin-top: -2px;
+      margin-left: 2ch;
+    }
+    .sql-translation-control-row {
+      gap: 8px;
+      margin-top: 0;
+      align-items: flex-start;
+    }
+    .sql-translation-control-row .checkbox-row {
+      line-height: 1.2;
+      min-height: 36px;
+      align-items: center;
+    }
     .small-btn,
     .primary-btn,
     .secondary-btn,
@@ -1418,12 +1448,11 @@ def render_app_shell(bootstrap_payload, client_config):
                 <input id="sqlTranslationTargetFieldInput" class="field-input" type="text" placeholder="请输入英文文案字段名" aria-label="英文文案字段名">
               </label>
             </div>
-            <div class="muted">定位字段用于生成 UPDATE 的 WHERE 条件，不要求一定是主键；留空时按 `id` 处理。</div>
-            <label>
-              <textarea id="sqlTranslationSchemaInput" class="field-textarea" rows="6" placeholder="请粘贴当前建表 SQL（可选）" aria-label="当前建表 SQL（可选）"></textarea>
+            <div class="muted sql-translation-help">定位字段用于生成 UPDATE 的 WHERE 条件，不要求一定是主键；留空时按 `id` 处理。</div>
+            <label class="sql-schema-label">
+              <textarea id="sqlTranslationSchemaInput" class="field-textarea sql-schema-input" rows="1" placeholder="请粘贴当前建表 SQL（可选，留空时系统先尝试从当前目录自动推导）" aria-label="当前建表 SQL（可选）"></textarea>
             </label>
-            <div class="muted">优先使用这里粘贴的建表 SQL；留空时系统先尝试从当前目录自动推导。</div>
-            <div class="translation-control-row">
+            <div class="translation-control-row sql-translation-control-row">
               <label class="checkbox-row">
                 <input id="sqlTranslationAutoAccept" type="checkbox">
                 <span>跳过手动审批，自动接受后续全部 AI 翻译</span>
@@ -2441,9 +2470,10 @@ __REPORT_COMPONENT_BUNDLE__
       const pendingItems = Array.isArray(translation.pending_items) ? translation.pending_items : [];
       pruneItemOps(state.translationItemOps, pendingItems);
       pruneDrafts(state.translationCandidateDrafts, pendingItems);
+      const orderedPendingItems = pendingItems.slice().reverse();
       translationPendingEmpty.classList.toggle("hidden", pendingItems.length > 0);
       translationPendingList.classList.toggle("hidden", pendingItems.length === 0);
-      translationPendingList.innerHTML = pendingItems.map(item => {
+      translationPendingList.innerHTML = orderedPendingItems.map(item => {
         const itemOp = state.translationItemOps[item.id] || null;
         const isBusy = Boolean(itemOp);
         const acceptTitle = isBusy
@@ -2566,9 +2596,10 @@ __REPORT_COMPONENT_BUNDLE__
       const pendingItems = Array.isArray(poTranslation.pending_items) ? poTranslation.pending_items : [];
       pruneItemOps(state.poTranslationItemOps, pendingItems);
       pruneDrafts(state.poTranslationCandidateDrafts, pendingItems);
+      const orderedPendingItems = pendingItems.slice().reverse();
       poTranslationPendingEmpty.classList.toggle("hidden", pendingItems.length > 0);
       poTranslationPendingList.classList.toggle("hidden", pendingItems.length === 0);
-      poTranslationPendingList.innerHTML = pendingItems.map(item => {
+      poTranslationPendingList.innerHTML = orderedPendingItems.map(item => {
         const itemOp = state.poTranslationItemOps[item.id] || null;
         const isBusy = Boolean(itemOp);
         const acceptTitle = isBusy
@@ -2710,9 +2741,10 @@ __REPORT_COMPONENT_BUNDLE__
       const pendingItems = Array.isArray(sqlTranslation.pending_items) ? sqlTranslation.pending_items : [];
       pruneItemOps(state.sqlTranslationItemOps, pendingItems);
       pruneDrafts(state.sqlTranslationCandidateDrafts, pendingItems);
+      const orderedPendingItems = pendingItems.slice().reverse();
       sqlTranslationPendingEmpty.classList.toggle("hidden", pendingItems.length > 0);
       sqlTranslationPendingList.classList.toggle("hidden", pendingItems.length === 0);
-      sqlTranslationPendingList.innerHTML = pendingItems.map(item => {
+      sqlTranslationPendingList.innerHTML = orderedPendingItems.map(item => {
         const itemOp = state.sqlTranslationItemOps[item.id] || null;
         const isBusy = Boolean(itemOp);
         const acceptTitle = isBusy
