@@ -233,7 +233,7 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("文档翻译", html)
             self.assertIn("SQL翻译", html)
             self.assertIn("国际化文件中英文校对和翻译", html)
-            self.assertIn("文档翻译（PO/RST）", html)
+            self.assertIn("文档翻译", html)
             self.assertIn("SQL 中英文校对和翻译", html)
             self.assertIn('placeholder="4096"', html)
             self.assertLess(html.index('data-tab="customKeep"'), html.index('data-tab="poTranslation"'))

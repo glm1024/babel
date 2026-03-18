@@ -1378,7 +1378,7 @@ def render_app_shell(bootstrap_payload, client_config):
             <div class="card-head">
               <div>
                 <div class="muted">PO Documents</div>
-                <h2 class="card-title">文档翻译（PO/RST）</h2>
+                <h2 class="card-title">文档翻译</h2>
               </div>
               <span id="poTranslationStatusPill" class="pill keep">空闲</span>
             </div>
