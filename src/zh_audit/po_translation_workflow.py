@@ -332,11 +332,35 @@ class PoTranslationSession(object):
                 self._persist_locked()
             return
         if not contains_han(source_text):
+            if sanitize_candidate_text(target_text) == sanitize_candidate_text(source_text):
+                with self.lock:
+                    self.processed += 1
+                    self.skipped += 1
+                    self._push_event("已跳过：msgid 已原样回填", entry, target_text)
+                    self._persist_locked()
+                return
+            item = self._create_item(
+                entry=entry,
+                source_text=source_text,
+                target_text=target_text,
+                protected_source=protect_rst_text(source_text),
+                candidate_text=source_text,
+                locked_terms=[],
+                active_frontend_terms=[],
+                frontend_glossary_enabled=False,
+                frontend_ui_slots=[],
+                reason="msgid 不含中文，已原样回填到 msgstr。",
+                verdict="needs_update",
+                target_missing=not target_text.strip(),
+                validation_state="passed",
+                validation_message="",
+                validation_issue="",
+                can_accept=True,
+                generation_attempts_used=0,
+                model_calls_used=0,
+            )
             with self.lock:
-                self.processed += 1
-                self.skipped += 1
-                self._push_event("已跳过：msgid 不含中文", entry, target_text)
-                self._persist_locked()
+                self._finalize_item(item, should_auto_accept=should_auto_accept(), force_accept=True, event_label="非中文原文回填")
             return
 
         protected_source = protect_rst_text(source_text)
@@ -1073,6 +1097,8 @@ class PoTranslationSession(object):
             raise ValueError("Candidate translation is empty for PO entry {}".format(item["entry_id"]))
         if not has_matching_placeholders(item.get("source_text", ""), value):
             raise ValueError("Candidate translation lost placeholders for PO entry {}".format(item["entry_id"]))
+        if not contains_han(item.get("source_text", "")) and value == sanitize_candidate_text(item.get("source_text", "")):
+            return value
         issue = validate_protected_candidate(item.get("protected_source", {}), value)
         if issue:
             raise ValueError("Candidate translation breaks RST structure for PO entry {}: {}".format(item["entry_id"], issue))
@@ -1305,7 +1331,7 @@ def build_po_translation_system_prompt():
         "slot_translations must be either an object mapping slot_id to English translation or an array of objects with keys slot_id, translation, and frontend_ui_context.\n"
         "Translate only the provided translatable_slots. Never recreate the full sentence on your own.\n"
         "Do not change rst role names, anchors, substitution tokens, inline literals, placeholders, or any immutable markup.\n"
-        "For role_label or link_label slots, translate only the visible label text.\n"
+        "For role_label, link_label, reference_label, strong_text, emphasis_text, interpreted_text, or directive_argument slots, translate only the visible user-facing text for that slot.\n"
         "For each translated slot, return frontend_ui_context=true only when the slot is clearly talking about visible UI elements such as buttons, tabs, menus, links, labels, or page controls.\n"
         "When frontend_ui_context=false, ignore frontend_locked_terms entirely.\n"
         "When frontend_ui_context=true, use frontend_locked_terms exactly as given if they are relevant.\n"

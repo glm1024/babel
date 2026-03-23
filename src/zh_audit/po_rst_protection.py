@@ -2,12 +2,32 @@ from __future__ import absolute_import
 
 import re
 
+from zh_audit.utils import contains_han
 
+DIRECTIVE_WITH_ARGUMENT_PATTERN = re.compile(
+    r"(?m)^(?P<indent>[ \t]*)\.\.\s+(?P<name>[A-Za-z0-9_-]+)::(?P<spacing>[ \t]*)(?P<argument>[^\r\n]*)"
+)
+EXPLICIT_MARKUP_LINE_PATTERN = re.compile(r"(?m)^[ \t]*\.\.\s+\S[^\r\n]*")
 ROLE_PATTERN = re.compile(r":(?P<role>[A-Za-z0-9_-]+):`(?P<body>[^`\r\n]+)`")
 INLINE_LINK_PATTERN = re.compile(r"`(?P<label>[^`<>]+?)\s*<(?P<target>[^`<>]+)>`_")
+REFERENCE_PATTERN = re.compile(r"`(?P<label>[^`\r\n<>]+?)`(?P<suffix>__|_)")
+FOOTNOTE_REFERENCE_PATTERN = re.compile(r"\[(?P<label>[^\]\r\n]+?)\](?P<suffix>__|_)")
 SUBSTITUTION_PATTERN = re.compile(r"\|[^|\r\n]+\|")
 INLINE_LITERAL_PATTERN = re.compile(r"``[^`\r\n]+``")
+STRONG_PATTERN = re.compile(r"(?<!\\)\*\*(?P<body>[^*\r\n]+?)\*\*")
+EMPHASIS_PATTERN = re.compile(r"(?<![\w\\*])\*(?P<body>[^*\r\n]+?)\*(?![\w*])")
+INTERPRETED_TEXT_PATTERN = re.compile(r"`(?P<body>[^`\r\n]+?)`")
 UNHANDLED_RST_PATTERN = re.compile(r"`|:[A-Za-z0-9_-]+:|\.\.\s+\S")
+TRANSLATABLE_SLOT_TYPES = {
+    "text",
+    "role_label",
+    "link_label",
+    "reference_label",
+    "strong_text",
+    "emphasis_text",
+    "interpreted_text",
+    "directive_argument",
+}
 
 
 def protect_rst_text(text):
@@ -39,13 +59,18 @@ def protect_rst_text(text):
             }
             slots.append(slot)
             translatable_slots.append(dict(slot))
-        slot = dict(match["slot"])
-        if slot.get("type") in ("role_label", "link_label"):
-            slot_index += 1
-            slot["slot_id"] = "slot_{}".format(slot_index)
-        slots.append(slot)
-        if slot["type"] in ("text", "role_label", "link_label"):
-            translatable_slots.append(dict(slot))
+        matched_slots = match.get("slots")
+        if matched_slots is None:
+            matched_slots = [match["slot"]]
+        for raw_slot in matched_slots:
+            slot = dict(raw_slot)
+            is_translatable = bool(slot.get("translatable", slot.get("type") in TRANSLATABLE_SLOT_TYPES))
+            if is_translatable and slot.get("type") != "text":
+                slot_index += 1
+                slot["slot_id"] = "slot_{}".format(slot_index)
+            slots.append(slot)
+            if is_translatable:
+                translatable_slots.append(dict(slot))
         index = match["end"]
 
     if _contains_unhandled_rst(source):
@@ -85,7 +110,30 @@ def compose_protected_text(protected, slot_translations):
         elif slot_type == "link_label":
             label = str(translations.get(slot["slot_id"], slot.get("source_text", "")))
             rendered.append("`{} <{}>`_".format(label, slot.get("target", "")))
+        elif slot_type == "reference_label":
+            label = str(translations.get(slot["slot_id"], slot.get("source_text", "")))
+            rendered.append("`{}`{}".format(label, slot.get("suffix", "_")))
+        elif slot_type == "strong_text":
+            rendered.append("**{}**".format(str(translations.get(slot["slot_id"], slot.get("source_text", "")))))
+        elif slot_type == "emphasis_text":
+            rendered.append("*{}*".format(str(translations.get(slot["slot_id"], slot.get("source_text", "")))))
+        elif slot_type == "directive_prefix":
+            rendered.append(slot.get("raw", ""))
+        elif slot_type == "directive_argument":
+            if slot.get("translatable", False):
+                rendered.append(str(translations.get(slot["slot_id"], slot.get("source_text", ""))))
+            else:
+                rendered.append(slot.get("source_text", ""))
         elif slot_type == "inline_literal":
+            rendered.append(slot.get("raw", ""))
+        elif slot_type == "interpreted_text":
+            if slot.get("translatable", False):
+                rendered.append("`{}`".format(str(translations.get(slot["slot_id"], slot.get("source_text", "")))))
+            else:
+                rendered.append(slot.get("raw", ""))
+        elif slot_type == "footnote_reference":
+            rendered.append(slot.get("raw", ""))
+        elif slot_type == "directive_line":
             rendered.append(slot.get("raw", ""))
         else:
             rendered.append(slot.get("raw", slot.get("source_text", "")))
@@ -110,6 +158,17 @@ def validate_protected_candidate(source_protected, candidate_text):
             return "候选未保留 rst 替换标记"
         if slot_type == "inline_literal" and source_slot.get("raw", "") != candidate_slot.get("raw", ""):
             return "候选未保留 rst 行内字面量"
+        if slot_type == "interpreted_text" and not source_slot.get("translatable", False) and source_slot.get("raw", "") != candidate_slot.get("raw", ""):
+            return "候选未保留 rst 解释文本"
+        if slot_type == "footnote_reference" and source_slot.get("raw", "") != candidate_slot.get("raw", ""):
+            return "候选改动了 rst 脚注引用"
+        if slot_type == "directive_prefix" and source_slot.get("raw", "") != candidate_slot.get("raw", ""):
+            return "候选改动了 rst 指令前缀"
+        if slot_type == "directive_argument" and not source_slot.get("translatable", False):
+            if source_slot.get("source_text", "") != candidate_slot.get("source_text", ""):
+                return "候选改动了 rst 指令参数"
+        if slot_type == "directive_line" and source_slot.get("raw", "") != candidate_slot.get("raw", ""):
+            return "候选改动了 rst 指令行"
         if slot_type == "role_label":
             if source_slot.get("role", "") != candidate_slot.get("role", ""):
                 return "候选改动了 rst role 名称"
@@ -117,6 +176,8 @@ def validate_protected_candidate(source_protected, candidate_text):
                 return "候选改动了 rst role target"
         if slot_type == "link_label" and source_slot.get("target", "") != candidate_slot.get("target", ""):
             return "候选改动了 rst 链接 target"
+        if slot_type == "reference_label" and source_slot.get("suffix", "") != candidate_slot.get("suffix", ""):
+            return "候选改动了 rst 引用后缀"
     return ""
 
 
@@ -186,6 +247,24 @@ def _summarize_slots(slots):
             )
         elif slot_type == "link_label":
             parts.append("link:<{}>".format(slot.get("target", "")))
+        elif slot_type == "reference_label":
+            parts.append("ref:{}".format(slot.get("suffix", "_")))
+        elif slot_type == "strong_text":
+            parts.append("strong:{}".format(_preview(slot.get("source_text", ""))))
+        elif slot_type == "emphasis_text":
+            parts.append("emphasis:{}".format(_preview(slot.get("source_text", ""))))
+        elif slot_type == "directive_prefix":
+            parts.append("directive-prefix:{}".format(slot.get("raw", "")))
+        elif slot_type == "directive_argument":
+            mode = "text" if slot.get("translatable", False) else "raw"
+            parts.append("directive-arg:{}:{}".format(mode, _preview(slot.get("source_text", ""))))
+        elif slot_type == "interpreted_text":
+            mode = "text" if slot.get("translatable", False) else "raw"
+            parts.append("interpreted:{}:{}".format(mode, _preview(slot.get("source_text", ""))))
+        elif slot_type == "footnote_reference":
+            parts.append("footnote:{}".format(slot.get("raw", "")))
+        elif slot_type == "directive_line":
+            parts.append("directive:{}".format(slot.get("raw", "")))
         else:
             parts.append(str(slot_type or "unknown"))
     return " | ".join(parts)
@@ -200,20 +279,60 @@ def _preview(value, limit=24):
 
 def _next_markup_match(source, start):
     candidates = []
-    for pattern_name, pattern in (
+    for priority, (pattern_name, pattern) in enumerate((
+        ("directive_with_argument", DIRECTIVE_WITH_ARGUMENT_PATTERN),
+        ("directive_line", EXPLICIT_MARKUP_LINE_PATTERN),
         ("role", ROLE_PATTERN),
         ("link", INLINE_LINK_PATTERN),
+        ("reference", REFERENCE_PATTERN),
+        ("footnote_reference", FOOTNOTE_REFERENCE_PATTERN),
         ("literal", SUBSTITUTION_PATTERN),
         ("inline_literal", INLINE_LITERAL_PATTERN),
-    ):
+        ("strong", STRONG_PATTERN),
+        ("emphasis", EMPHASIS_PATTERN),
+        ("interpreted_text", INTERPRETED_TEXT_PATTERN),
+    )):
         match = pattern.search(source, start)
         if match is None:
             continue
-        candidates.append((match.start(), match.end(), pattern_name, match))
+        candidates.append((match.start(), priority, -(match.end() - match.start()), pattern_name, match))
     if not candidates:
         return None
-    candidates.sort(key=lambda item: (item[0], item[1]))
-    start_index, end_index, pattern_name, match = candidates[0]
+    candidates.sort()
+    start_index, _, _, pattern_name, match = candidates[0]
+    end_index = match.end()
+    if pattern_name == "directive_with_argument":
+        directive_name = str(match.group("name") or "")
+        prefix = "{}.. {}::{}".format(
+            str(match.group("indent") or ""),
+            directive_name,
+            str(match.group("spacing") or ""),
+        )
+        argument = str(match.group("argument") or "")
+        slots = [{"type": "directive_prefix", "raw": prefix}]
+        if argument:
+            slots.append(
+                {
+                    "type": "directive_argument",
+                    "directive_name": directive_name,
+                    "source_text": argument,
+                    "translatable": _directive_argument_translatable(directive_name, argument),
+                }
+            )
+        return {
+            "start": start_index,
+            "end": end_index,
+            "slots": slots,
+        }
+    if pattern_name == "directive_line":
+        return {
+            "start": start_index,
+            "end": end_index,
+            "slot": {
+                "type": "directive_line",
+                "raw": match.group(0),
+            },
+        }
     if pattern_name == "role":
         body = str(match.group("body") or "")
         label, target, has_target = _split_role_body(body)
@@ -240,12 +359,64 @@ def _next_markup_match(source, start):
                 "raw": match.group(0),
             },
         }
+    if pattern_name == "reference":
+        return {
+            "start": start_index,
+            "end": end_index,
+            "slot": {
+                "type": "reference_label",
+                "source_text": str(match.group("label") or ""),
+                "suffix": str(match.group("suffix") or "_"),
+                "raw": match.group(0),
+            },
+        }
+    if pattern_name == "footnote_reference":
+        return {
+            "start": start_index,
+            "end": end_index,
+            "slot": {
+                "type": "footnote_reference",
+                "raw": match.group(0),
+            },
+        }
     if pattern_name == "literal":
         return {
             "start": start_index,
             "end": end_index,
             "slot": {
                 "type": "literal",
+                "raw": match.group(0),
+            },
+        }
+    if pattern_name == "strong":
+        return {
+            "start": start_index,
+            "end": end_index,
+            "slot": {
+                "type": "strong_text",
+                "source_text": str(match.group("body") or ""),
+                "raw": match.group(0),
+            },
+        }
+    if pattern_name == "emphasis":
+        return {
+            "start": start_index,
+            "end": end_index,
+            "slot": {
+                "type": "emphasis_text",
+                "source_text": str(match.group("body") or ""),
+                "raw": match.group(0),
+            },
+        }
+    if pattern_name == "interpreted_text":
+        body = str(match.group("body") or "")
+        return {
+            "start": start_index,
+            "end": end_index,
+            "slot": {
+                "type": "interpreted_text",
+                "source_text": body,
+                "translatable": contains_han(body),
                 "raw": match.group(0),
             },
         }
@@ -273,8 +444,39 @@ def _split_role_body(body):
 def _contains_unhandled_rst(text):
     if not text:
         return False
-    sanitized = ROLE_PATTERN.sub(" ", str(text))
+    sanitized = DIRECTIVE_WITH_ARGUMENT_PATTERN.sub(" ", str(text))
+    sanitized = EXPLICIT_MARKUP_LINE_PATTERN.sub(" ", sanitized)
+    sanitized = ROLE_PATTERN.sub(" ", sanitized)
     sanitized = INLINE_LINK_PATTERN.sub(" ", sanitized)
+    sanitized = REFERENCE_PATTERN.sub(" ", sanitized)
+    sanitized = FOOTNOTE_REFERENCE_PATTERN.sub(" ", sanitized)
     sanitized = SUBSTITUTION_PATTERN.sub(" ", sanitized)
     sanitized = INLINE_LITERAL_PATTERN.sub(" ", sanitized)
+    sanitized = STRONG_PATTERN.sub(" ", sanitized)
+    sanitized = EMPHASIS_PATTERN.sub(" ", sanitized)
+    sanitized = INTERPRETED_TEXT_PATTERN.sub(" ", sanitized)
     return bool(UNHANDLED_RST_PATTERN.search(sanitized))
+
+
+def _directive_argument_translatable(name, argument):
+    directive_name = str(name or "").strip().lower()
+    value = str(argument or "").strip()
+    if not value:
+        return False
+    if directive_name in {
+        "image",
+        "figure",
+        "include",
+        "literalinclude",
+        "code-block",
+        "sourcecode",
+        "toctree",
+        "highlight",
+        "math",
+    }:
+        return False
+    if re.match(r"^(https?://|/|\.?/|\.\./)", value):
+        return False
+    if not contains_han(value) and re.match(r"^[A-Za-z0-9_./:#-]+$", value):
+        return False
+    return True

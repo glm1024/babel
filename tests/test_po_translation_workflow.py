@@ -53,6 +53,50 @@ class PoTranslationWorkflowTest(unittest.TestCase):
         )
         self.assertEqual(issue, "候选改动了 rst role target")
 
+    def test_protect_rst_text_supports_single_backtick_interpreted_text(self):
+        protected = protect_rst_text("密码必须包含数字、字母和特殊字符 (`!@#$%^&*?._`)，长度范围为8~30字符。")
+        self.assertTrue(protected["supported"])
+        self.assertEqual(
+            [slot["type"] for slot in protected["slots"]],
+            ["text", "interpreted_text", "text"],
+        )
+        self.assertEqual(
+            [slot["type"] for slot in protected["translatable_slots"]],
+            ["text", "text"],
+        )
+
+    def test_protect_rst_text_prefers_reference_and_link_over_interpreted_text(self):
+        reference = protect_rst_text("详见 `快速入门`_。")
+        self.assertTrue(reference["supported"])
+        self.assertEqual(
+            [slot["type"] for slot in reference["slots"]],
+            ["text", "reference_label", "text"],
+        )
+
+        link = protect_rst_text("访问 `产品文档 <index.html>`_。")
+        self.assertTrue(link["supported"])
+        self.assertEqual(
+            [slot["type"] for slot in link["slots"]],
+            ["text", "link_label", "text"],
+        )
+
+    def test_protect_rst_text_supports_directive_argument_translation(self):
+        protected = protect_rst_text(".. note:: 这是重要说明")
+        self.assertTrue(protected["supported"])
+        self.assertEqual(
+            [slot["type"] for slot in protected["slots"]],
+            ["directive_prefix", "directive_argument"],
+        )
+        self.assertEqual(
+            [slot["type"] for slot in protected["translatable_slots"]],
+            ["directive_argument"],
+        )
+
+    def test_validate_protected_candidate_rejects_non_translatable_directive_argument_change(self):
+        protected = protect_rst_text(".. image:: /static/demo.png")
+        issue = validate_protected_candidate(protected, ".. image:: /static/other.png")
+        self.assertEqual(issue, "候选改动了 rst 指令参数")
+
     def test_po_translation_session_skips_accurate_existing_msgstr(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             po_path = Path(temp_dir) / "doc.po"
@@ -85,6 +129,158 @@ class PoTranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(snapshot["status"]["status"], "done")
             self.assertEqual(snapshot["status"]["counts"]["skipped"], 1)
             self.assertEqual(snapshot["pending_items"], [])
+
+    def test_po_translation_session_copies_non_chinese_msgid_into_empty_msgstr(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            po_path = Path(temp_dir) / "doc.po"
+            po_path.write_text(
+                'msgid ""\n'
+                'msgstr ""\n'
+                '"Project-Id-Version: Demo\\\\n"\n'
+                '\n'
+                '#: ../../source/demo.rst:2\n'
+                'msgid "Elastic Compute Service"\n'
+                'msgstr ""\n',
+                encoding="utf-8",
+            )
+
+            session = PoTranslationSession(
+                po_path=po_path,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 200},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "slot_translations": {},
+                    "reason": "ok",
+                },
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            snapshot = session.snapshot()
+            self.assertEqual(snapshot["status"]["status"], "done")
+            self.assertEqual(snapshot["status"]["counts"]["accepted"], 1)
+            self.assertEqual(snapshot["status"]["counts"]["filled"], 1)
+            self.assertEqual(snapshot["status"]["counts"]["skipped"], 0)
+            self.assertIn('msgstr "Elastic Compute Service"', po_path.read_text(encoding="utf-8"))
+
+    def test_po_translation_session_overwrites_existing_msgstr_with_non_chinese_msgid(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            po_path = Path(temp_dir) / "doc.po"
+            po_path.write_text(
+                'msgid ""\n'
+                'msgstr ""\n'
+                '"Project-Id-Version: Demo\\\\n"\n'
+                '\n'
+                '#: ../../source/demo.rst:3\n'
+                'msgid "Floating IP"\n'
+                'msgstr "Old translation"\n',
+                encoding="utf-8",
+            )
+
+            session = PoTranslationSession(
+                po_path=po_path,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 200},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "slot_translations": {},
+                    "reason": "ok",
+                },
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            snapshot = session.snapshot()
+            self.assertEqual(snapshot["status"]["status"], "done")
+            self.assertEqual(snapshot["status"]["counts"]["accepted"], 1)
+            self.assertEqual(snapshot["status"]["counts"]["updated"], 1)
+            self.assertEqual(snapshot["status"]["counts"]["skipped"], 0)
+            self.assertIn('msgstr "Floating IP"', po_path.read_text(encoding="utf-8"))
+
+    def test_po_translation_session_handles_single_backtick_rst_without_skip(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            po_path = Path(temp_dir) / "doc.po"
+            po_path.write_text(
+                'msgid ""\n'
+                'msgstr ""\n'
+                '"Project-Id-Version: Demo\\\\n"\n'
+                '\n'
+                '#: ../../source/demo.rst:3\n'
+                'msgid "密码必须包含数字、字母和特殊字符 (`!@#$%^&*?._`)，长度范围为8~30字符。"\n'
+                'msgstr ""\n',
+                encoding="utf-8",
+            )
+
+            def fake_model(**kwargs):
+                slots = kwargs["protected_source"]["translatable_slots"]
+                return {
+                    "verdict": "needs_update",
+                    "slot_translations": {
+                        slots[0]["slot_id"]: "The password must contain digits, letters, and special characters (",
+                        slots[1]["slot_id"]: "), and must be 8 to 30 characters long.",
+                    },
+                    "reason": "ok",
+                }
+
+            session = PoTranslationSession(
+                po_path=po_path,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 200},
+                model_runner=fake_model,
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            snapshot = session.snapshot()
+            self.assertEqual(snapshot["status"]["counts"]["unsupported"], 0)
+            self.assertEqual(snapshot["status"]["counts"]["pending"], 1)
+            pending = snapshot["pending_items"][0]
+            self.assertIn("`!@#$%^&*?._`", pending["candidate_text"])
+            self.assertNotIn("已跳过：rst 结构暂不支持", [item["label"] for item in snapshot["events"]])
+
+    def test_po_translation_session_translates_directive_argument_without_skip(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            po_path = Path(temp_dir) / "doc.po"
+            po_path.write_text(
+                'msgid ""\n'
+                'msgstr ""\n'
+                '"Project-Id-Version: Demo\\\\n"\n'
+                '\n'
+                '#: ../../source/demo.rst:4\n'
+                'msgid ".. note:: 这是重要说明"\n'
+                'msgstr ""\n',
+                encoding="utf-8",
+            )
+
+            def fake_model(**kwargs):
+                slots = kwargs["protected_source"]["translatable_slots"]
+                return {
+                    "verdict": "needs_update",
+                    "slot_translations": {
+                        slots[0]["slot_id"]: "This is an important note",
+                    },
+                    "reason": "ok",
+                }
+
+            session = PoTranslationSession(
+                po_path=po_path,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 200},
+                model_runner=fake_model,
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            snapshot = session.snapshot()
+            self.assertEqual(snapshot["status"]["counts"]["unsupported"], 0)
+            self.assertEqual(snapshot["status"]["counts"]["pending"], 1)
+            pending = snapshot["pending_items"][0]
+            self.assertEqual(pending["candidate_text"], ".. note:: This is an important note")
 
     def test_po_translation_session_fills_empty_msgstr_after_accept(self):
         with tempfile.TemporaryDirectory() as temp_dir:
