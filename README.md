@@ -354,3 +354,11 @@ PYTHONPATH=src python3 -m zh_audit validate \
 - 扫描运行时，不能启动任意翻译任务
 - 任一翻译任务运行时，不能开始新扫描
 - 三种翻译任务彼此之间也不能并发运行
+
+## 本地打tar包方式
+
+```sh
+rm -rf babel.tar.gz && cd babel/ && git pull && cd ../
+tar -czvf babel.tar.gz --exclude='.git' babel/
+```
+
