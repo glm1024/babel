@@ -20,6 +20,39 @@ def _pass_review(**kwargs):
 
 
 class PoTranslationWorkflowTest(unittest.TestCase):
+    def test_po_translation_session_processing_log_keeps_recent_1000_events(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            po_path = Path(temp_dir) / "doc.po"
+            po_path.write_text(
+                'msgid ""\n'
+                'msgstr ""\n'
+                '"Project-Id-Version: Demo\\\\n"\n'
+                '\n'
+                '#: ../../source/demo.rst:1\n'
+                'msgid "创建全新虚拟机"\n'
+                'msgstr ""\n',
+                encoding="utf-8",
+            )
+
+            session = PoTranslationSession(
+                po_path=po_path,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 200},
+                model_runner=lambda **kwargs: {"verdict": "accurate", "slot_translations": {}, "reason": "ok"},
+                reviewer_runner=_pass_review,
+            )
+
+            for index in range(1005):
+                session._push_event(
+                    "测试",
+                    {"entry_id": "po-{}".format(index), "references": [], "source_text": "源文案 {}".format(index)},
+                    "译文 {}".format(index),
+                )
+
+            self.assertEqual(len(session.events), 1000)
+            self.assertEqual(session.events[0]["entry_id"], "po-1004")
+            self.assertEqual(session.events[-1]["entry_id"], "po-5")
+
     def test_po_translation_review_prompt_ignores_previous_english_value(self):
         prompt = build_po_translation_review_system_prompt()
         self.assertIn("Ignore any previous English wording.", prompt)

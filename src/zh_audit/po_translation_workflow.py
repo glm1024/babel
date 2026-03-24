@@ -38,6 +38,7 @@ from zh_audit.utils import contains_han, decode_unicode_escapes
 
 
 PO_TRANSLATION_SESSION_VERSION = 2
+PO_TRANSLATION_EVENT_HISTORY_LIMIT = 1000
 
 
 def default_po_translation_config():
@@ -1142,7 +1143,7 @@ class PoTranslationSession(object):
                 "target_text": detail,
             },
         )
-        del self.events[100:]
+        del self.events[PO_TRANSLATION_EVENT_HISTORY_LIMIT:]
 
     def _require_pending_item(self, item_id):
         item = self.items.get(item_id)

@@ -23,6 +23,49 @@ def _pass_review(**kwargs):
 
 
 class SqlTranslationWorkflowTest(unittest.TestCase):
+    def test_sql_translation_session_processing_log_keeps_recent_1000_events(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sql_dir = root / "sql"
+            sql_dir.mkdir()
+            (sql_dir / "demo.sql").write_text(
+                "INSERT INTO t_demo (id, name_zh, name_en) VALUES ('1', '中文', 'English');\n",
+                encoding="utf-8",
+            )
+
+            session = SqlTranslationSession(
+                directory_path=sql_dir,
+                table_name="t_demo",
+                primary_key_field="id",
+                source_field="name_zh",
+                target_field="name_en",
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {"verdict": "accurate", "candidate_translation": "English", "reason": "ok"},
+                reviewer_runner=_pass_review,
+                rows=[],
+                scan_events=[],
+            )
+
+            for index in range(1005):
+                session._push_event(
+                    "测试",
+                    {
+                        "source_path": "demo.sql",
+                        "line": index + 1,
+                        "primary_key_display": str(index),
+                        "source_text": "源文案 {}".format(index),
+                        "reason": "",
+                        "parse_phase": "",
+                        "statement_preview": "",
+                    },
+                    "译文 {}".format(index),
+                )
+
+            self.assertEqual(len(session.events), 1000)
+            self.assertEqual(session.events[0]["line"], 1005)
+            self.assertEqual(session.events[-1]["line"], 6)
+
     def test_sql_translation_review_prompt_ignores_previous_english_value(self):
         prompt = build_sql_translation_review_system_prompt()
         self.assertIn("Judge candidate_text against source_text, placeholders, locked_terms, and extra_prompt", prompt)

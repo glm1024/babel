@@ -29,6 +29,29 @@ def _pass_review(**kwargs):
 
 
 class TranslationWorkflowTest(unittest.TestCase):
+    def test_translation_session_processing_log_keeps_recent_1000_events(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "zh.properties"
+            target = Path(temp_dir) / "en.properties"
+            source.write_text("KEY=value\n", encoding="utf-8")
+            target.write_text("KEY=value\n", encoding="utf-8")
+
+            session = TranslationSession(
+                source_path=source,
+                target_path=target,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {"verdict": "accurate", "candidate_translation": "value", "reason": "ok"},
+                reviewer_runner=_pass_review,
+            )
+
+            for index in range(1005):
+                session._push_event("测试", "KEY_{}".format(index), "源文案 {}".format(index), "译文 {}".format(index))
+
+            self.assertEqual(len(session.events), 1000)
+            self.assertEqual(session.events[0]["key"], "KEY_1004")
+            self.assertEqual(session.events[-1]["key"], "KEY_5")
+
     def test_translation_review_user_prompt_does_not_include_current_target_text(self):
         prompt = build_translation_review_user_prompt(
             key="API_NOT_FOUND",

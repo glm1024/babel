@@ -32,6 +32,7 @@ from zh_audit.utils import contains_han, decode_unicode_escapes
 
 
 TRANSLATION_SESSION_VERSION = 1
+TRANSLATION_EVENT_HISTORY_LIMIT = 1000
 
 
 def default_translation_config():
@@ -905,7 +906,7 @@ class TranslationSession(object):
                 "target_text": target_text,
             },
         )
-        del self.events[100:]
+        del self.events[TRANSLATION_EVENT_HISTORY_LIMIT:]
 
     def _require_pending_item(self, item_id):
         item = self.items.get(item_id)
