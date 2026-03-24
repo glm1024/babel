@@ -2064,13 +2064,13 @@ __REPORT_COMPONENT_BUNDLE__
 
     function escapeHtml(value) {
       return String(value ?? "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;");
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
     }
 
     function escapeAttr(value) {
-      return escapeHtml(value).replaceAll('"', "&quot;");
+      return escapeHtml(value).replace(/"/g, "&quot;");
     }
 
     function renderDebugBlock(label, value) {

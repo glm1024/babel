@@ -288,6 +288,9 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("function renderModelDebugInfo(item)", html)
             self.assertIn("function captureListViewport(listElement)", html)
             self.assertIn("function restoreListViewport(listElement, viewport, topViewportKey)", html)
+            self.assertNotIn("replaceAll(", html)
+            self.assertIn('.replace(/&/g, "&amp;")', html)
+            self.assertIn('.replace(/"/g, "&quot;")', html)
             self.assertIn("模型原始候选", html)
             self.assertIn("原始说明", html)
             self.assertIn("解析错误", html)
@@ -883,7 +886,7 @@ class AppServerSmokeTest(unittest.TestCase):
                 self.assertEqual(latest["status"]["counts"]["glossary_applied"], 1)
                 self.assertEqual(latest["status"]["counts"]["pending"], 1)
                 pending = latest["pending_items"][0]
-                self.assertEqual(pending["candidate_text"], "create Peering Connections: {0}")
+                self.assertEqual(pending["candidate_text"], "create peering connection: {0}")
                 self.assertTrue(pending["can_accept"])
                 self.assertEqual(pending["generation_attempts_used"], 1)
                 self.assertGreaterEqual(pending["model_calls_used"], 2)
@@ -891,8 +894,8 @@ class AppServerSmokeTest(unittest.TestCase):
                 accepted = state.translation_accept(pending["id"])
                 self.assertEqual(accepted["status"]["counts"]["accepted"], 2)
                 target_text = target.read_text(encoding="utf-8")
-                self.assertIn("RESOURCE_POOL=resource pool", target_text)
-                self.assertIn("NETWORK_LINK_ADD=create Peering Connections: {0}", target_text)
+                self.assertIn("RESOURCE_POOL=Resource pool", target_text)
+                self.assertIn("NETWORK_LINK_ADD=create peering connection: {0}", target_text)
                 self.assertNotIn("# Added by zh-audit 码值校译", target_text)
                 self.assertFalse(any(path.name.startswith("messages_en.properties.bak.") for path in root.iterdir()))
 
@@ -1017,7 +1020,7 @@ class AppServerSmokeTest(unittest.TestCase):
                 pending = latest["pending_items"][0]
                 accepted = reloaded.translation_accept(pending["id"])
                 self.assertEqual(accepted["status"]["counts"]["accepted"], 1)
-                self.assertIn("NETWORK_LINK_ADD=create Peering Connections: {0}", target.read_text(encoding="utf-8"))
+                self.assertIn("NETWORK_LINK_ADD=create peering connection: {0}", target.read_text(encoding="utf-8"))
 
     def test_sql_translation_task_roundtrip_and_resume(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1098,7 +1101,7 @@ class AppServerSmokeTest(unittest.TestCase):
                 self.assertEqual(accepted["status"]["counts"]["accepted"], 1)
                 content = output_path.read_text(encoding="utf-8")
                 self.assertIn("-- item:", content)
-                self.assertIn("UPDATE t_demo SET name_en = 'resource pool' WHERE id = '1';", content)
+                self.assertIn("UPDATE t_demo SET name_en = 'Resource pool' WHERE id = '1';", content)
                 self.assertEqual(content.count("-- item:"), 1)
 
 

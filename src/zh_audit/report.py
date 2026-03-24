@@ -1081,17 +1081,17 @@ def render_report(summary, findings, client_config=None):
 
     function escapeHtml(value) {
       return String(value ?? "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;");
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
     }
 
     function escapeAttr(value) {
-      return escapeHtml(value).replaceAll('"', "&quot;");
+      return escapeHtml(value).replace(/"/g, "&quot;");
     }
 
     function baseName(path) {
-      const normalized = String(path || "").replaceAll("\\\\", "/");
+      const normalized = String(path || "").replace(/\\\\/g, "/");
       const parts = normalized.split("/");
       const fileName = parts[parts.length - 1] || normalized;
       const extensionIndex = fileName.lastIndexOf(".");
@@ -1531,7 +1531,7 @@ def render_report(summary, findings, client_config=None):
 
     function csvEscape(value) {
       const text = String(value ?? "");
-      return `"${text.replaceAll('"', '""')}"`;
+      return `"${text.replace(/"/g, '""')}"`;
     }
 
     function resetAndRender() {
