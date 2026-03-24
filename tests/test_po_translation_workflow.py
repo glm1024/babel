@@ -285,6 +285,69 @@ class PoTranslationWorkflowTest(unittest.TestCase):
             pending = session.snapshot()["pending_items"][0]
             self.assertEqual(pending["candidate_text"], 'Click "OK" button.')
 
+    def test_po_translation_session_normalizes_locked_term_case_mid_sentence(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            po_path = Path(temp_dir) / "doc.po"
+            po_path.write_text(
+                'msgid ""\n'
+                'msgstr ""\n'
+                '"Project-Id-Version: Demo\\\\n"\n'
+                '\n'
+                '#: ../../source/demo.rst:3\n'
+                'msgid "裸金属服务器名称超过最大长度。"\n'
+                'msgstr ""\n',
+                encoding="utf-8",
+            )
+
+            def fake_model(**kwargs):
+                slots = kwargs["protected_source"]["translatable_slots"]
+                return {
+                    "verdict": "needs_update",
+                    "slot_translations": {
+                        slots[0]["slot_id"]: "The Bare Metal Server name exceeds the maximum length.",
+                    },
+                    "reason": "ok",
+                }
+
+            session = PoTranslationSession(
+                po_path=po_path,
+                glossary={"裸金属服务器": "Bare Metal Server"},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 200},
+                model_runner=fake_model,
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(pending["candidate_text"], "The bare metal server name exceeds the maximum length.")
+
+    def test_po_translation_session_normalizes_exact_glossary_term_case_for_sentence_start(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            po_path = Path(temp_dir) / "doc.po"
+            po_path.write_text(
+                'msgid ""\n'
+                'msgstr ""\n'
+                '"Project-Id-Version: Demo\\\\n"\n'
+                '\n'
+                '#: ../../source/demo.rst:3\n'
+                'msgid "裸金属服务器"\n'
+                'msgstr ""\n',
+                encoding="utf-8",
+            )
+
+            session = PoTranslationSession(
+                po_path=po_path,
+                glossary={"裸金属服务器": "Bare Metal Server"},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 200},
+                model_runner=lambda **kwargs: (_ for _ in ()).throw(AssertionError("model should not be called")),
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            self.assertIn('msgstr "Bare metal server"', po_path.read_text(encoding="utf-8"))
+
     def test_po_translation_session_accept_writes_unescaped_quotes(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             po_path = Path(temp_dir) / "doc.po"

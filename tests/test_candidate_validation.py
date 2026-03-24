@@ -1,12 +1,37 @@
 import unittest
 
-from zh_audit.candidate_validation import normalize_english_punctuation, normalize_review_result
+from zh_audit.candidate_validation import (
+    normalize_english_punctuation,
+    normalize_locked_term_grammar_case,
+    normalize_review_result,
+)
 
 
 class CandidateValidationTest(unittest.TestCase):
     def test_normalize_english_punctuation_rewrites_common_cjk_symbols(self):
         normalized = normalize_english_punctuation('单击“确定”按钮（推荐）……【立即创建】')
         self.assertEqual(normalized, '单击"确定"按钮(推荐)...[立即创建]')
+
+    def test_normalize_locked_term_grammar_case_lowercases_ordinary_words_mid_sentence(self):
+        normalized = normalize_locked_term_grammar_case(
+            "The Bare Metal Server name exceeds the maximum length.",
+            [{"source": "裸金属服务器", "target": "Bare Metal Server"}],
+        )
+
+        self.assertEqual(normalized, "The bare metal server name exceeds the maximum length.")
+
+    def test_normalize_locked_term_grammar_case_capitalizes_sentence_initial_term_and_preserves_acronyms(self):
+        normalized = normalize_locked_term_grammar_case(
+            "bare metal server uses IP and ECS CPU.",
+            [
+                {"source": "裸金属服务器", "target": "Bare Metal Server"},
+                {"source": "弹性IP", "target": "IP"},
+                {"source": "弹性云服务器", "target": "ECS"},
+                {"source": "处理器", "target": "CPU"},
+            ],
+        )
+
+        self.assertEqual(normalized, "Bare metal server uses IP and ECS CPU.")
 
     def test_normalize_review_result_ignores_case_only_terminology_issue(self):
         normalized = normalize_review_result(

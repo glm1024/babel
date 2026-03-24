@@ -18,6 +18,7 @@ from zh_audit.candidate_validation import (
     has_matching_placeholders,
     is_chinese_explanation_text,
     normalize_english_punctuation,
+    normalize_locked_term_grammar_case,
     normalize_review_result,
     retry_context_preview,
     sanitize_candidate_text,
@@ -407,8 +408,12 @@ class SqlTranslationSession(object):
 
         exact_translation = exact_terminology_translation(source_text, self.glossary)
         locked_terms = match_locked_terms(source_text, self.glossary)
+        normalized_exact_translation = normalize_locked_term_grammar_case(
+            normalize_english_punctuation(exact_translation),
+            locked_terms,
+        )
         if exact_translation:
-            if target_text.strip() == exact_translation.strip():
+            if sanitize_candidate_text(target_text) == sanitize_candidate_text(normalized_exact_translation):
                 with self.lock:
                     self.processed += 1
                     self.skipped += 1
@@ -419,7 +424,7 @@ class SqlTranslationSession(object):
             item = self._create_item(
                 row=row,
                 target_text=target_text,
-                candidate_text=exact_translation,
+                candidate_text=normalized_exact_translation,
                 locked_terms=locked_terms,
                 reason="整句命中术语词典。",
                 verdict="needs_update",
@@ -789,13 +794,23 @@ class SqlTranslationSession(object):
 
     def _normalize_model_result(self, item, result, current_target):
         verdict = str(result.get("verdict", "") or "").strip().lower()
-        candidate = sanitize_candidate_text(normalize_english_punctuation(result.get("candidate_translation", "")))
+        locked_terms = list(item.get("locked_terms", []))
+        candidate = sanitize_candidate_text(
+            normalize_locked_term_grammar_case(
+                normalize_english_punctuation(result.get("candidate_translation", "")),
+                locked_terms,
+            )
+        )
         reason = _display_text(result.get("reason", "")).strip()
         if verdict not in ("accurate", "needs_update"):
             verdict = "needs_update"
-        locked_terms = list(item.get("locked_terms", []))
         target_missing = bool(item.get("target_missing", not str(current_target or "").strip()))
-        normalized_current_target = sanitize_candidate_text(normalize_english_punctuation(current_target))
+        normalized_current_target = sanitize_candidate_text(
+            normalize_locked_term_grammar_case(
+                normalize_english_punctuation(current_target),
+                locked_terms,
+            )
+        )
         if verdict == "accurate" and target_missing:
             verdict = "needs_update"
         if verdict == "accurate":
@@ -1915,7 +1930,9 @@ def build_sql_translation_system_prompt():
         "reason must be written in Simplified Chinese.\n"
         "Do not output English in reason unless it is a required technical term quoted from the source or candidate text.\n"
         "Preserve placeholders exactly, including {0}, {}, %s, ${name} and similar forms.\n"
-        "If locked_terms are provided, candidate_translation must use the target terms exactly as given, while sentence-initial capitalization is allowed.\n"
+        "If locked_terms are provided, candidate_translation must use the glossary wording but adjust capitalization to fit English grammar.\n"
+        "When a locked term appears at the start of a sentence, capitalize only the first ordinary word as needed.\n"
+        "When a locked term appears mid-sentence, use normal lowercase for ordinary words instead of copying title case from the glossary. Preserve acronyms such as IP, ECS, or CPU.\n"
         "If extra_prompt is provided, treat it as a high-priority additional instruction and apply it unless it conflicts with source_text meaning, placeholders, or locked_terms.\n"
         "If target_text is already accurate, set verdict=accurate and candidate_translation to the unchanged target_text."
     )

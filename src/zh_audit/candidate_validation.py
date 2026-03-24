@@ -87,6 +87,7 @@ ENGLISH_PUNCTUATION_TRANSLATION = str.maketrans(
         "　": " ",
     }
 )
+LOCKED_TERM_WORD_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9'-]*")
 
 
 def sanitize_candidate_text(value):
@@ -106,6 +107,50 @@ def normalize_english_punctuation(value):
     text = text.replace("——", "-")
     text = text.replace("—", "-")
     return text.translate(ENGLISH_PUNCTUATION_TRANSLATION)
+
+
+def normalize_locked_term_grammar_case(candidate, locked_terms):
+    text = decode_unicode_escapes(str(candidate or ""))
+    if not text or not locked_terms:
+        return text
+
+    replacements = []
+    occupied = []
+    targets = []
+    for term in locked_terms or []:
+        target = decode_unicode_escapes(str(term.get("target", "") or "")).strip()
+        if target:
+            targets.append(target)
+    for target in sorted(set(targets), key=lambda value: (-len(value), value.casefold())):
+        pattern = re.compile(re.escape(target), re.IGNORECASE)
+        for match in pattern.finditer(text):
+            start, end = match.span()
+            if _ranges_overlap(occupied, start, end):
+                continue
+            if not _has_term_boundary(text, start, end):
+                continue
+            replacements.append(
+                (
+                    start,
+                    end,
+                    _normalized_locked_term_surface(
+                        target,
+                        sentence_initial=_is_sentence_initial_term_occurrence(text, start),
+                    ),
+                )
+            )
+            occupied.append((start, end))
+    if not replacements:
+        return text
+    replacements.sort(key=lambda item: item[0])
+    pieces = []
+    last_index = 0
+    for start, end, replacement in replacements:
+        pieces.append(text[last_index:start])
+        pieces.append(replacement)
+        last_index = end
+    pieces.append(text[last_index:])
+    return "".join(pieces)
 
 
 def extract_placeholders(text):
@@ -282,6 +327,68 @@ def retry_strategy_name(attempt_number):
     except (TypeError, ValueError):
         attempt = 1
     return RETRY_STRATEGY_NAMES.get(attempt, "结构化修复")
+
+
+def _ranges_overlap(ranges, start, end):
+    for current_start, current_end in ranges:
+        if start < current_end and end > current_start:
+            return True
+    return False
+
+
+def _has_term_boundary(text, start, end):
+    if start > 0 and _is_word_char(text[start - 1]) and _is_word_char(text[start]):
+        return False
+    if end < len(text) and _is_word_char(text[end - 1]) and _is_word_char(text[end]):
+        return False
+    return True
+
+
+def _is_word_char(char):
+    return bool(char) and (char.isalnum() or char == "_")
+
+
+def _is_sentence_initial_term_occurrence(text, start):
+    index = int(start) - 1
+    while index >= 0:
+        current = text[index]
+        if current.isspace():
+            index -= 1
+            continue
+        if current in "\"'([{":
+            index -= 1
+            continue
+        return current in ".!?:;\n"
+    return True
+
+
+def _normalized_locked_term_surface(target, sentence_initial):
+    pieces = []
+    last_index = 0
+    first_word = True
+    for match in LOCKED_TERM_WORD_PATTERN.finditer(str(target or "")):
+        pieces.append(target[last_index:match.start()])
+        pieces.append(_normalized_locked_term_word(match.group(0), capitalize=sentence_initial and first_word))
+        first_word = False
+        last_index = match.end()
+    pieces.append(target[last_index:])
+    return "".join(pieces)
+
+
+def _normalized_locked_term_word(word, capitalize):
+    value = str(word or "")
+    if not value:
+        return value
+    if any(char.isdigit() for char in value):
+        return value
+    if value.isupper() and len(value) > 1:
+        return value
+    if any(char.isupper() for char in value[1:]) and any(char.islower() for char in value):
+        return value
+    normalized = value.lower()
+    if capitalize:
+        return normalized[:1].upper() + normalized[1:]
+    return normalized
 
 
 def build_retry_context(

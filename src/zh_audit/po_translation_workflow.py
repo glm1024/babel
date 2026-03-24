@@ -17,6 +17,7 @@ from zh_audit.candidate_validation import (
     has_matching_placeholders,
     is_chinese_explanation_text,
     normalize_english_punctuation,
+    normalize_locked_term_grammar_case,
     normalize_review_result,
     retry_context_preview,
     sanitize_candidate_text,
@@ -379,8 +380,12 @@ class PoTranslationSession(object):
         slots = protected_source.get("slots", [])
         if len(slots) == 1 and slots[0].get("type") == "text":
             exact_translation = exact_terminology_translation(source_text, self.glossary)
+        normalized_exact_translation = normalize_locked_term_grammar_case(
+            normalize_english_punctuation(exact_translation),
+            locked_terms,
+        )
         if exact_translation:
-            if sanitize_candidate_text(target_text) == sanitize_candidate_text(exact_translation):
+            if sanitize_candidate_text(target_text) == sanitize_candidate_text(normalized_exact_translation):
                 with self.lock:
                     self.processed += 1
                     self.skipped += 1
@@ -392,7 +397,7 @@ class PoTranslationSession(object):
                 source_text=source_text,
                 target_text=target_text,
                 protected_source=protected_source,
-                candidate_text=exact_translation,
+                candidate_text=normalized_exact_translation,
                 locked_terms=locked_terms,
                 active_frontend_terms=[],
                 frontend_glossary_enabled=False,
@@ -813,7 +818,7 @@ class PoTranslationSession(object):
         locked_terms = [dict(term) for term in item.get("locked_terms", [])]
         target_missing = bool(item.get("target_missing", not str(current_target or "").strip()))
         protected_source = dict(item.get("protected_source", {}))
-        normalized_current_target = _normalize_protected_english_candidate_text(current_target)
+        normalized_current_target = _normalize_protected_english_candidate_text(current_target, locked_terms)
         if verdict == "accurate" and target_missing:
             verdict = "needs_update"
         if verdict == "accurate":
@@ -846,7 +851,7 @@ class PoTranslationSession(object):
             for slot_id, payload in slot_payload.items()
         }
         candidate = compose_protected_text(protected_source, slot_translations)
-        candidate = sanitize_candidate_text(candidate)
+        candidate = sanitize_candidate_text(normalize_locked_term_grammar_case(candidate, locked_terms))
         if not candidate:
             raise ValueError("Model did not return candidate translation for PO entry {}".format(item.get("entry_id", "")))
         frontend_ui_slots = sorted(
@@ -1350,7 +1355,9 @@ def build_po_translation_system_prompt():
         "When frontend_ui_context=true, use frontend_locked_terms exactly as given if they are relevant.\n"
         "Each translation must be natural English and must not contain Chinese explanations, JSON, or multiple lines.\n"
         "reason must be written in Simplified Chinese.\n"
-        "If locked_terms are provided, the translated slots must use the target terms exactly as given, while sentence-initial capitalization is allowed.\n"
+        "If locked_terms are provided, the translated slots must use the glossary wording but adjust capitalization to fit English grammar.\n"
+        "When a locked term appears at the start of a sentence, capitalize only the first ordinary word as needed.\n"
+        "When a locked term appears mid-sentence, use normal lowercase for ordinary words instead of copying title case from the glossary. Preserve acronyms such as IP, ECS, or CPU.\n"
         "If extra_prompt is provided, treat it as a high-priority additional instruction unless it conflicts with source meaning, placeholders, locked_terms, or protected rst structure.\n"
         "If target_text is already accurate, set verdict=accurate and slot_translations to an empty object."
     )
@@ -1422,20 +1429,30 @@ def _normalize_reason(reason, fallback):
     return str(fallback or "").strip()
 
 
-def _normalize_protected_english_candidate_text(candidate_text):
+def _normalize_protected_english_candidate_text(candidate_text, locked_terms=None):
     value = sanitize_candidate_text(candidate_text)
     if not value:
         return ""
     protected = protect_rst_text(value)
     if not protected.get("supported", False):
-        return sanitize_candidate_text(normalize_english_punctuation(value))
+        return sanitize_candidate_text(
+            normalize_locked_term_grammar_case(
+                normalize_english_punctuation(value),
+                locked_terms,
+            )
+        )
     slot_translations = {}
     for slot in protected.get("translatable_slots", []):
         slot_id = str(slot.get("slot_id", "") or "")
         if not slot_id:
             continue
         slot_translations[slot_id] = normalize_english_punctuation(slot.get("source_text", ""))
-    return sanitize_candidate_text(compose_protected_text(protected, slot_translations))
+    return sanitize_candidate_text(
+        normalize_locked_term_grammar_case(
+            compose_protected_text(protected, slot_translations),
+            locked_terms,
+        )
+    )
 
 
 def _preview(value, limit=60):

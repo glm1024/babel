@@ -409,7 +409,7 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
 
             content = output_path.read_text(encoding="utf-8")
             self.assertIn("-- item:", content)
-            self.assertIn("UPDATE t_demo SET name_en = 'resource pool' WHERE id = '1';", content)
+            self.assertIn("UPDATE t_demo SET name_en = 'Resource pool' WHERE id = '1';", content)
             self.assertNotIn("create link: {0}", content)
             self.assertGreaterEqual(len(calls), 2)
 
@@ -557,6 +557,66 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(pending["validation_state"], "passed")
             self.assertTrue(pending["can_accept"])
             self.assertEqual(pending["candidate_text"], "Host group exception")
+
+    def test_sql_translation_session_normalizes_locked_term_case_mid_sentence(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sql_dir = root / "sql"
+            sql_dir.mkdir()
+            (sql_dir / "demo.sql").write_text(
+                "INSERT INTO t_demo (id, name_zh, name_en) VALUES ('1', '裸金属服务器名称超过最大长度。', '');\n",
+                encoding="utf-8",
+            )
+
+            session = SqlTranslationSession(
+                directory_path=sql_dir,
+                table_name="t_demo",
+                primary_key_field="id",
+                source_field="name_zh",
+                target_field="name_en",
+                glossary={"裸金属服务器": "Bare Metal Server"},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": "The Bare Metal Server name exceeds the maximum length.",
+                    "reason": "ok",
+                },
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(pending["candidate_text"], "The bare metal server name exceeds the maximum length.")
+
+    def test_sql_translation_session_normalizes_exact_glossary_term_case_for_sentence_start(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sql_dir = root / "sql"
+            sql_dir.mkdir()
+            sql_path = sql_dir / "demo.sql"
+            sql_path.write_text(
+                "INSERT INTO t_demo (id, name_zh, name_en) VALUES ('1', '裸金属服务器', '');\n",
+                encoding="utf-8",
+            )
+
+            session = SqlTranslationSession(
+                directory_path=sql_dir,
+                table_name="t_demo",
+                primary_key_field="id",
+                source_field="name_zh",
+                target_field="name_en",
+                glossary={"裸金属服务器": "Bare Metal Server"},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: (_ for _ in ()).throw(AssertionError("model should not be called")),
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            snapshot = session.snapshot()
+            self.assertEqual(snapshot["status"]["counts"]["pending"], 1)
+            self.assertEqual(snapshot["pending_items"][0]["candidate_text"], "Bare metal server")
 
     def test_sql_translation_session_ignores_case_only_terminology_review_issue(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -904,7 +964,7 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(snapshot["status"]["counts"]["pending"], 0)
             self.assertEqual(snapshot["events"][0]["label"], "已自动审批")
             self.assertIn(
-                "UPDATE t_demo SET name_en = 'resource pool' WHERE id = '1';",
+                "UPDATE t_demo SET name_en = 'Resource pool' WHERE id = '1';",
                 Path(session.output_path).read_text(encoding="utf-8"),
             )
 

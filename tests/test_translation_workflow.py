@@ -212,7 +212,7 @@ class TranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(snapshot["status"]["status"], "done")
             self.assertEqual(snapshot["status"]["counts"]["accepted"], 1)
             self.assertEqual(snapshot["status"]["counts"]["glossary_applied"], 1)
-            self.assertEqual(target.read_text(encoding="utf-8"), "HOST_GROUP=host group\n")
+            self.assertEqual(target.read_text(encoding="utf-8"), "HOST_GROUP=Host group\n")
 
     def test_translation_session_pending_regenerate_and_accept_replace_rhs_only(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -339,6 +339,51 @@ class TranslationWorkflowTest(unittest.TestCase):
             self.assertTrue(pending["can_accept"])
             self.assertEqual(pending["candidate_text"], "Host group exception")
 
+    def test_translation_session_normalizes_locked_term_case_mid_sentence(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "zh.properties"
+            target = Path(temp_dir) / "en.properties"
+            source.write_text("BM_NAME_LIMIT=裸金属服务器名称超过最大长度。\n", encoding="utf-8")
+            target.write_text("", encoding="utf-8")
+
+            session = TranslationSession(
+                source_path=source,
+                target_path=target,
+                glossary={"裸金属服务器": "Bare Metal Server"},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": "The Bare Metal Server name exceeds the maximum length.",
+                    "reason": "ok",
+                },
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(pending["candidate_text"], "The bare metal server name exceeds the maximum length.")
+
+    def test_translation_session_normalizes_exact_glossary_term_case_for_sentence_start(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "zh.properties"
+            target = Path(temp_dir) / "en.properties"
+            source.write_text("BM_SERVER=裸金属服务器\n", encoding="utf-8")
+            target.write_text("", encoding="utf-8")
+
+            session = TranslationSession(
+                source_path=source,
+                target_path=target,
+                glossary={"裸金属服务器": "Bare Metal Server"},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: (_ for _ in ()).throw(AssertionError("model should not be called")),
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            self.assertEqual(target.read_text(encoding="utf-8"), "BM_SERVER=Bare metal server\n")
+
     def test_translation_session_appends_missing_target_key_after_accept(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "zh.properties"
@@ -396,7 +441,7 @@ class TranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(snapshot["recent_items"][0]["source_text"], "主机组")
             self.assertEqual(snapshot["events"][0]["source_text"], "主机组")
             self.assertEqual(snapshot["events"][0]["label"], "术语直出")
-            self.assertEqual(target.read_text(encoding="utf-8"), "HOST_GROUP=host group\n")
+            self.assertEqual(target.read_text(encoding="utf-8"), "HOST_GROUP=Host group\n")
 
     def test_translation_session_auto_accept_logs_auto_approved(self):
         with tempfile.TemporaryDirectory() as temp_dir:
