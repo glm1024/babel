@@ -102,6 +102,56 @@ class TranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(pending["validation_state"], "passed")
             self.assertTrue(pending["can_accept"])
 
+    def test_translation_session_normalizes_cjk_punctuation_in_candidate(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "zh.properties"
+            target = Path(temp_dir) / "en.properties"
+            source.write_text('CONFIRM_HINT=单击“确定”按钮。\n', encoding="utf-8")
+            target.write_text("CONFIRM_HINT=\n", encoding="utf-8")
+
+            session = TranslationSession(
+                source_path=source,
+                target_path=target,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": 'Click “OK” button。',
+                    "reason": "ok",
+                },
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(pending["candidate_text"], 'Click "OK" button.')
+
+    def test_translation_session_normalizes_existing_target_when_model_says_accurate(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "zh.properties"
+            target = Path(temp_dir) / "en.properties"
+            source.write_text('CONFIRM_HINT=单击“确定”按钮。\n', encoding="utf-8")
+            target.write_text('CONFIRM_HINT=Click “OK” button。\n', encoding="utf-8")
+
+            session = TranslationSession(
+                source_path=source,
+                target_path=target,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "accurate",
+                    "candidate_translation": 'Click “OK” button。',
+                    "reason": "ok",
+                },
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(pending["candidate_text"], 'Click "OK" button.')
+
     def test_properties_document_preserves_structure_and_appends(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             target = Path(temp_dir) / "messages.properties"
@@ -439,12 +489,14 @@ class TranslationWorkflowTest(unittest.TestCase):
     def test_translation_system_prompt_and_reason_fallback_are_chinese(self):
         prompt = build_translation_system_prompt()
         self.assertIn("reason must be written in Simplified Chinese.", prompt)
+        self.assertIn("Use standard half-width English punctuation.", prompt)
         self.assertIn("If extra_prompt is provided, treat it as a high-priority additional instruction", prompt)
         review_prompt = build_translation_review_system_prompt()
         self.assertIn("Ignore any previous English wording.", review_prompt)
         self.assertNotIn("current_target_text", review_prompt)
         self.assertIn("Judge candidate_text against source_text, placeholders, locked_terms, and extra_prompt", review_prompt)
         self.assertIn("Treat locked_terms matching as case-insensitive.", review_prompt)
+        self.assertIn("keeps Chinese-style punctuation in otherwise English text", review_prompt)
 
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "zh.properties"

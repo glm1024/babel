@@ -33,6 +33,7 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
         self.assertIn("Do not treat style-only suggestions such as 'could be more natural' as hard failures.", prompt)
         self.assertIn("For object issues, message and evidence must be written in Simplified Chinese.", prompt)
         self.assertIn("Do not output English in message or evidence unless it is a required technical term", prompt)
+        self.assertIn("keeps Chinese-style punctuation in otherwise English text", prompt)
         self.assertIn(
             "issues must be either an array of short Simplified Chinese strings or an array of objects with keys code, message, severity, evidence, and expected_term.",
             prompt,
@@ -42,6 +43,38 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
         prompt = build_sql_translation_system_prompt()
         self.assertIn("reason must be written in Simplified Chinese.", prompt)
         self.assertIn("Do not output English in reason unless it is a required technical term quoted", prompt)
+        self.assertIn("Use standard half-width English punctuation.", prompt)
+
+    def test_sql_translation_session_normalizes_cjk_punctuation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sql_dir = root / "sql"
+            sql_dir.mkdir()
+            (sql_dir / "demo.sql").write_text(
+                "INSERT INTO t_demo (id, name_zh, name_en) VALUES ('1', '单击“确定”按钮。', '');\n",
+                encoding="utf-8",
+            )
+
+            session = SqlTranslationSession(
+                directory_path=sql_dir,
+                table_name="t_demo",
+                primary_key_field="id",
+                source_field="name_zh",
+                target_field="name_en",
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "candidate_translation": 'Click “OK” button。',
+                    "reason": "ok",
+                },
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(pending["candidate_text"], 'Click "OK" button.')
 
     def test_sql_translation_user_prompt_omits_sql_trace_fields(self):
         prompt = build_sql_translation_user_prompt(

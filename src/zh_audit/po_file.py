@@ -323,8 +323,6 @@ def _encode_po_quoted_string(value):
     for char in str(value or ""):
         if char == "\\":
             escaped.append("\\\\")
-        elif char == '"':
-            escaped.append('\\"')
         elif char == "\n":
             escaped.append("\\n")
         elif char == "\r":

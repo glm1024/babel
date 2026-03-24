@@ -34,8 +34,8 @@ class PoFileTest(unittest.TestCase):
             with po_path.open(encoding="utf-8", newline="") as handle:
                 rendered = handle.read()
             self.assertIn('#, fuzzy\r\nmsgid ""\r\nmsgstr ""\r\n"Project-Id-Version: Demo\\\\n"\r\n', rendered)
-            self.assertIn('msgstr "In the \\"Cluster List\\" section"\r\n', rendered)
-            self.assertNotIn('msgstr "In the "Cluster List" module"\r\n', rendered)
+            self.assertIn('msgstr "In the "Cluster List" section"\r\n', rendered)
+            self.assertNotIn('msgstr "In the \\"Cluster List\\" section"\r\n', rendered)
 
     def test_po_document_updates_only_target_msgstr_block(self):
         with tempfile.TemporaryDirectory() as temp_dir:

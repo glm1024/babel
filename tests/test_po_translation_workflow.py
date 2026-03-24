@@ -5,6 +5,7 @@ from pathlib import Path
 from zh_audit.po_rst_protection import protect_rst_text, validate_protected_candidate
 from zh_audit.po_translation_workflow import (
     PoTranslationSession,
+    build_po_translation_system_prompt,
     build_po_translation_review_system_prompt,
     build_po_translation_review_user_prompt,
 )
@@ -29,6 +30,11 @@ class PoTranslationWorkflowTest(unittest.TestCase):
         )
         self.assertIn("Do not report that a term should be X if candidate_text already contains X.", prompt)
         self.assertIn("Do not treat style-only suggestions such as 'could be more natural' as hard failures.", prompt)
+        self.assertIn("keeps Chinese-style punctuation in otherwise English text", prompt)
+
+    def test_po_translation_system_prompt_requires_english_punctuation(self):
+        prompt = build_po_translation_system_prompt()
+        self.assertIn("Use standard half-width English punctuation inside translated English text.", prompt)
 
     def test_po_translation_review_user_prompt_does_not_include_current_target_text(self):
         prompt = build_po_translation_review_user_prompt(
@@ -242,6 +248,84 @@ class PoTranslationWorkflowTest(unittest.TestCase):
             self.assertIn("`!@#$%^&*?._`", pending["candidate_text"])
             self.assertNotIn("已跳过：rst 结构暂不支持", [item["label"] for item in snapshot["events"]])
 
+    def test_po_translation_session_normalizes_cjk_punctuation_in_slot_translation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            po_path = Path(temp_dir) / "doc.po"
+            po_path.write_text(
+                'msgid ""\n'
+                'msgstr ""\n'
+                '"Project-Id-Version: Demo\\\\n"\n'
+                '\n'
+                '#: ../../source/demo.rst:3\n'
+                'msgid "单击“确定”按钮。"\n'
+                'msgstr ""\n',
+                encoding="utf-8",
+            )
+
+            def fake_model(**kwargs):
+                slots = kwargs["protected_source"]["translatable_slots"]
+                return {
+                    "verdict": "needs_update",
+                    "slot_translations": {
+                        slots[0]["slot_id"]: 'Click “OK” button。',
+                    },
+                    "reason": "ok",
+                }
+
+            session = PoTranslationSession(
+                po_path=po_path,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 200},
+                model_runner=fake_model,
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(pending["candidate_text"], 'Click "OK" button.')
+
+    def test_po_translation_session_accept_writes_unescaped_quotes(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            po_path = Path(temp_dir) / "doc.po"
+            po_path.write_text(
+                'msgid ""\n'
+                'msgstr ""\n'
+                '"Project-Id-Version: Demo\\\\n"\n'
+                '\n'
+                '#: ../../source/demo.rst:3\n'
+                'msgid "单击“确定”按钮。"\n'
+                'msgstr ""\n',
+                encoding="utf-8",
+            )
+
+            def fake_model(**kwargs):
+                slots = kwargs["protected_source"]["translatable_slots"]
+                return {
+                    "verdict": "needs_update",
+                    "slot_translations": {
+                        slots[0]["slot_id"]: 'Click "OK" button.',
+                    },
+                    "reason": "ok",
+                }
+
+            session = PoTranslationSession(
+                po_path=po_path,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 200},
+                model_runner=fake_model,
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            session.accept(pending["id"])
+
+            content = po_path.read_text(encoding="utf-8")
+            self.assertIn('msgstr "Click "OK" button."\n', content)
+            self.assertNotIn('\\"OK\\"', content)
+
     def test_po_translation_session_translates_directive_argument_without_skip(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             po_path = Path(temp_dir) / "doc.po"
@@ -330,7 +414,7 @@ class PoTranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(accepted["status"]["counts"]["filled"], 1)
             content = po_path.read_text(encoding="utf-8")
             self.assertIn('|view2|', content)
-            self.assertIn('msgstr "On the current page, select the host to be used and click [|view2|] in the \\"Operation\\" column to view the details of the local storage pool."', content)
+            self.assertIn('msgstr "On the current page, select the host to be used and click [|view2|] in the "Operation" column to view the details of the local storage pool."', content)
 
     def test_po_translation_session_retries_when_slot_translation_still_contains_chinese(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -1,9 +1,13 @@
 import unittest
 
-from zh_audit.candidate_validation import normalize_review_result
+from zh_audit.candidate_validation import normalize_english_punctuation, normalize_review_result
 
 
 class CandidateValidationTest(unittest.TestCase):
+    def test_normalize_english_punctuation_rewrites_common_cjk_symbols(self):
+        normalized = normalize_english_punctuation('单击“确定”按钮（推荐）……【立即创建】')
+        self.assertEqual(normalized, '单击"确定"按钮(推荐)...[立即创建]')
+
     def test_normalize_review_result_ignores_case_only_terminology_issue(self):
         normalized = normalize_review_result(
             {

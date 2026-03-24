@@ -16,6 +16,7 @@ from zh_audit.candidate_validation import (
     exhausted_validation_message,
     has_matching_placeholders,
     is_chinese_explanation_text,
+    normalize_english_punctuation,
     normalize_review_result,
     retry_context_preview,
     sanitize_candidate_text,
@@ -812,12 +813,23 @@ class PoTranslationSession(object):
         locked_terms = [dict(term) for term in item.get("locked_terms", [])]
         target_missing = bool(item.get("target_missing", not str(current_target or "").strip()))
         protected_source = dict(item.get("protected_source", {}))
+        normalized_current_target = _normalize_protected_english_candidate_text(current_target)
         if verdict == "accurate" and target_missing:
             verdict = "needs_update"
         if verdict == "accurate":
             if locked_terms and not contains_locked_terms(current_target, locked_terms):
                 verdict = "needs_update"
                 reason = "现有英文未满足术语词典要求。"
+            elif normalized_current_target != sanitize_candidate_text(current_target):
+                return {
+                    "verdict": "needs_update",
+                    "candidate_text": normalized_current_target,
+                    "reason": _normalize_reason(reason, fallback="现有英文标点需要规范为英文半角标点。"),
+                    "locked_terms": [dict(term) for term in locked_terms],
+                    "active_frontend_terms": [],
+                    "frontend_glossary_enabled": False,
+                    "frontend_ui_slots": [],
+                }
             else:
                 return {
                     "verdict": verdict,
@@ -830,7 +842,7 @@ class PoTranslationSession(object):
                 }
         slot_payload = build_slot_translation_payload(result.get("slot_translations"))
         slot_translations = {
-            slot_id: payload.get("translation", "")
+            slot_id: normalize_english_punctuation(payload.get("translation", ""))
             for slot_id, payload in slot_payload.items()
         }
         candidate = compose_protected_text(protected_source, slot_translations)
@@ -1332,6 +1344,7 @@ def build_po_translation_system_prompt():
         "Translate only the provided translatable_slots. Never recreate the full sentence on your own.\n"
         "Do not change rst role names, anchors, substitution tokens, inline literals, placeholders, or any immutable markup.\n"
         "For role_label, link_label, reference_label, strong_text, emphasis_text, interpreted_text, or directive_argument slots, translate only the visible user-facing text for that slot.\n"
+        "Use standard half-width English punctuation inside translated English text. Do not keep Chinese-style punctuation such as “ ” ‘ ’ ， 。 ： ； （ ） 【 】 ！ ？ 、 or …… unless it is part of immutable protected markup.\n"
         "For each translated slot, return frontend_ui_context=true only when the slot is clearly talking about visible UI elements such as buttons, tabs, menus, links, labels, or page controls.\n"
         "When frontend_ui_context=false, ignore frontend_locked_terms entirely.\n"
         "When frontend_ui_context=true, use frontend_locked_terms exactly as given if they are relevant.\n"
@@ -1389,7 +1402,7 @@ def build_po_translation_review_system_prompt():
         "Do not report that a term should be X if candidate_text already contains X.\n"
         "Do not treat style-only suggestions such as 'could be more natural' as hard failures.\n"
         "Do not output English in message or evidence unless it is a required technical term quoted from source_text, candidate_text, or locked_terms.\n"
-        "Fail when candidate_text still contains untranslated Chinese, omits source meaning, or is not natural English.\n"
+        "Fail when candidate_text still contains untranslated Chinese, keeps Chinese-style punctuation in otherwise English text, omits source meaning, or is not natural English.\n"
         "Pass only when candidate_text is a complete and accurate English translation of the source text."
     )
 
@@ -1407,6 +1420,22 @@ def _normalize_reason(reason, fallback):
     if is_chinese_explanation_text(value):
         return value
     return str(fallback or "").strip()
+
+
+def _normalize_protected_english_candidate_text(candidate_text):
+    value = sanitize_candidate_text(candidate_text)
+    if not value:
+        return ""
+    protected = protect_rst_text(value)
+    if not protected.get("supported", False):
+        return sanitize_candidate_text(normalize_english_punctuation(value))
+    slot_translations = {}
+    for slot in protected.get("translatable_slots", []):
+        slot_id = str(slot.get("slot_id", "") or "")
+        if not slot_id:
+            continue
+        slot_translations[slot_id] = normalize_english_punctuation(slot.get("source_text", ""))
+    return sanitize_candidate_text(compose_protected_text(protected, slot_translations))
 
 
 def _preview(value, limit=60):

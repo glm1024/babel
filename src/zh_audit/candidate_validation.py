@@ -36,6 +36,57 @@ VALIDATION_ISSUE_CODES = {
     "候选仍含中文": "candidate_contains_han",
     "候选与中文源文相同": "candidate_same_as_source",
 }
+ENGLISH_PUNCTUATION_TRANSLATION = str.maketrans(
+    {
+        "“": '"',
+        "”": '"',
+        "„": '"',
+        "‟": '"',
+        "＂": '"',
+        "‘": "'",
+        "’": "'",
+        "‚": "'",
+        "‛": "'",
+        "＇": "'",
+        "，": ",",
+        "。": ".",
+        "；": ";",
+        "：": ":",
+        "！": "!",
+        "？": "?",
+        "（": "(",
+        "）": ")",
+        "【": "[",
+        "】": "]",
+        "｛": "{",
+        "｝": "}",
+        "［": "[",
+        "］": "]",
+        "｟": "(",
+        "｠": ")",
+        "、": ",",
+        "％": "%",
+        "／": "/",
+        "＼": "\\",
+        "＋": "+",
+        "＝": "=",
+        "＆": "&",
+        "＠": "@",
+        "＃": "#",
+        "｜": "|",
+        "～": "~",
+        "－": "-",
+        "「": '"',
+        "」": '"',
+        "『": '"',
+        "』": '"',
+        "〈": '"',
+        "〉": '"',
+        "《": '"',
+        "》": '"',
+        "　": " ",
+    }
+)
 
 
 def sanitize_candidate_text(value):
@@ -44,6 +95,17 @@ def sanitize_candidate_text(value):
     text = re.sub(r"\s*\n+\s*", " ", text)
     text = re.sub(r"[ \t\f\v]+", " ", text)
     return text.strip()
+
+
+def normalize_english_punctuation(value):
+    text = decode_unicode_escapes(str(value or ""))
+    if not text:
+        return ""
+    text = text.replace("……", "...")
+    text = text.replace("…", "...")
+    text = text.replace("——", "-")
+    text = text.replace("—", "-")
+    return text.translate(ENGLISH_PUNCTUATION_TRANSLATION)
 
 
 def extract_placeholders(text):

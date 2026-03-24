@@ -16,6 +16,7 @@ from zh_audit.candidate_validation import (
     exhausted_validation_message,
     has_matching_placeholders,
     is_chinese_explanation_text,
+    normalize_english_punctuation,
     normalize_review_result,
     retry_context_preview,
     sanitize_candidate_text,
@@ -698,18 +699,23 @@ class TranslationSession(object):
 
     def _normalize_model_result(self, item, result, current_target):
         verdict = str(result.get("verdict", "") or "").strip().lower()
-        candidate = sanitize_candidate_text(result.get("candidate_translation", ""))
+        candidate = sanitize_candidate_text(normalize_english_punctuation(result.get("candidate_translation", "")))
         reason = _display_text(result.get("reason", "")).strip()
         if verdict not in ("accurate", "needs_update"):
             verdict = "needs_update"
         locked_terms = list(item.get("locked_terms", []))
         target_missing = bool(item.get("target_missing"))
+        normalized_current_target = sanitize_candidate_text(normalize_english_punctuation(current_target))
         if verdict == "accurate" and target_missing:
             verdict = "needs_update"
         if verdict == "accurate":
             if locked_terms and not contains_locked_terms(current_target, locked_terms):
                 verdict = "needs_update"
                 reason = "现有英文未满足术语词典要求。"
+            elif normalized_current_target != sanitize_candidate_text(current_target):
+                verdict = "needs_update"
+                candidate = normalized_current_target
+                reason = "现有英文标点需要规范为英文半角标点。"
             else:
                 return {
                     "verdict": verdict,
@@ -1070,6 +1076,7 @@ def build_translation_system_prompt():
         "candidate_translation must contain only the translated RHS text, never include the key.\n"
         "candidate_translation must be natural English and must not directly copy the Chinese source text.\n"
         "candidate_translation must not include Chinese explanations, SQL, JSON, or multiple lines.\n"
+        "Use standard half-width English punctuation. Do not keep Chinese-style punctuation such as “ ” ‘ ’ ， 。 ： ； （ ） 【 】 ！ ？ 、 or …… in English output.\n"
         "reason must be written in Simplified Chinese.\n"
         "Do not output English in reason unless it is a required technical term quoted from the source or target text.\n"
         "Preserve placeholders exactly, including {0}, {}, %s, ${name} and similar forms.\n"
@@ -1119,7 +1126,7 @@ def build_translation_review_system_prompt():
         "extra_prompt is a high-priority additional instruction unless it conflicts with source_text meaning, placeholders, or locked_terms.\n"
         "Do not output English in message or evidence unless it is a required technical term quoted from source_text, candidate_text, or locked_terms.\n"
         "Only report spelling or wording problems that actually appear in candidate_text.\n"
-        "Fail when the candidate is not natural English, still contains untranslated Chinese, omits source meaning, or breaks placeholders.\n"
+        "Fail when the candidate is not natural English, still contains untranslated Chinese, keeps Chinese-style punctuation in otherwise English text, omits source meaning, or breaks placeholders.\n"
         "Pass only when the candidate is a complete and accurate English translation of the source text."
     )
 
