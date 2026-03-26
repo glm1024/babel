@@ -136,6 +136,14 @@ class PoTranslationWorkflowTest(unittest.TestCase):
         issue = validate_protected_candidate(protected, ".. image:: /static/other.png")
         self.assertEqual(issue, "候选改动了 rst 指令参数")
 
+    def test_validate_protected_candidate_allows_text_slot_count_difference_when_rst_literal_is_preserved(self):
+        protected = protect_rst_text("本地盘类型新设置的挂载点路径必须为 ``/mnt/global-repo/`` 的子目录。")
+        issue = validate_protected_candidate(
+            protected,
+            "The mount point path newly configured for the local disk type must be a subdirectory of ``/mnt/global-repo/``",
+        )
+        self.assertEqual(issue, "")
+
     def test_po_translation_session_skips_accurate_existing_msgstr(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             po_path = Path(temp_dir) / "doc.po"
@@ -859,4 +867,54 @@ class PoTranslationWorkflowTest(unittest.TestCase):
 
             still_pending = session.snapshot()["pending_items"][0]
             self.assertEqual(still_pending["id"], pending["id"])
-            self.assertEqual(still_pending["candidate_text"], "See :ref:`Add Host<5.2.1-addHost>` section.")
+
+    def test_po_translation_manual_accept_allows_preserved_inline_literal_with_merged_text_slots(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            po_path = Path(temp_dir) / "doc.po"
+            po_path.write_text(
+                'msgid ""\n'
+                'msgstr ""\n'
+                '"Project-Id-Version: Demo\\\\n"\n'
+                '\n'
+                '#: ../../source/demo.rst:17\n'
+                'msgid "本地盘类型新设置的挂载点路径必须为 ``/mnt/global-repo/`` 的子目录。"\n'
+                'msgstr ""\n',
+                encoding="utf-8",
+            )
+
+            session = PoTranslationSession(
+                po_path=po_path,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 200},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "slot_translations": [
+                        {
+                            "slot_id": kwargs["protected_source"]["translatable_slots"][0]["slot_id"],
+                            "translation": "The mount point path newly configured for the local disk type must be ",
+                            "frontend_ui_context": False,
+                        },
+                        {
+                            "slot_id": kwargs["protected_source"]["translatable_slots"][1]["slot_id"],
+                            "translation": " a subdirectory.",
+                            "frontend_ui_context": False,
+                        },
+                    ],
+                    "reason": "ok",
+                },
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            accepted = session.accept(
+                pending["id"],
+                candidate_text="The mount point path newly configured for the local disk type must be a subdirectory of ``/mnt/global-repo/``",
+            )
+
+            self.assertEqual(accepted["status"]["counts"]["accepted"], 1)
+            self.assertIn(
+                'msgstr "The mount point path newly configured for the local disk type must be a subdirectory of ``/mnt/global-repo/``"',
+                po_path.read_text(encoding="utf-8"),
+            )

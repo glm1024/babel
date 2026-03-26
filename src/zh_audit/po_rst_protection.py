@@ -146,8 +146,8 @@ def validate_protected_candidate(source_protected, candidate_text):
     candidate = protect_rst_text(candidate_text)
     if not candidate.get("supported", False):
         return candidate.get("reason", "候选 rst 结构暂不支持。")
-    source_slots = source_protected.get("slots", [])
-    candidate_slots = candidate.get("slots", [])
+    source_slots = _structural_slots(source_protected.get("slots", []))
+    candidate_slots = _structural_slots(candidate.get("slots", []))
     if len(source_slots) != len(candidate_slots):
         return "候选改变了 rst 槽位数量"
     for source_slot, candidate_slot in zip(source_slots, candidate_slots):
@@ -179,6 +179,10 @@ def validate_protected_candidate(source_protected, candidate_text):
         if slot_type == "reference_label" and source_slot.get("suffix", "") != candidate_slot.get("suffix", ""):
             return "候选改动了 rst 引用后缀"
     return ""
+
+
+def _structural_slots(slots):
+    return [dict(slot) for slot in (slots or []) if slot.get("type") != "text"]
 
 
 def build_slot_translation_map(raw_slot_translations):
