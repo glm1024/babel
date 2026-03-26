@@ -88,6 +88,14 @@ ENGLISH_PUNCTUATION_TRANSLATION = str.maketrans(
     }
 )
 LOCKED_TERM_WORD_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9'-]*")
+UI_ACTION_HINT_PATTERN = re.compile(
+    r"\b(?:click|select|choose|open|go to|enter|press|tap|navigate to|access)\b",
+    re.IGNORECASE,
+)
+UI_CONTAINER_HINT_PATTERN = re.compile(
+    r"\b(?:button|tab|menu|page|dialog|window|wizard|panel|pane|column|field|link|option|view)\b",
+    re.IGNORECASE,
+)
 
 
 def sanitize_candidate_text(value):
@@ -129,14 +137,18 @@ def normalize_locked_term_grammar_case(candidate, locked_terms):
                 continue
             if not _has_term_boundary(text, start, end):
                 continue
+            if _is_ui_style_locked_term_occurrence(text, start, end):
+                replacement = target
+            else:
+                replacement = _normalized_locked_term_surface(
+                    target,
+                    sentence_initial=_is_sentence_initial_term_occurrence(text, start),
+                )
             replacements.append(
                 (
                     start,
                     end,
-                    _normalized_locked_term_surface(
-                        target,
-                        sentence_initial=_is_sentence_initial_term_occurrence(text, start),
-                    ),
+                    replacement,
                 )
             )
             occupied.append((start, end))
@@ -360,6 +372,36 @@ def _is_sentence_initial_term_occurrence(text, start):
             continue
         return current in ".!?:;\n"
     return True
+
+
+def _is_ui_style_locked_term_occurrence(text, start, end):
+    quoted = _quoted_ui_segment(text, start, end)
+    if quoted is None:
+        return False
+    open_index, close_index, body = quoted
+    if ">" in body or "|" in body or "/" in body:
+        return True
+    before = text[max(0, open_index - 48) : open_index]
+    after = text[close_index : min(len(text), close_index + 48)]
+    return bool(UI_ACTION_HINT_PATTERN.search(before) or UI_CONTAINER_HINT_PATTERN.search(after))
+
+
+def _quoted_ui_segment(text, start, end):
+    for open_quote, close_quote in (('"', '"'), ("“", "”")):
+        open_index = text.rfind(open_quote, 0, start)
+        if open_index < 0:
+            continue
+        close_index = text.find(close_quote, end)
+        if close_index < 0:
+            continue
+        if start < open_index + len(open_quote) or end > close_index:
+            continue
+        return (
+            open_index,
+            close_index + len(close_quote),
+            text[open_index + len(open_quote) : close_index],
+        )
+    return None
 
 
 def _normalized_locked_term_surface(target, sentence_initial):

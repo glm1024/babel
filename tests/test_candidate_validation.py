@@ -33,6 +33,17 @@ class CandidateValidationTest(unittest.TestCase):
 
         self.assertEqual(normalized, "Bare metal server uses IP and ECS CPU.")
 
+    def test_normalize_locked_term_grammar_case_preserves_glossary_case_in_quoted_ui_text(self):
+        normalized = normalize_locked_term_grammar_case(
+            'Select "Cloud Services > Compute > elastic compute service > Multi-Cloud Resource View" to enter the "elastic compute service" page.',
+            [{"source": "云主机", "target": "Elastic Compute Service"}],
+        )
+
+        self.assertEqual(
+            normalized,
+            'Select "Cloud Services > Compute > Elastic Compute Service > Multi-Cloud Resource View" to enter the "Elastic Compute Service" page.',
+        )
+
     def test_normalize_review_result_ignores_case_only_terminology_issue(self):
         normalized = normalize_review_result(
             {

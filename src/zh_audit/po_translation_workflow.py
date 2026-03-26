@@ -1354,6 +1354,7 @@ def build_po_translation_system_prompt():
         "For each translated slot, return frontend_ui_context=true only when the slot is clearly talking about visible UI elements such as buttons, tabs, menus, links, labels, or page controls.\n"
         "When frontend_ui_context=false, ignore frontend_locked_terms entirely.\n"
         "When frontend_ui_context=true, use frontend_locked_terms exactly as given if they are relevant.\n"
+        "For quoted UI labels, menu paths, button text, and page titles that users select, click, open, or enter, keep glossary capitalization as visible UI text instead of lowercasing it for sentence grammar.\n"
         "Each translation must be natural English and must not contain Chinese explanations, JSON, or multiple lines.\n"
         "reason must be written in Simplified Chinese.\n"
         "If locked_terms are provided, the translated slots must use the glossary wording but adjust capitalization to fit English grammar.\n"

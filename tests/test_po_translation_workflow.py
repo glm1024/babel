@@ -363,6 +363,46 @@ class PoTranslationWorkflowTest(unittest.TestCase):
             pending = session.snapshot()["pending_items"][0]
             self.assertEqual(pending["candidate_text"], "The bare metal server name exceeds the maximum length.")
 
+    def test_po_translation_session_preserves_glossary_case_in_quoted_ui_path(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            po_path = Path(temp_dir) / "doc.po"
+            po_path.write_text(
+                'msgid ""\n'
+                'msgstr ""\n'
+                '"Project-Id-Version: Demo\\\\n"\n'
+                '\n'
+                '#: ../../source/demo.rst:4\n'
+                'msgid "选择“云服务 > 计算 > 云主机 > 多云资源视图”，进入“云主机”页面。"\n'
+                'msgstr ""\n',
+                encoding="utf-8",
+            )
+
+            def fake_model(**kwargs):
+                slots = kwargs["protected_source"]["translatable_slots"]
+                return {
+                    "verdict": "needs_update",
+                    "slot_translations": {
+                        slots[0]["slot_id"]: 'Select "Cloud Services > Compute > elastic compute service > Multi-Cloud Resource View" to enter the "elastic compute service" page.',
+                    },
+                    "reason": "ok",
+                }
+
+            session = PoTranslationSession(
+                po_path=po_path,
+                glossary={"云主机": "Elastic Compute Service"},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 200},
+                model_runner=fake_model,
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(
+                pending["candidate_text"],
+                'Select "Cloud Services > Compute > Elastic Compute Service > Multi-Cloud Resource View" to enter the "Elastic Compute Service" page.',
+            )
+
     def test_po_translation_session_normalizes_exact_glossary_term_case_for_sentence_start(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             po_path = Path(temp_dir) / "doc.po"
