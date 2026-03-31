@@ -1100,9 +1100,9 @@ class AppServerSmokeTest(unittest.TestCase):
                 accepted = reloaded.sql_translation_accept(by_source["资源池"]["id"])
                 self.assertEqual(accepted["status"]["counts"]["accepted"], 1)
                 content = output_path.read_text(encoding="utf-8")
-                self.assertIn("-- item:", content)
                 self.assertIn("UPDATE t_demo SET name_en = 'Resource pool' WHERE id = '1';", content)
-                self.assertEqual(content.count("-- item:"), 1)
+                self.assertNotIn("--", content)
+                self.assertEqual(content.count("UPDATE "), 1)
 
 
 if __name__ == "__main__":

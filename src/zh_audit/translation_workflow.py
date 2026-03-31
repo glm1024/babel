@@ -189,7 +189,11 @@ class TranslationSession(object):
 
     def snapshot(self):
         with self.lock:
-            pending_items = [self._public_item(self.items[item_id]) for item_id in self.pending_ids]
+            pending_items = [
+                self._public_item(self.items[item_id])
+                for item_id in self.pending_ids
+                if item_id in self.items and self.items[item_id].get("status") == "pending"
+            ]
             recent_items = [self._public_item(self.items[item_id]) for item_id in self.recent_ids]
             return {
                 "config": {
@@ -281,6 +285,9 @@ class TranslationSession(object):
     def regenerate(self, item_id, extra_prompt):
         with self.lock:
             item = self._require_pending_item(item_id)
+            if item_id in self.pending_ids:
+                self.pending_ids.remove(item_id)
+                self.pending = max(self.pending - 1, 0)
             item["status"] = "regenerating"
             item["updated_at"] = _timestamp()
             key = item["key"]
@@ -289,19 +296,32 @@ class TranslationSession(object):
             locked_terms = list(item.get("locked_terms", []))
             target_missing = item.get("target_missing", False)
             self._persist_locked()
-        normalized = self._build_candidate_with_guardrails(
-            key=key,
-            source_text=source_text,
-            current_target=current_target,
-            locked_terms=locked_terms,
-            target_missing=target_missing,
-            base_extra_prompt=extra_prompt,
-        )
+        try:
+            normalized = self._build_candidate_with_guardrails(
+                key=key,
+                source_text=source_text,
+                current_target=current_target,
+                locked_terms=locked_terms,
+                target_missing=target_missing,
+                base_extra_prompt=extra_prompt,
+            )
+        except Exception:
+            with self.lock:
+                item["status"] = "pending"
+                item["updated_at"] = _timestamp()
+                if item_id not in self.pending_ids:
+                    self.pending_ids.append(item_id)
+                    self.pending += 1
+                self._persist_locked()
+            raise
         with self.lock:
             self._update_item_validation(item, normalized)
             item["status"] = "pending"
             item["updated_at"] = _timestamp()
             item["regeneration_prompt"] = extra_prompt
+            if item_id not in self.pending_ids:
+                self.pending_ids.append(item_id)
+                self.pending += 1
             self.regenerated += 1
             self._push_event(self._pending_event_label(item, "已重新生成"), item["key"], item["source_text"], item.get("candidate_text", ""))
             self._persist_locked()
@@ -1013,12 +1033,33 @@ class TranslationSession(object):
             )
             restored.setdefault("model_calls_used", 0)
             self.items[item_id] = restored
-        self.pending_ids = [item_id for item_id in payload.get("pending_ids", []) if item_id in self.items]
+        pending_ids = []
+        pending_seen = set()
+        for item_id in payload.get("pending_ids", []):
+            item = self.items.get(item_id)
+            if item is None:
+                continue
+            if item.get("status") == "regenerating":
+                item["status"] = "pending"
+                item["updated_at"] = _timestamp()
+            if item.get("status") != "pending" or item_id in pending_seen:
+                continue
+            pending_ids.append(item_id)
+            pending_seen.add(item_id)
+        for item_id, item in self.items.items():
+            if item.get("status") == "regenerating":
+                item["status"] = "pending"
+                item["updated_at"] = _timestamp()
+            if item.get("status") != "pending" or item_id in pending_seen:
+                continue
+            pending_ids.append(item_id)
+            pending_seen.add(item_id)
+        self.pending_ids = pending_ids
         self.recent_ids = [item_id for item_id in payload.get("recent_ids", []) if item_id in self.items]
         self.events = list(payload.get("events", []))
         self.processed = int(counts.get("processed", 0))
         self.skipped = int(counts.get("skipped", 0))
-        self.pending = int(counts.get("pending", len(self.pending_ids)))
+        self.pending = len(self.pending_ids)
         self.accepted = int(counts.get("accepted", 0))
         self.appended = int(counts.get("appended", 0))
         self.failed = int(counts.get("failed", 0))

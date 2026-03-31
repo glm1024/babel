@@ -958,3 +958,71 @@ class PoTranslationWorkflowTest(unittest.TestCase):
                 'msgstr "The mount point path newly configured for the local disk type must be a subdirectory of ``/mnt/global-repo/``"',
                 po_path.read_text(encoding="utf-8"),
             )
+
+    def test_po_translation_restores_regenerating_pending_item_as_actionable_pending(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            po_path = Path(temp_dir) / "doc.po"
+            po_path.write_text(
+                'msgid ""\n'
+                'msgstr ""\n'
+                '"Project-Id-Version: Demo\\\\n"\n'
+                '\n'
+                '#: ../../source/demo.rst:9\n'
+                'msgid "详见 :ref:`增加主机<5.2.1-addHost>` 章节。"\n'
+                'msgstr ""\n',
+                encoding="utf-8",
+            )
+
+            session = PoTranslationSession(
+                po_path=po_path,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 200},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "slot_translations": [
+                        {
+                            "slot_id": kwargs["protected_source"]["translatable_slots"][0]["slot_id"],
+                            "translation": "See ",
+                            "frontend_ui_context": False,
+                        },
+                        {
+                            "slot_id": kwargs["protected_source"]["translatable_slots"][1]["slot_id"],
+                            "translation": "Add Host",
+                            "frontend_ui_context": False,
+                        },
+                        {
+                            "slot_id": kwargs["protected_source"]["translatable_slots"][2]["slot_id"],
+                            "translation": " section.",
+                            "frontend_ui_context": False,
+                        },
+                    ],
+                    "reason": "ok",
+                },
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            saved = session.save_state()
+            saved["items"][0]["status"] = "regenerating"
+
+            restored = PoTranslationSession.from_saved_state(
+                saved,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 200},
+                model_runner=lambda **kwargs: {
+                    "verdict": "needs_update",
+                    "slot_translations": [],
+                    "reason": "unused",
+                },
+                reviewer_runner=_pass_review,
+            )
+
+            pending = restored.snapshot()["pending_items"][0]
+            self.assertEqual(pending["status"], "pending")
+            accepted = restored.accept(
+                pending["id"],
+                candidate_text="See :ref:`Add Host<5.2.1-addHost>` section.",
+            )
+
+            self.assertEqual(accepted["status"]["counts"]["accepted"], 1)
