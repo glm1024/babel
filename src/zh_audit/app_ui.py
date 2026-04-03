@@ -1163,6 +1163,7 @@ def render_app_shell(bootstrap_payload, client_config):
       <button class="tab-btn" type="button" data-tab="poTranslation">文档翻译</button>
       <button class="tab-btn" type="button" data-tab="translation">配置翻译</button>
       <button class="tab-btn" type="button" data-tab="sqlTranslation">SQL翻译</button>
+      <button class="tab-btn" type="button" data-tab="singleTranslation">单条翻译</button>
       <button class="tab-btn" type="button" data-tab="settings">模型配置</button>
     </div>
 
@@ -1598,6 +1599,35 @@ def render_app_shell(bootstrap_payload, client_config):
       </div>
     </section>
 
+    <section class="page" id="singleTranslationPage">
+      <div class="settings-workspace">
+        <div class="panel card">
+          <div class="card-head">
+            <div>
+              <div class="muted">Single Translation</div>
+              <h2 class="card-title">单条翻译</h2>
+            </div>
+            <span id="singleTranslationStatusPill" class="pill keep">空闲</span>
+          </div>
+          <label>
+            <div class="field-label">中文输入</div>
+            <textarea id="singleTranslationSourceInput" class="field-textarea" rows="5" placeholder="请输入一条待翻译中文..."></textarea>
+          </label>
+          <div class="btn-row">
+            <button id="singleTranslationTranslateBtn" class="primary-btn" type="button">翻译</button>
+            <button id="singleTranslationClearBtn" class="secondary-btn" type="button">清空</button>
+            <button id="singleTranslationCopyBtn" class="secondary-btn" type="button">复制结果</button>
+          </div>
+          <div id="singleTranslationStatusBanner" class="status-banner">等待翻译</div>
+          <div id="singleTranslationLockedTerms" class="translation-tags hidden"></div>
+          <label>
+            <div class="field-label">英文输出</div>
+            <textarea id="singleTranslationOutput" class="field-textarea" rows="6" placeholder="翻译结果会显示在这里" readonly></textarea>
+          </label>
+        </div>
+      </div>
+    </section>
+
     <section class="page" id="settingsPage">
       <div class="settings-workspace">
         <div class="panel card">
@@ -1653,7 +1683,7 @@ __REPORT_COMPONENT_BUNDLE__
       model: "",
       max_tokens: 4096,
     };
-    const TAB_IDS = ["home", "results", "customKeep", "poTranslation", "translation", "sqlTranslation", "settings"];
+    const TAB_IDS = ["home", "results", "customKeep", "poTranslation", "translation", "sqlTranslation", "singleTranslation", "settings"];
     const CUSTOM_KEEP_DRAFT_STORAGE_KEY = `zh-audit:custom-keep-draft:${window.location.pathname}`;
 
     function normalizeTabId(value) {
@@ -1685,6 +1715,7 @@ __REPORT_COMPONENT_BUNDLE__
       translation: BOOTSTRAP.translation || defaultTranslationPayload(),
       poTranslation: BOOTSTRAP.po_translation || defaultPoTranslationPayload(),
       sqlTranslation: BOOTSTRAP.sql_translation || defaultSqlTranslationPayload(),
+      singleTranslation: BOOTSTRAP.single_translation || defaultSingleTranslationPayload(),
       translationPromptDrafts: {},
       translationCandidateDrafts: {},
       poTranslationPromptDrafts: {},
@@ -1707,6 +1738,7 @@ __REPORT_COMPONENT_BUNDLE__
     const translationPage = document.getElementById("translationPage");
     const poTranslationPage = document.getElementById("poTranslationPage");
     const sqlTranslationPage = document.getElementById("sqlTranslationPage");
+    const singleTranslationPage = document.getElementById("singleTranslationPage");
     const settingsPage = document.getElementById("settingsPage");
     const rootsList = document.getElementById("rootsList");
     const addRootBtn = document.getElementById("addRootBtn");
@@ -1809,6 +1841,14 @@ __REPORT_COMPONENT_BUNDLE__
     const sqlTranslationSchemaStatus = document.getElementById("sqlTranslationSchemaStatus");
     const sqlTranslationPendingEmpty = document.getElementById("sqlTranslationPendingEmpty");
     const sqlTranslationPendingList = document.getElementById("sqlTranslationPendingList");
+    const singleTranslationStatusPill = document.getElementById("singleTranslationStatusPill");
+    const singleTranslationSourceInput = document.getElementById("singleTranslationSourceInput");
+    const singleTranslationTranslateBtn = document.getElementById("singleTranslationTranslateBtn");
+    const singleTranslationClearBtn = document.getElementById("singleTranslationClearBtn");
+    const singleTranslationCopyBtn = document.getElementById("singleTranslationCopyBtn");
+    const singleTranslationStatusBanner = document.getElementById("singleTranslationStatusBanner");
+    const singleTranslationLockedTerms = document.getElementById("singleTranslationLockedTerms");
+    const singleTranslationOutput = document.getElementById("singleTranslationOutput");
     const providerValue = document.getElementById("providerValue");
     const baseUrlInput = document.getElementById("baseUrlInput");
     const apiKeyInput = document.getElementById("apiKeyInput");
@@ -1820,6 +1860,7 @@ __REPORT_COMPONENT_BUNDLE__
     let translationTimer = null;
     let poTranslationTimer = null;
     let sqlTranslationTimer = null;
+    let singleTranslationBusy = false;
     let reportController = null;
 
     function defaultTranslationPayload() {
@@ -1936,6 +1977,31 @@ __REPORT_COMPONENT_BUNDLE__
         pending_items: [],
         recent_items: [],
         events: [],
+        terminology: {
+          path: "",
+          count: 0,
+          error: "",
+        },
+      };
+    }
+
+    function defaultSingleTranslationPayload() {
+      return {
+        config: {
+          source_text: "",
+        },
+        result: {
+          status: "idle",
+          translated_text: "",
+          error: "",
+          reason: "",
+          mode: "",
+          validation_state: "passed",
+          validation_message: "",
+          locked_terms: [],
+          warnings: [],
+          updated_at: "",
+        },
         terminology: {
           path: "",
           count: 0,
@@ -2326,6 +2392,7 @@ __REPORT_COMPONENT_BUNDLE__
       state.translation = data.translation || state.translation;
       state.poTranslation = data.po_translation || state.poTranslation;
       state.sqlTranslation = data.sql_translation || state.sqlTranslation;
+      state.singleTranslation = data.single_translation || state.singleTranslation;
       if (!keepDraft) {
         state.customKeepDirty = false;
         setCustomKeepStatus(defaultCustomKeepStatus().text);
@@ -2382,6 +2449,7 @@ __REPORT_COMPONENT_BUNDLE__
       translationPage.classList.toggle("is-active", state.activeTab === "translation");
       poTranslationPage.classList.toggle("is-active", state.activeTab === "poTranslation");
       sqlTranslationPage.classList.toggle("is-active", state.activeTab === "sqlTranslation");
+      singleTranslationPage.classList.toggle("is-active", state.activeTab === "singleTranslation");
       settingsPage.classList.toggle("is-active", state.activeTab === "settings");
     }
 
@@ -2999,6 +3067,56 @@ __REPORT_COMPONENT_BUNDLE__
 
     }
 
+    function renderSingleTranslation() {
+      const singleTranslation = state.singleTranslation || defaultSingleTranslationPayload();
+      const config = singleTranslation.config || {};
+      const result = singleTranslation.result || {};
+      const terminology = singleTranslation.terminology || {};
+      const isRunning = singleTranslationBusy || result.status === "running";
+      const hasOutput = Boolean(result.translated_text);
+
+      singleTranslationSourceInput.value = config.source_text || "";
+      singleTranslationOutput.value = result.translated_text || "";
+      setStatusBannerState(
+        singleTranslationStatusBanner,
+        terminology.error
+          ? terminology.error
+          : result.error
+            ? result.error
+            : result.validation_state === "failed"
+              ? (result.validation_message || "输出未通过约束校验，请谨慎使用。")
+              : isRunning
+                ? "翻译中..."
+                : result.status === "done"
+                  ? "翻译完成"
+                  : "等待翻译",
+        {
+          isError: Boolean(terminology.error || result.error || result.validation_state === "failed"),
+          isLoading: isRunning,
+        },
+      );
+      singleTranslationStatusPill.textContent =
+        isRunning ? "处理中" :
+        result.status === "done" ? "完成" :
+        result.status === "failed" ? "失败" : "空闲";
+      singleTranslationStatusPill.className = `pill ${isRunning ? "fix" : "keep"}${isRunning ? " is-loading" : ""}`;
+      singleTranslationTranslateBtn.disabled = isRunning || Boolean(terminology.error) || !singleTranslationSourceInput.value.trim();
+      singleTranslationClearBtn.disabled = isRunning || (!singleTranslationSourceInput.value.trim() && !hasOutput);
+      singleTranslationCopyBtn.disabled = isRunning || !hasOutput;
+      singleTranslationOutput.title = result.translated_text || "";
+
+      const lockedTerms = Array.isArray(result.locked_terms) ? result.locked_terms : [];
+      if (!lockedTerms.length) {
+        singleTranslationLockedTerms.classList.add("hidden");
+        singleTranslationLockedTerms.innerHTML = "";
+      } else {
+        singleTranslationLockedTerms.classList.remove("hidden");
+        singleTranslationLockedTerms.innerHTML = lockedTerms.map(term => (
+          `<span class="translation-tag">${escapeHtml(`${term.source} => ${term.target}`)}</span>`
+        )).join("");
+      }
+    }
+
     async function copyText(value) {
       const text = String(value || "");
       if (!text) {
@@ -3029,6 +3147,7 @@ __REPORT_COMPONENT_BUNDLE__
       renderTranslation();
       renderPoTranslation();
       renderSqlTranslation();
+      renderSingleTranslation();
       renderSettings();
     }
 
@@ -3318,6 +3437,30 @@ __REPORT_COMPONENT_BUNDLE__
       renderSqlTranslation();
     }
 
+    function buildSingleTranslationPayload() {
+      return {
+        source_text: singleTranslationSourceInput.value.trim(),
+      };
+    }
+
+    async function translateSingleText() {
+      const data = await requestJson(
+        CLIENT_CONFIG.single_translation_translate_api_path,
+        buildSingleTranslationPayload(),
+      );
+      state.singleTranslation = data;
+      renderSingleTranslation();
+    }
+
+    async function resetSingleTranslation() {
+      const data = await requestJson(
+        CLIENT_CONFIG.single_translation_reset_api_path,
+        {},
+      );
+      state.singleTranslation = data;
+      renderSingleTranslation();
+    }
+
     async function runTranslationItemAction(itemId, action, runner) {
       const messages = {
         accept: "正在接受当前条目，完成后会自动刷新。",
@@ -3489,7 +3632,11 @@ __REPORT_COMPONENT_BUNDLE__
         updateLocationForTab(resolvedTab);
       }
       renderTabs();
-      if (resolvedTab === "translation" || resolvedTab === "poTranslation" || resolvedTab === "sqlTranslation") {
+      if (
+        resolvedTab === "translation"
+        || resolvedTab === "poTranslation"
+        || resolvedTab === "sqlTranslation"
+      ) {
         try {
           await refreshBootstrap(true);
         } catch (error) {
@@ -4005,6 +4152,66 @@ __REPORT_COMPONENT_BUNDLE__
         });
       } catch (error) {
         setStatusBannerState(sqlTranslationStatusBanner, error.message || "复制输出文件路径失败", {
+          isError: true,
+          isLoading: false,
+        });
+      }
+    });
+
+    singleTranslationSourceInput.addEventListener("input", () => {
+      const terminologyError = Boolean((((state.singleTranslation || {}).terminology || {}).error || ""));
+      singleTranslationTranslateBtn.disabled = singleTranslationBusy || terminologyError || !singleTranslationSourceInput.value.trim();
+      singleTranslationClearBtn.disabled = singleTranslationBusy || (!singleTranslationSourceInput.value.trim() && !(singleTranslationOutput.value || "").trim());
+    });
+
+    singleTranslationTranslateBtn.addEventListener("click", async () => {
+      singleTranslationBusy = true;
+      state.singleTranslation = {
+        ...(state.singleTranslation || defaultSingleTranslationPayload()),
+        config: buildSingleTranslationPayload(),
+        result: {
+          ...(((state.singleTranslation || {}).result) || defaultSingleTranslationPayload().result),
+          status: "running",
+          error: "",
+        },
+      };
+      renderSingleTranslation();
+      try {
+        await translateSingleText();
+      } catch (error) {
+        setStatusBannerState(singleTranslationStatusBanner, error.message || "执行单条翻译失败", {
+          isError: true,
+          isLoading: false,
+        });
+      } finally {
+        singleTranslationBusy = false;
+        renderSingleTranslation();
+      }
+    });
+
+    singleTranslationClearBtn.addEventListener("click", async () => {
+      if (singleTranslationBusy) {
+        return;
+      }
+      try {
+        await resetSingleTranslation();
+      } catch (error) {
+        setStatusBannerState(singleTranslationStatusBanner, error.message || "重置单条翻译失败", {
+          isError: true,
+          isLoading: false,
+        });
+      }
+    });
+
+    singleTranslationCopyBtn.addEventListener("click", async () => {
+      try {
+        const copied = await copyText(singleTranslationOutput.value || "");
+        setStatusBannerState(singleTranslationStatusBanner, copied ? "已复制翻译结果" : "复制翻译结果失败", {
+          isError: !copied,
+          isLoading: false,
+        });
+      } catch (error) {
+        setStatusBannerState(singleTranslationStatusBanner, error.message || "复制翻译结果失败", {
           isError: true,
           isLoading: false,
         });

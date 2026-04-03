@@ -48,6 +48,13 @@ from zh_audit.po_translation_workflow import (
     build_po_translation_system_prompt,
     build_po_translation_user_prompt,
 )
+from zh_audit.plain_translation_prompts import (
+    build_plain_translation_review_system_prompt,
+    build_plain_translation_review_user_prompt,
+    build_plain_translation_system_prompt,
+    build_plain_translation_user_prompt,
+)
+from zh_audit.single_translation import translate_single_text
 from zh_audit.sql_translation_workflow import (
     SqlTranslationSession,
     build_sql_translation_review_system_prompt,
@@ -89,6 +96,8 @@ class AppServiceState(object):
         self.translation_session = None
         self.po_translation_session = None
         self.sql_translation_session = None
+        self.single_translation_source_text = ""
+        self.single_translation_result = _default_single_translation_result()
         self.project_model_config = (
             load_project_model_config(self.project_config_path) if self.project_config_path is not None else {}
         )
@@ -140,6 +149,8 @@ class AppServiceState(object):
                 "sql_translation_accept_api_path": "/api/sql-translation/accept",
                 "sql_translation_regenerate_api_path": "/api/sql-translation/regenerate",
                 "sql_translation_reject_api_path": "/api/sql-translation/reject",
+                "single_translation_translate_api_path": "/api/single-translation/translate",
+                "single_translation_reset_api_path": "/api/single-translation/reset",
             },
         )
 
@@ -155,6 +166,7 @@ class AppServiceState(object):
                 "translation": self.translation_payload_locked(),
                 "po_translation": self.po_translation_payload_locked(),
                 "sql_translation": self.sql_translation_payload_locked(),
+                "single_translation": self.single_translation_payload_locked(),
             }
 
     def scan_status_payload(self):
@@ -480,6 +492,44 @@ class AppServiceState(object):
     def sql_translation_payload(self):
         with self.lock:
             return self.sql_translation_payload_locked()
+
+    def translate_single_text(self, payload):
+        source_text = str((payload or {}).get("source_text", "") or "")
+        with self.lock:
+            self.single_translation_source_text = source_text.strip()
+            try:
+                model_config = self._require_model_config()
+            except Exception as exc:
+                self.single_translation_result = _failed_single_translation_result(str(exc), mode="")
+                return self.single_translation_payload_locked()
+            self._reload_terminology()
+            if self.terminology_error:
+                self.single_translation_result = _failed_single_translation_result(self.terminology_error, mode="")
+                return self.single_translation_payload_locked()
+            glossary = self.terminology
+
+        try:
+            result = translate_single_text(
+                source_text=source_text,
+                glossary=glossary,
+                model_config=model_config,
+                plain_model_runner=self._single_translation_plain_model_runner,
+                plain_reviewer_runner=self._single_translation_plain_reviewer_runner,
+                rst_model_runner=self._single_translation_rst_model_runner,
+                rst_reviewer_runner=self._single_translation_rst_reviewer_runner,
+            )
+        except Exception as exc:
+            result = _failed_single_translation_result(str(exc), mode="")
+
+        with self.lock:
+            self.single_translation_result = dict(result)
+            return self.single_translation_payload_locked()
+
+    def reset_single_translation(self):
+        with self.lock:
+            self.single_translation_source_text = ""
+            self.single_translation_result = _default_single_translation_result()
+            return self.single_translation_payload_locked()
 
     def _run_scan_job(self, repos, scan_settings, custom_keep_categories):
         try:
@@ -903,6 +953,20 @@ class AppServiceState(object):
         self._attach_resume_status(session_snapshot["status"], output_path=session_snapshot["status"].get("output_path", ""))
         return session_snapshot
 
+    def single_translation_payload_locked(self):
+        self._reload_terminology()
+        payload = _default_single_translation_payload()
+        payload["config"] = {
+            "source_text": str(self.single_translation_source_text or ""),
+        }
+        payload["result"] = dict(self.single_translation_result or _default_single_translation_result())
+        payload["terminology"] = {
+            "path": str(self.terminology_path),
+            "count": self._terminology_count(),
+            "error": self.terminology_error,
+        }
+        return payload
+
     def _attach_resume_status(self, status, output_path=""):
         resume_available = str(status.get("status", "") or "") in ("interrupted", "stopped")
         if resume_available:
@@ -1090,6 +1154,115 @@ class AppServiceState(object):
     def _sql_translation_auto_accept(self):
         return bool(self.sql_translation_auto_accept)
 
+    def _single_translation_plain_model_runner(
+        self,
+        source_text,
+        target_text,
+        locked_terms,
+        model_config,
+        extra_prompt,
+        target_missing,
+    ):
+        payload = {
+            "source_text": source_text,
+            "target_text": target_text,
+            "target_missing": bool(target_missing),
+            "locked_terms": [
+                {"source": term["source"], "target": term["target"]}
+                for term in locked_terms
+            ],
+            "extra_prompt": extra_prompt or "",
+        }
+        return call_openai_compatible_json(
+            model_config=model_config,
+            system_prompt=build_plain_translation_system_prompt(
+                role_description="single-line Chinese to English translations",
+                candidate_requirement="candidate_translation must contain only the translated English text.",
+            ),
+            user_prompt=build_plain_translation_user_prompt(payload=payload, extra_prompt=extra_prompt),
+            max_tokens=model_config.get("max_tokens"),
+        )
+
+    def _single_translation_plain_reviewer_runner(
+        self,
+        source_text,
+        candidate_text,
+        locked_terms,
+        model_config,
+        target_missing,
+        extra_prompt,
+    ):
+        payload = {
+            "source_text": source_text,
+            "candidate_text": candidate_text,
+            "target_missing": bool(target_missing),
+            "locked_terms": [
+                {"source": term["source"], "target": term["target"]}
+                for term in locked_terms
+            ],
+            "extra_prompt": extra_prompt or "",
+        }
+        return call_openai_compatible_json(
+            model_config=model_config,
+            system_prompt=build_plain_translation_review_system_prompt(
+                review_description="English single-text translations",
+            ),
+            user_prompt=build_plain_translation_review_user_prompt(payload=payload, extra_prompt=extra_prompt),
+            max_tokens=model_config.get("max_tokens"),
+        )
+
+    def _single_translation_rst_model_runner(
+        self,
+        source_text,
+        target_text,
+        protected_source,
+        locked_terms,
+        model_config,
+        extra_prompt,
+        target_missing,
+    ):
+        return call_openai_compatible_json(
+            model_config=model_config,
+            system_prompt=build_po_translation_system_prompt(),
+            user_prompt=build_po_translation_user_prompt(
+                entry_id="single_translation",
+                references=[],
+                source_text=source_text,
+                target_text=target_text,
+                protected_source=protected_source,
+                locked_terms=locked_terms,
+                extra_prompt=extra_prompt,
+                target_missing=target_missing,
+            ),
+            max_tokens=model_config.get("max_tokens"),
+        )
+
+    def _single_translation_rst_reviewer_runner(
+        self,
+        source_text,
+        candidate_text,
+        protected_source,
+        locked_terms,
+        model_config,
+        target_missing,
+        extra_prompt,
+    ):
+        return call_openai_compatible_json(
+            model_config=model_config,
+            system_prompt=build_po_translation_review_system_prompt(),
+            user_prompt=build_po_translation_review_user_prompt(
+                entry_id="single_translation",
+                references=[],
+                source_text=source_text,
+                candidate_text=candidate_text,
+                protected_source=protected_source,
+                locked_terms=locked_terms,
+                target_missing=target_missing,
+                extra_prompt=extra_prompt,
+            ),
+            max_tokens=model_config.get("max_tokens"),
+        )
+
     def _start_translation_thread_locked(self, session):
         self.translation_thread = threading.Thread(
             target=self._run_translation_job,
@@ -1240,6 +1413,44 @@ def _default_po_translation_payload():
     }
 
 
+def _default_single_translation_result():
+    return {
+        "status": "idle",
+        "translated_text": "",
+        "error": "",
+        "reason": "",
+        "mode": "",
+        "validation_state": "passed",
+        "validation_message": "",
+        "locked_terms": [],
+        "warnings": [],
+        "updated_at": "",
+    }
+
+
+def _failed_single_translation_result(error_message, mode):
+    payload = _default_single_translation_result()
+    payload["status"] = "failed"
+    payload["error"] = str(error_message or "").strip()
+    payload["mode"] = str(mode or "")
+    payload["updated_at"] = datetime.now().astimezone().replace(microsecond=0).isoformat()
+    return payload
+
+
+def _default_single_translation_payload():
+    return {
+        "config": {
+            "source_text": "",
+        },
+        "result": _default_single_translation_result(),
+        "terminology": {
+            "path": "",
+            "count": 0,
+            "error": "",
+        },
+    }
+
+
 class _ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
 
@@ -1365,6 +1576,12 @@ class AppRequestHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/sql-translation/reject":
                 self._send_json(200, self.server.app_state.sql_translation_reject(payload.get("item_id", "")))
+                return
+            if parsed.path == "/api/single-translation/translate":
+                self._send_json(200, self.server.app_state.translate_single_text(payload))
+                return
+            if parsed.path == "/api/single-translation/reset":
+                self._send_json(200, self.server.app_state.reset_single_translation())
                 return
         except Exception as exc:
             self._send_json(400, {"error": str(exc)})

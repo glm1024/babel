@@ -341,6 +341,8 @@ def normalize_sql_translation_config(raw_config, path=None):
     return normalized
 
 
+
+
 def diff_model_config_overrides(model_config, baseline_config):
     normalized = normalize_model_config(model_config)
     baseline = normalize_model_config(baseline_config)

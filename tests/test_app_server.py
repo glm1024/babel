@@ -183,6 +183,46 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertEqual(reloaded_bootstrap["config"]["model_config"]["api_key"], "")
             self.assertEqual(reloaded_bootstrap["config"]["model_config"]["base_url"], "http://127.0.0.1:9000/v1")
 
+    def test_single_translation_result_is_memory_only_and_can_be_reset(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            out_dir = root / "results"
+            state = AppServiceState(out_dir=out_dir)
+
+            with patch("zh_audit.app_server.probe_openai_compatible_model", return_value={"message": "OK"}):
+                state.save_config(
+                    {
+                        "model_config": {
+                            "base_url": "http://127.0.0.1:8000/v1",
+                            "api_key": "sk-local",
+                            "model": "deepseek-v3",
+                            "max_tokens": 256,
+                        }
+                    }
+                )
+
+            with patch("zh_audit.app_server.call_openai_compatible_json", side_effect=_model_and_review_response):
+                payload = state.translate_single_text({"source_text": "创建对等连接：{0}"})
+
+            self.assertEqual(payload["config"]["source_text"], "创建对等连接：{0}")
+            self.assertEqual(payload["result"]["status"], "done")
+            self.assertEqual(payload["result"]["mode"], "plain")
+            self.assertNotEqual(payload["result"]["translated_text"], "create link: {0}")
+            self.assertIn("{0}", payload["result"]["translated_text"])
+
+            bootstrap = state.bootstrap_payload()
+            self.assertEqual(
+                bootstrap["single_translation"]["result"]["translated_text"],
+                payload["result"]["translated_text"],
+            )
+
+            persisted = json.loads((out_dir / "app_state.json").read_text(encoding="utf-8"))
+            self.assertNotIn("single_translation_config", persisted)
+
+            reset_payload = state.reset_single_translation()
+            self.assertEqual(reset_payload["result"]["status"], "idle")
+            self.assertEqual(reset_payload["result"]["translated_text"], "")
+
     def test_invalid_project_config_raises_value_error(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -232,6 +272,7 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("配置翻译", html)
             self.assertIn("文档翻译", html)
             self.assertIn("SQL翻译", html)
+            self.assertIn("单条翻译", html)
             self.assertIn("国际化文件中英文校对和翻译", html)
             self.assertIn("文档翻译", html)
             self.assertIn("SQL 中英文校对和翻译", html)
@@ -239,6 +280,7 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertLess(html.index('data-tab="customKeep"'), html.index('data-tab="poTranslation"'))
             self.assertLess(html.index('data-tab="poTranslation"'), html.index('data-tab="translation"'))
             self.assertLess(html.index('data-tab="translation"'), html.index('data-tab="sqlTranslation"'))
+            self.assertLess(html.index('data-tab="sqlTranslation"'), html.index('data-tab="singleTranslation"'))
             self.assertIn("模型配置", html)
             self.assertIn("免改规则配置", html)
             self.assertIn("规则分组", html)
@@ -276,6 +318,8 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn('class="field-textarea sql-schema-input"', html)
             self.assertIn('id="sqlTranslationAutoAccept"', html)
             self.assertIn('placeholder="请填写待翻译 PO 文件绝对路径..."', html)
+            self.assertIn('placeholder="请输入一条待翻译中文..."', html)
+            self.assertIn('placeholder="翻译结果会显示在这里"', html)
             self.assertIn("输出文件", html)
             self.assertIn("定位字段用于生成 UPDATE 的 WHERE 条件，不要求一定是主键；留空时按 `id` 处理。", html)
             self.assertNotIn("优先使用这里粘贴的建表 SQL；留空时系统先尝试从当前目录自动推导。", html)
@@ -318,6 +362,7 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn('data-tab="results"', html)
             self.assertIn('data-tab="customKeep"', html)
             self.assertIn('data-tab="poTranslation"', html)
+            self.assertIn('data-tab="singleTranslation"', html)
             self.assertIn('id="viewResultsBtn"', html)
             self.assertIn('id="resultsReportHost"', html)
             self.assertIn('id="customKeepPage"', html)
@@ -358,6 +403,12 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn(".translation-validation-note {", html)
             self.assertIn(".translation-call-budget {", html)
             self.assertIn("line-height: 1.55;", html)
+            self.assertIn("single_translation_translate_api_path", html)
+            self.assertIn("single_translation_reset_api_path", html)
+            self.assertIn("function renderSingleTranslation()", html)
+            self.assertIn('id="singleTranslationStatusBanner"', html)
+            self.assertIn('id="singleTranslationSourceInput"', html)
+            self.assertIn('id="singleTranslationOutput"', html)
             self.assertNotIn("已加载术语", html)
             self.assertNotIn("更多信息", html)
             self.assertIn("更多进度", html)
