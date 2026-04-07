@@ -144,6 +144,14 @@ class PoTranslationWorkflowTest(unittest.TestCase):
         )
         self.assertEqual(issue, "")
 
+    def test_validate_protected_candidate_rejects_literal_merged_into_adjacent_text(self):
+        protected = protect_rst_text('单击“编辑”（或者直接单击操作列的“|edit|”），显示“编辑伸缩组”窗口。')
+        issue = validate_protected_candidate(
+            protected,
+            'Click "Edit" (or directly click "Edit" in the Actions column|edit|), and the "Edit Elastic Scaling Group" window appears.',
+        )
+        self.assertEqual(issue, "候选把受保护 rst 标记并入了相邻文本")
+
     def test_po_translation_session_skips_accurate_existing_msgstr(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             po_path = Path(temp_dir) / "doc.po"

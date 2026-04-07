@@ -35,6 +35,7 @@ VALIDATION_ISSUE_CODES = {
     "候选未保留占位符": "placeholders_mismatch",
     "候选仍含中文": "candidate_contains_han",
     "候选与中文源文相同": "candidate_same_as_source",
+    "候选把受保护 rst 标记并入了相邻文本": "rst_protected_markup_merged",
 }
 ENGLISH_PUNCTUATION_TRANSLATION = str.maketrans(
     {

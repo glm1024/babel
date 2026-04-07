@@ -1390,6 +1390,7 @@ def build_po_translation_system_prompt():
         "slot_translations must be either an object mapping slot_id to English translation or an array of objects with keys slot_id, translation, and frontend_ui_context.\n"
         "Translate only the provided translatable_slots. Never recreate the full sentence on your own.\n"
         "Do not change rst role names, anchors, substitution tokens, inline literals, placeholders, or any immutable markup.\n"
+        "When a text slot is adjacent to a protected substitution token such as |name|, translate only the surrounding connective text. Do not spell out, translate, or paraphrase the protected token inside the neighboring text slot.\n"
         "For role_label, link_label, reference_label, strong_text, emphasis_text, interpreted_text, or directive_argument slots, translate only the visible user-facing text for that slot.\n"
         "Use standard half-width English punctuation inside translated English text. Do not keep Chinese-style punctuation such as “ ” ‘ ’ ， 。 ： ； （ ） 【 】 ！ ？ 、 or …… unless it is part of immutable protected markup.\n"
         "For each translated slot, return frontend_ui_context=true only when the slot is clearly talking about visible UI elements such as buttons, tabs, menus, links, labels, or page controls.\n"

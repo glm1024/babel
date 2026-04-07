@@ -28,6 +28,10 @@ TRANSLATABLE_SLOT_TYPES = {
     "interpreted_text",
     "directive_argument",
 }
+OPEN_QUOTE_CHARS = set(['"', "'", "“", "‘"])
+CLOSE_QUOTE_CHARS = set(['"', "'", "”", "’"])
+OPEN_BRACKET_CHARS = set(["(", "[", "{", "<", "（", "【", "｛", "〈", "《"])
+CLOSE_BRACKET_CHARS = set([")", "]", "}", ">", "）", "】", "｝", "〉", "》"])
 
 
 def protect_rst_text(text):
@@ -178,11 +182,69 @@ def validate_protected_candidate(source_protected, candidate_text):
             return "候选改动了 rst 链接 target"
         if slot_type == "reference_label" and source_slot.get("suffix", "") != candidate_slot.get("suffix", ""):
             return "候选改动了 rst 引用后缀"
+        if slot_type in {"literal", "inline_literal"}:
+            if not _preserves_literal_boundaries(source_slot, candidate_slot):
+                return "候选把受保护 rst 标记并入了相邻文本"
     return ""
 
 
 def _structural_slots(slots):
-    return [dict(slot) for slot in (slots or []) if slot.get("type") != "text"]
+    structural = []
+    raw_slots = list(slots or [])
+    for index, slot in enumerate(raw_slots):
+        if slot.get("type") == "text":
+            continue
+        item = dict(slot)
+        item["previous_text"] = _adjacent_text_slot(raw_slots, index, -1)
+        item["next_text"] = _adjacent_text_slot(raw_slots, index, 1)
+        structural.append(item)
+    return structural
+
+
+def _adjacent_text_slot(slots, index, direction):
+    current = int(index) + int(direction)
+    while 0 <= current < len(slots):
+        slot = slots[current]
+        if slot.get("type") == "text":
+            return str(slot.get("source_text", "") or "")
+        if slot.get("type") is not None:
+            return ""
+        current += int(direction)
+    return ""
+
+
+def _preserves_literal_boundaries(source_slot, candidate_slot):
+    required_before = _boundary_requirement_before(source_slot.get("previous_text", ""))
+    required_after = _boundary_requirement_after(source_slot.get("next_text", ""))
+    if required_before and _boundary_requirement_before(candidate_slot.get("previous_text", "")) != required_before:
+        return False
+    if required_after and _boundary_requirement_after(candidate_slot.get("next_text", "")) != required_after:
+        return False
+    return True
+
+
+def _boundary_requirement_before(text):
+    for char in reversed(str(text or "")):
+        if char.isspace():
+            continue
+        if char in OPEN_QUOTE_CHARS:
+            return "quote"
+        if char in OPEN_BRACKET_CHARS:
+            return "bracket"
+        return ""
+    return ""
+
+
+def _boundary_requirement_after(text):
+    for char in str(text or ""):
+        if char.isspace():
+            continue
+        if char in CLOSE_QUOTE_CHARS:
+            return "quote"
+        if char in CLOSE_BRACKET_CHARS:
+            return "bracket"
+        return ""
+    return ""
 
 
 def build_slot_translation_map(raw_slot_translations):
