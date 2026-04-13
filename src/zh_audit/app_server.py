@@ -1609,6 +1609,7 @@ class AppRequestHandler(BaseHTTPRequestHandler):
         content = body.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        self._send_no_store_headers()
         self.send_header("Content-Length", str(len(content)))
         self.end_headers()
         self.wfile.write(content)
@@ -1617,9 +1618,15 @@ class AppRequestHandler(BaseHTTPRequestHandler):
         content = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self._send_no_store_headers()
         self.send_header("Content-Length", str(len(content)))
         self.end_headers()
         self.wfile.write(content)
+
+    def _send_no_store_headers(self):
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
 
 
 def serve_app(out_dir, host="127.0.0.1", port=8765, app_state_path=None, project_config_path=None):

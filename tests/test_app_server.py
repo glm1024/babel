@@ -1,4 +1,7 @@
+from io import BytesIO
 import json
+import re
+import shutil
 import subprocess
 import tempfile
 import time
@@ -6,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from zh_audit.app_server import AppServiceState
+from zh_audit.app_server import AppRequestHandler, AppServiceState
 
 
 def _model_and_review_response(**kwargs):
@@ -286,13 +289,15 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("规则分组", html)
             self.assertIn("新增分组", html)
             self.assertIn("保存规则", html)
-            self.assertIn("默认匹配命中文本和代码片段。", html)
-            self.assertNotIn("data-custom-keep-rule-field=\"path-globs\"", html)
+            self.assertIn("关键字/正则匹配命中文本和代码片段，文件路径匹配扫描结果中的相对路径。", html)
+            self.assertIn(">文件路径<", html)
+            self.assertIn("select-shell", html)
             self.assertIn("无法连接本地服务，请确认服务仍在运行，然后刷新页面重试。", html)
             self.assertIn("window.history.replaceState", html)
             self.assertIn("window.addEventListener(\"hashchange\"", html)
             self.assertIn("window.sessionStorage.setItem", html)
             self.assertIn("window.sessionStorage.getItem", html)
+            self.assertIn("payload.custom_keep_categories = buildCustomKeepPayload().custom_keep_categories;", html)
             self.assertIn("--font-ui:", html)
             self.assertIn("--font-mono:", html)
             self.assertIn("@media (min-width: 1920px)", html)
@@ -303,6 +308,7 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("id=\"settingsStatusBanner\"", html)
             self.assertIn("测试并保存中...", html)
             self.assertIn("开始校译", html)
+
             self.assertIn("继续任务", html)
             self.assertIn("处理记录", html)
             self.assertIn("跳过手动审批，自动接受后续全部 AI 翻译", html)
@@ -673,6 +679,114 @@ class AppServerSmokeTest(unittest.TestCase):
             reopened_restored = next(item for item in reopened.findings if item["text"] == "操作异常！")
             self.assertEqual(reopened_restored["action"], "fix")
 
+    def test_render_home_escapes_inline_script_payloads(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out_dir = Path(temp_dir) / "results"
+            state = AppServiceState(out_dir=out_dir)
+            dangerous_text = '</script><script>alert("boom")</script>'
+            state.summary = {"total_findings": 1}
+            state.findings = [
+                {
+                    "id": "finding-1",
+                    "sequence": 1,
+                    "project": "demo",
+                    "path": "src/demo.js",
+                    "lang": "javascript",
+                    "line": 1,
+                    "column": 1,
+                    "text": dangerous_text,
+                    "normalized_text": dangerous_text,
+                    "snippet": 'const message = "</script><script>alert(\\"boom\\")</script>";',
+                    "category": "UNKNOWN",
+                    "action": "fix",
+                    "reason": "No strong rule matched.",
+                    "candidate_roles": [],
+                    "file_role": "",
+                    "metadata": {},
+                }
+            ]
+
+            html = state.render_home()
+
+            self.assertNotIn(dangerous_text, html)
+            self.assertIn('\\u003c/script\\u003e\\u003cscript\\u003ealert(\\"boom\\")\\u003c/script\\u003e', html)
+            self.assertIn('const BOOTSTRAP = {"config"', html)
+
+    def test_render_home_tolerates_placeholder_tokens_inside_payload_strings(self) -> None:
+        if shutil.which("node") is None:
+            self.skipTest("node is required for inline script syntax validation")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out_dir = Path(temp_dir) / "results"
+            state = AppServiceState(out_dir=out_dir)
+            placeholder_text = (
+                "const REPORT_STYLE = __REPORT_STYLE__; "
+                "const REPORT_MARKUP = __REPORT_MARKUP__; "
+                "const DISPLAY_MAP = __DISPLAY_MAP__; "
+                "const CLIENT_CONFIG = __CLIENT_CONFIG__; "
+                "const BOOTSTRAP = __BOOTSTRAP__;"
+            )
+            state.summary = {"by_action": {"fix": 1}}
+            state.findings = [
+                {
+                    "id": "finding-1",
+                    "sequence": 1,
+                    "project": "demo",
+                    "path": "src/demo.py",
+                    "lang": "python",
+                    "line": 1,
+                    "column": 1,
+                    "text": placeholder_text,
+                    "normalized_text": placeholder_text,
+                    "snippet": placeholder_text,
+                    "category": "UNKNOWN",
+                    "action": "fix",
+                    "reason": "No strong rule matched.",
+                    "candidate_roles": [],
+                    "file_role": "",
+                    "metadata": {},
+                }
+            ]
+
+            html = state.render_home()
+            self.assertIn(placeholder_text, html)
+
+            scripts = re.findall(r"<script>(.*?)</script>", html, re.S)
+            self.assertEqual(len(scripts), 2)
+            script_path = Path(temp_dir) / "inline.js"
+            script_path.write_text(scripts[-1], encoding="utf-8")
+            result = subprocess.run(
+                ["node", "--check", str(script_path)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_response_helpers_disable_browser_caching(self) -> None:
+        def build_handler():
+            handler = object.__new__(AppRequestHandler)
+            captured = []
+            handler.send_response = lambda status: captured.append(("status", status))
+            handler.send_header = lambda name, value: captured.append((name, value))
+            handler.end_headers = lambda: captured.append(("end_headers", None))
+            handler.wfile = BytesIO()
+            return handler, captured
+
+        html_handler, html_headers = build_handler()
+        html_handler._send_html("<p>ok</p>")
+        self.assertIn(("Cache-Control", "no-store"), html_headers)
+        self.assertIn(("Pragma", "no-cache"), html_headers)
+        self.assertIn(("Expires", "0"), html_headers)
+        self.assertEqual(html_handler.wfile.getvalue(), b"<p>ok</p>")
+
+        json_handler, json_headers = build_handler()
+        json_handler._send_json(200, {"ok": True})
+        self.assertIn(("Cache-Control", "no-store"), json_headers)
+        self.assertIn(("Pragma", "no-cache"), json_headers)
+        self.assertIn(("Expires", "0"), json_headers)
+        self.assertEqual(json_handler.wfile.getvalue(), b'{"ok": true}')
+
     def test_resolved_state_reapplies_after_rescan(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -779,7 +893,7 @@ class AppServerSmokeTest(unittest.TestCase):
 
             self.assertEqual(
                 str(context.exception),
-                "免改规则配置无效：规则分组 1 的规则 1 的关键字或正则不能为空。",
+                "免改规则配置无效：规则分组 1 的规则 1 的关键字、正则或文件路径不能为空。",
             )
 
     def test_custom_keep_categories_override_scan_classification(self) -> None:
@@ -805,6 +919,10 @@ class AppServerSmokeTest(unittest.TestCase):
                 'class App { String fail(){ return "系统超时"; } }\n',
                 encoding="utf-8",
             )
+
+            docs_file = repo / "docs" / "guide.md"
+            docs_file.parent.mkdir(parents=True)
+            docs_file.write_text("保留文档文案\n", encoding="utf-8")
 
             subprocess.run(
                 ["git", "add", "."],
@@ -839,6 +957,16 @@ class AppServerSmokeTest(unittest.TestCase):
                                 }
                             ],
                         },
+                        {
+                            "name": "文档路径白名单",
+                            "enabled": True,
+                            "rules": [
+                                {
+                                    "type": "path",
+                                    "pattern": "docs/",
+                                }
+                            ],
+                        },
                     ]
                 }
             )
@@ -857,6 +985,7 @@ class AppServerSmokeTest(unittest.TestCase):
 
             template_finding = next(item for item in state.findings if item["path"] == "templates/view.html")
             java_finding = next(item for item in state.findings if item["path"] == "src/App.java")
+            docs_finding = next(item for item in state.findings if item["path"] == "docs/guide.md")
 
             self.assertEqual(template_finding["category"], "模板白名单")
             self.assertEqual(template_finding["action"], "keep")
@@ -866,6 +995,71 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertEqual(java_finding["category"], "通用白名单")
             self.assertEqual(java_finding["action"], "keep")
             self.assertEqual(java_finding["metadata"]["custom_keep_rule_type"], "keyword")
+
+            self.assertEqual(docs_finding["category"], "文档路径白名单")
+            self.assertEqual(docs_finding["action"], "keep")
+            self.assertEqual(docs_finding["metadata"]["custom_keep_rule_type"], "path")
+            self.assertEqual(docs_finding["metadata"]["custom_keep_matched_field"], "path")
+
+    def test_scan_payload_can_clear_custom_keep_categories_without_separate_save(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            repo = root / "repo"
+            repo.mkdir()
+            subprocess.run(
+                ["git", "init"],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            docs_file = repo / "docs" / "guide.md"
+            docs_file.parent.mkdir(parents=True)
+            docs_file.write_text("保留文档文案\n", encoding="utf-8")
+
+            subprocess.run(
+                ["git", "add", "."],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            out_dir = root / "results"
+            state = AppServiceState(out_dir=out_dir)
+            state.save_config(
+                {
+                    "custom_keep_categories": [
+                        {
+                            "name": "规则分组 1",
+                            "enabled": True,
+                            "rules": [
+                                {
+                                    "type": "path",
+                                    "pattern": "docs/",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            )
+
+            state.start_scan(
+                {
+                    "scan_roots": [str(repo)],
+                    "custom_keep_categories": [],
+                    "scan_policy": {
+                        "max_file_size_bytes": 5 * 1024 * 1024,
+                        "context_lines": 1,
+                        "exclude_globs": ["**/static/ajax/libs/**"],
+                    },
+                }
+            )
+            self._wait_for_scan_done(state)
+
+            self.assertEqual(state.bootstrap_payload()["config"]["custom_keep_categories"], [])
+            self.assertFalse(any(item["category"] == "规则分组 1" for item in state.findings))
 
     def test_scan_progress_keeps_latest_repo_context_for_multi_repo_scan(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -80,7 +80,7 @@ def prepare_custom_keep_categories(custom_keep_categories):
                 continue
             rule_type = str(rule.get("type", "") or "").strip().lower()
             pattern = str(rule.get("pattern", "") or "")
-            if rule_type not in ("keyword", "regex") or not pattern:
+            if rule_type not in ("keyword", "regex", "path") or not pattern:
                 continue
             prepared_rule = {
                 "type": rule_type,
@@ -88,6 +88,8 @@ def prepare_custom_keep_categories(custom_keep_categories):
             }
             if rule_type == "regex":
                 prepared_rule["compiled_pattern"] = re.compile(pattern)
+            if rule_type == "path":
+                prepared_rule["normalized_pattern"] = pattern.replace("\\", "/").lower()
             prepared_rules.append(prepared_rule)
         if prepared_rules:
             prepared.append(
@@ -308,6 +310,7 @@ def classify_rule(raw: RawFinding, custom_keep_categories=None) -> ClassifiedFin
 def _match_custom_keep_category(raw: RawFinding, custom_keep_categories):
     if not custom_keep_categories:
         return None
+    normalized_path = str(raw.path or "").replace("\\", "/").lower()
     fields = [
         ("normalized_text", str(raw.normalized_text or "")),
         ("hit_text", str(raw.hit_text or "")),
@@ -315,6 +318,13 @@ def _match_custom_keep_category(raw: RawFinding, custom_keep_categories):
     ]
     for category in custom_keep_categories:
         for rule in category.get("rules", []) or []:
+            if rule["type"] == "path" and normalized_path and rule["normalized_pattern"] in normalized_path:
+                return {
+                    "category": category["name"],
+                    "rule_type": rule["type"],
+                    "rule_pattern": rule["pattern"],
+                    "matched_field": "path",
+                }
             for field_name, field_value in fields:
                 if not field_value:
                     continue

@@ -236,11 +236,11 @@ def normalize_custom_keep_rules(raw_rules, path=None, category_index=0):
                 )
             )
         rule_type = _normalize_model_text(raw_rule.get("type")).lower()
-        if rule_type not in ("keyword", "regex"):
+        if rule_type not in ("keyword", "regex", "path"):
             raise ValueError(
                 _format_custom_keep_error(
                     path,
-                    "{} 的规则类型只能是“关键字”或“正则”。".format(
+                    "{} 的规则类型只能是“关键字”“正则”或“文件路径”。".format(
                         _custom_keep_rule_label(category_index, rule_index),
                     ),
                 )
@@ -250,7 +250,7 @@ def normalize_custom_keep_rules(raw_rules, path=None, category_index=0):
             raise ValueError(
                 _format_custom_keep_error(
                     path,
-                    "{} 的关键字或正则不能为空。".format(
+                    "{} 的关键字、正则或文件路径不能为空。".format(
                         _custom_keep_rule_label(category_index, rule_index),
                     ),
                 )

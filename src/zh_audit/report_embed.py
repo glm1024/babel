@@ -834,7 +834,7 @@ REPORT_COMPONENT_MARKUP = """
         <select id="actionFilter"></select>
         <select id="categoryFilter"></select>
         <select id="langFilter"></select>
-        <input id="keywordFilter" placeholder="按文本、位置或分类搜索">
+        <input id="keywordFilter" placeholder="按文本、文件路径或分类搜索">
         <button id="exportBtn" class="export-btn">导出全部结果到 Excel</button>
       </div>
       <div class="table-toolbar">
@@ -869,7 +869,7 @@ REPORT_COMPONENT_MARKUP = """
               <th>项目</th>
               <th>
                 <button class="sort-btn" type="button" data-sort-key="location" aria-pressed="false">
-                  <span>位置</span>
+                  <span>文件路径</span>
                   <span class="sort-indicator" aria-hidden="true">↕</span>
                 </button>
               </th>
@@ -1489,7 +1489,7 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
 
     function exportCsv() {
       const current = filteredFindings();
-      const headers = ["行号", "项目", "位置", "文本", "分类", "动作"];
+      const headers = ["行号", "项目", "文件路径", "文本", "分类", "动作"];
       const csvRows = current.map(function (item, index) {
         return [
           index + 1,
@@ -1816,11 +1816,11 @@ REPORT_COMPONENT_BUNDLE_TEMPLATE = """
 
 def render_report_component_bundle():
     bundle = REPORT_COMPONENT_BUNDLE_TEMPLATE
-    bundle = bundle.replace("__REPORT_STYLE__", json.dumps(REPORT_COMPONENT_STYLE, ensure_ascii=False))
-    bundle = bundle.replace("__REPORT_MARKUP__", json.dumps(REPORT_COMPONENT_MARKUP, ensure_ascii=False))
-    bundle = bundle.replace("__DISPLAY_MAP__", json.dumps(DISPLAY_MAPS, ensure_ascii=False))
-    bundle = bundle.replace("__CATEGORY_DISPLAY_PRIORITY__", json.dumps(CATEGORY_DISPLAY_PRIORITY, ensure_ascii=False))
-    bundle = bundle.replace("__PAGE_SIZES__", json.dumps(PAGE_SIZES, ensure_ascii=False))
+    bundle = bundle.replace("__REPORT_STYLE__", json.dumps(REPORT_COMPONENT_STYLE, ensure_ascii=False), 1)
+    bundle = bundle.replace("__REPORT_MARKUP__", json.dumps(REPORT_COMPONENT_MARKUP, ensure_ascii=False), 1)
+    bundle = bundle.replace("__DISPLAY_MAP__", json.dumps(DISPLAY_MAPS, ensure_ascii=False), 1)
+    bundle = bundle.replace("__CATEGORY_DISPLAY_PRIORITY__", json.dumps(CATEGORY_DISPLAY_PRIORITY, ensure_ascii=False), 1)
+    bundle = bundle.replace("__PAGE_SIZES__", json.dumps(PAGE_SIZES, ensure_ascii=False), 1)
     bundle = bundle.replace(
         "__CLIENT_CONFIG__",
         json.dumps(
@@ -1831,5 +1831,6 @@ def render_report_component_bundle():
             },
             ensure_ascii=False,
         ),
+        1,
     )
     return bundle

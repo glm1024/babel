@@ -884,7 +884,7 @@ def render_report(summary, findings, client_config=None):
         <select id="actionFilter"></select>
         <select id="categoryFilter"></select>
         <select id="langFilter"></select>
-        <input id="keywordFilter" placeholder="按文本、位置或分类搜索">
+        <input id="keywordFilter" placeholder="按文本、文件路径或分类搜索">
         <button id="exportBtn" class="export-btn">导出全部结果到 Excel</button>
       </div>
       <div class="table-toolbar">
@@ -919,7 +919,7 @@ def render_report(summary, findings, client_config=None):
               <th>项目</th>
               <th>
                 <button class="sort-btn" type="button" data-sort-key="location" aria-pressed="false">
-                  <span>位置</span>
+                  <span>文件路径</span>
                   <span class="sort-indicator" aria-hidden="true">↕</span>
                 </button>
               </th>
@@ -1510,7 +1510,7 @@ def render_report(summary, findings, client_config=None):
 
     function exportCsv() {
       const current = filteredFindings();
-      const headers = ["行号", "项目", "位置", "文本", "分类", "动作"];
+      const headers = ["行号", "项目", "文件路径", "文本", "分类", "动作"];
       const rows = current.map((item, index) => [
         index + 1,
         item.project || "",
@@ -1712,9 +1712,9 @@ def render_report(summary, findings, client_config=None):
 </html>"""
 
     return (
-        template.replace("__PAYLOAD__", payload)
-        .replace("__DISPLAY_MAP__", display_maps)
-        .replace("__CATEGORY_DISPLAY_PRIORITY__", category_display_priority)
-        .replace("__PAGE_SIZES__", page_sizes)
-        .replace("__CLIENT_CONFIG__", client_config_payload)
+        template.replace("__DISPLAY_MAP__", display_maps, 1)
+        .replace("__CATEGORY_DISPLAY_PRIORITY__", category_display_priority, 1)
+        .replace("__PAGE_SIZES__", page_sizes, 1)
+        .replace("__CLIENT_CONFIG__", client_config_payload, 1)
+        .replace("__PAYLOAD__", payload, 1)
     )

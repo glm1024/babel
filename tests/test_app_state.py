@@ -19,8 +19,8 @@ class AppStateSmokeTest(unittest.TestCase):
                             "enabled": True,
                             "rules": [
                                 {
-                                    "type": "keyword",
-                                    "pattern": "系统繁忙",
+                                    "type": "path",
+                                    "pattern": "templates/view.html",
                                     "path_globs": ["templates/**"],
                                 }
                             ],
@@ -32,8 +32,8 @@ class AppStateSmokeTest(unittest.TestCase):
             self.assertEqual(
                 state["custom_keep_categories"][0]["rules"][0],
                 {
-                    "type": "keyword",
-                    "pattern": "系统繁忙",
+                    "type": "path",
+                    "pattern": "templates/view.html",
                 },
             )
 
@@ -99,6 +99,26 @@ class AppStateSmokeTest(unittest.TestCase):
         self.assertEqual(
             str(context.exception),
             "免改规则配置无效：规则分组 1 的规则 1 的正则表达式格式不正确。",
+        )
+
+    def test_invalid_custom_keep_rule_type_error_message_mentions_path(self) -> None:
+        with self.assertRaises(ValueError) as context:
+            normalize_app_state(
+                {
+                    "version": 1,
+                    "custom_keep_categories": [
+                        {
+                            "name": "坏规则",
+                            "enabled": True,
+                            "rules": [{"type": "unknown", "pattern": "src/demo"}],
+                        }
+                    ],
+                }
+            )
+
+        self.assertEqual(
+            str(context.exception),
+            "免改规则配置无效：规则分组 1 的规则 1 的规则类型只能是“关键字”“正则”或“文件路径”。",
         )
 
     def test_empty_custom_keep_category_name_and_rules_rejected(self) -> None:

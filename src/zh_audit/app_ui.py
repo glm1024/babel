@@ -4,10 +4,21 @@ from zh_audit.report import DISPLAY_MAPS
 from zh_audit.report_embed import render_report_component_bundle
 
 
+def _json_for_inline_script(value):
+    return (
+        json.dumps(value, ensure_ascii=False)
+        .replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
+
+
 def render_app_shell(bootstrap_payload, client_config):
-    payload = json.dumps(bootstrap_payload, ensure_ascii=False)
-    display_maps = json.dumps(DISPLAY_MAPS, ensure_ascii=False)
-    config_payload = json.dumps(client_config, ensure_ascii=False)
+    payload = _json_for_inline_script(bootstrap_payload)
+    display_maps = _json_for_inline_script(DISPLAY_MAPS)
+    config_payload = _json_for_inline_script(client_config)
     report_bundle = render_report_component_bundle()
     template = """<!doctype html>
 <html lang="zh-CN">
@@ -52,6 +63,7 @@ def render_app_shell(bootstrap_payload, client_config):
       --button-pad-x: 16px;
       --input-pad-y: 12px;
       --input-pad-x: 14px;
+      --select-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14' fill='none'%3E%3Cpath d='M3.25 5.5 7 9.25l3.75-3.75' stroke='%23555b65' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
     }
     * { box-sizing: border-box; }
     body {
@@ -354,13 +366,34 @@ def render_app_shell(bootstrap_payload, client_config):
       -webkit-appearance: none;
       -moz-appearance: none;
       padding-right: calc(var(--input-pad-x) + 34px);
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14' fill='none'%3E%3Cpath d='M3.25 5.5 7 9.25l3.75-3.75' stroke='%23555b65' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-image: var(--select-caret);
       background-repeat: no-repeat;
       background-position: right 14px center;
       background-size: 14px 14px;
     }
     select::-ms-expand {
       display: none;
+    }
+    .select-shell {
+      position: relative;
+      display: block;
+    }
+    .select-shell::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: 14px;
+      width: 14px;
+      height: 14px;
+      transform: translateY(-50%);
+      background-image: var(--select-caret);
+      background-repeat: no-repeat;
+      background-position: center;
+      background-size: 14px 14px;
+      pointer-events: none;
+    }
+    .select-shell > select {
+      background-image: none;
     }
     .root-input {
       flex: 1 1 auto;
@@ -2024,6 +2057,31 @@ __REPORT_COMPONENT_BUNDLE__
       };
     }
 
+    function normalizeCustomKeepRuleType(value) {
+      const type = String(value || "keyword").trim().toLowerCase();
+      return ["keyword", "regex", "path"].includes(type) ? type : "keyword";
+    }
+
+    function customKeepRulePatternLabel(ruleType) {
+      if (ruleType === "regex") {
+        return "正则表达式";
+      }
+      if (ruleType === "path") {
+        return "文件路径";
+      }
+      return "关键字";
+    }
+
+    function customKeepRulePatternPlaceholder(ruleType) {
+      if (ruleType === "regex") {
+        return "例如：^系统(繁忙|超时)$";
+      }
+      if (ruleType === "path") {
+        return "例如：src/zh_audit/validation.py";
+      }
+      return "例如：系统繁忙";
+    }
+
     function defaultCustomKeepCategory(name) {
       return {
         name: name || "",
@@ -2236,10 +2294,14 @@ __REPORT_COMPONENT_BUNDLE__
       return item.snippet || item.normalized_text || item.text || "";
     }
 
-    function buildScanPayload() {
-      return {
+    function buildScanPayload(options = {}) {
+      const payload = {
         scan_roots: state.draftConfig.scan_roots.filter(item => String(item || "").trim()).map(item => String(item).trim()),
       };
+      if (options.includeCustomKeep) {
+        payload.custom_keep_categories = buildCustomKeepPayload().custom_keep_categories;
+      }
+      return payload;
     }
 
     function buildModelConfigPayload() {
@@ -2268,9 +2330,9 @@ __REPORT_COMPONENT_BUNDLE__
     }
 
     function normalizeCustomKeepRuleDraft(rule) {
-      const type = String((rule && rule.type) || "keyword").trim().toLowerCase();
+      const type = normalizeCustomKeepRuleType(rule && rule.type);
       return {
-        type: type === "regex" ? "regex" : "keyword",
+        type,
         pattern: String((rule && rule.pattern) || ""),
       };
     }
@@ -2372,7 +2434,7 @@ __REPORT_COMPONENT_BUNDLE__
           name: String((category && category.name) || "").trim(),
           enabled: !!(category && category.enabled),
           rules: (Array.isArray(category && category.rules) ? category.rules : []).map(rule => ({
-            type: String((rule && rule.type) || "keyword").trim().toLowerCase() || "keyword",
+            type: normalizeCustomKeepRuleType(rule && rule.type),
             pattern: String((rule && rule.pattern) || "").trim(),
           })),
         })),
@@ -2555,12 +2617,16 @@ __REPORT_COMPONENT_BUNDLE__
         customKeepRuleList.innerHTML = "";
       } else {
         const rules = Array.isArray(selectedCategory.rules) ? selectedCategory.rules : [];
-        customKeepRuleList.innerHTML = rules.map((rule, ruleIndex) => `
+        customKeepRuleList.innerHTML = rules.map((rule, ruleIndex) => {
+          const ruleType = normalizeCustomKeepRuleType(rule && rule.type);
+          const patternLabel = customKeepRulePatternLabel(ruleType);
+          const patternPlaceholder = customKeepRulePatternPlaceholder(ruleType);
+          return `
           <div class="custom-keep-rule-card">
             <div class="custom-keep-category-meta">
               <div>
                 <div class="field-label">规则 ${ruleIndex + 1}</div>
-                <div class="muted">默认匹配命中文本和代码片段。</div>
+                <div class="muted">关键字/正则匹配命中文本和代码片段，文件路径匹配扫描结果中的相对路径。</div>
               </div>
               <div class="custom-keep-rule-actions">
                 <button class="secondary-btn" type="button" data-action="move-custom-keep-rule-up" data-index="${ruleIndex}" ${ruleIndex === 0 ? "disabled" : ""}>上移</button>
@@ -2571,18 +2637,22 @@ __REPORT_COMPONENT_BUNDLE__
             <div class="custom-keep-rule-grid">
               <label>
                 <div class="field-label">规则类型</div>
-                <select class="filter-select" data-custom-keep-rule-field="type" data-index="${ruleIndex}">
-                  <option value="keyword" ${rule.type === "keyword" ? "selected" : ""}>关键字</option>
-                  <option value="regex" ${rule.type === "regex" ? "selected" : ""}>正则</option>
-                </select>
+                <span class="select-shell">
+                  <select class="filter-select" data-custom-keep-rule-field="type" data-index="${ruleIndex}">
+                    <option value="keyword" ${ruleType === "keyword" ? "selected" : ""}>关键字</option>
+                    <option value="regex" ${ruleType === "regex" ? "selected" : ""}>正则</option>
+                    <option value="path" ${ruleType === "path" ? "selected" : ""}>文件路径</option>
+                  </select>
+                </span>
               </label>
               <label>
-                <div class="field-label">${rule.type === "regex" ? "正则表达式" : "关键字"}</div>
-                <input class="field-input" type="text" data-custom-keep-rule-field="pattern" data-index="${ruleIndex}" value="${escapeAttr(rule.pattern || "")}" placeholder="${escapeAttr(rule.type === "regex" ? "例如：^系统(繁忙|超时)$" : "例如：系统繁忙")}">
+                <div class="field-label">${patternLabel}</div>
+                <input class="field-input" type="text" data-custom-keep-rule-field="pattern" data-index="${ruleIndex}" value="${escapeAttr(rule.pattern || "")}" placeholder="${escapeAttr(patternPlaceholder)}">
               </label>
             </div>
           </div>
-        `).join("");
+        `;
+        }).join("");
       }
 
       const showCustomKeepStatus = Boolean(state.customKeepStatus.isError);
@@ -3199,10 +3269,18 @@ __REPORT_COMPONENT_BUNDLE__
 
     async function startScan() {
       syncRootsFromInputs();
-      const payload = buildScanPayload();
+      const payload = buildScanPayload({ includeCustomKeep: true });
       const data = await requestJson(CLIENT_CONFIG.scan_start_api_path, payload);
+      state.config = Object.assign({}, state.config, {
+        scan_roots: payload.scan_roots.slice(),
+        custom_keep_categories: payload.custom_keep_categories.map(normalizeCustomKeepCategoryDraft),
+      });
+      clearCustomKeepDraft();
+      state.customKeepDirty = false;
+      setCustomKeepStatus("", { isError: false });
       state.scanStatus = data;
       renderStatus();
+      renderCustomKeep();
       startPolling();
     }
 
@@ -3825,7 +3903,7 @@ __REPORT_COMPONENT_BUNDLE__
       const ruleIndex = Number.parseInt(target.dataset.index, 10);
       const rule = (category.rules || [])[ruleIndex];
       if (!rule) return;
-      rule.type = target.value || "keyword";
+      rule.type = normalizeCustomKeepRuleType(target.value);
       markCustomKeepDirty();
       renderCustomKeep();
     });
@@ -4386,8 +4464,8 @@ __REPORT_COMPONENT_BUNDLE__
 </body>
 </html>"""
     return (
-        template.replace("__REPORT_COMPONENT_BUNDLE__", report_bundle)
-        .replace("__BOOTSTRAP__", payload)
-        .replace("__DISPLAY_MAP__", display_maps)
-        .replace("__CLIENT_CONFIG__", config_payload)
+        template.replace("__REPORT_COMPONENT_BUNDLE__", report_bundle, 1)
+        .replace("__DISPLAY_MAP__", display_maps, 1)
+        .replace("__CLIENT_CONFIG__", config_payload, 1)
+        .replace("__BOOTSTRAP__", payload, 1)
     )
