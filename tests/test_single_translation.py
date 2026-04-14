@@ -1,5 +1,6 @@
 import unittest
 
+from zh_audit.model_client import ModelResponseFormatError
 from zh_audit.single_translation import translate_single_text
 from zh_audit.terminology_xlsx import normalize_terminology_catalog
 
@@ -131,6 +132,38 @@ class SingleTranslationTest(unittest.TestCase):
 
         self.assertEqual(result["mode"], "rst")
         self.assertEqual(result["validation_state"], "passed")
+        self.assertEqual(result["translated_text"], 'Click :guilabel:`OK` button.')
+
+    def test_rst_mode_recovers_candidate_from_slot_translations_on_model_parse_failure(self):
+        result = translate_single_text(
+            source_text="单击 :guilabel:`确定` 按钮。",
+            glossary=normalize_terminology_catalog({}),
+            model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+            plain_model_runner=lambda **kwargs: (_ for _ in ()).throw(AssertionError("plain runner should not run")),
+            plain_reviewer_runner=_pass_plain_review,
+            rst_model_runner=lambda **kwargs: (_ for _ in ()).throw(
+                ModelResponseFormatError(
+                    "Model response does not contain a valid JSON object: malformed slot_translations payload",
+                    raw_response='{"choices":[{"message":{"content":"...invalid..."}}]}',
+                    raw_content=(
+                        '{\n'
+                        '  "verdict": "needs_update",\n'
+                        '  "slot_translations": [\n'
+                        '    {"slot_id": "slot_1", "translation": "Click ", "frontend_ui_context": false},\n'
+                        '    {"slot_id": "slot_2", "translation": "OK", "frontend_ui_context": true},\n'
+                        '    {"slot_id": "slot_3", "translation": " button.", "frontend_ui_context": false}\n'
+                        '  ]\n'
+                        '  "reason": "目标文本缺失，需要翻译。"\n'
+                        '}'
+                    ),
+                    parse_error_detail="parser error: Expecting ',' delimiter",
+                )
+            ),
+            rst_reviewer_runner=lambda **kwargs: {"decision": "pass", "issues": []},
+        )
+
+        self.assertEqual(result["mode"], "rst")
+        self.assertEqual(result["validation_state"], "failed")
         self.assertEqual(result["translated_text"], 'Click :guilabel:`OK` button.')
 
     def test_unsupported_rst_returns_error(self):

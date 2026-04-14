@@ -33,6 +33,18 @@ class ModelClientTest(unittest.TestCase):
         self.assertEqual(parsed["decision"], "pass")
         self.assertEqual(parsed["issues"], [])
 
+    def test_extract_json_object_tolerates_unescaped_quotes_inside_reason_string(self):
+        parsed = _extract_json_object(
+            '{'
+            '"verdict":"needs_update",'
+            '"slot_translations":[{"slot_id":"slot_1","translation":"System Configuration","frontend_ui_context":false}],'
+            '"reason":"目标文本缺失，需要翻译。将“系统配置”译为"System Configuration"。"}'
+        )
+
+        self.assertEqual(parsed["verdict"], "needs_update")
+        self.assertEqual(parsed["slot_translations"][0]["translation"], "System Configuration")
+        self.assertIn('"System Configuration"', parsed["reason"])
+
     def test_call_openai_compatible_json_uses_content_after_think_tag(self):
         raw_response = json.dumps(
             {"choices": [{"message": {"content": 'Thinking Process:\n1. Analyze\n</think>\n{"decision":"pass","issues":[]}'}}]}
@@ -163,7 +175,7 @@ class ModelClientTest(unittest.TestCase):
                 user_prompt="user",
             )
 
-        self.assertEqual(mocked.call_args.kwargs["timeout"], 300)
+        self.assertEqual(mocked.call_args.kwargs["timeout"], 3000)
 
     def test_probe_openai_compatible_model_returns_content_after_think_tag(self):
         raw_response = json.dumps(

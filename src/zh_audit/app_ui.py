@@ -1690,7 +1690,7 @@ def render_app_shell(bootstrap_payload, client_config):
             </label>
             <label>
               <div class="field-label">Max Tokens</div>
-              <input id="maxTokensInput" class="field-input" type="number" min="1" placeholder="4096">
+              <input id="maxTokensInput" class="field-input" type="number" min="1" placeholder="128000">
             </label>
             <label>
               <div class="field-label">执行策略</div>
@@ -1721,7 +1721,7 @@ __REPORT_COMPONENT_BUNDLE__
       base_url: "",
       api_key: "",
       model: "",
-      max_tokens: 4096,
+      max_tokens: 128000,
       execution_strategy: "think_fast",
     };
     const TAB_IDS = ["home", "results", "customKeep", "poTranslation", "translation", "sqlTranslation", "singleTranslation", "settings"];

@@ -24,7 +24,7 @@ SMART_QUOTE_TRANSLATION = str.maketrans(
         "\uff07": "'",
     }
 )
-DEFAULT_CHAT_COMPLETION_TIMEOUT_SECONDS = 300
+DEFAULT_CHAT_COMPLETION_TIMEOUT_SECONDS = 3000
 DEFAULT_PROBE_TIMEOUT_SECONDS = 15
 TRAILING_COMMA_PATTERN = re.compile(r",(\s*[}\]])")
 CODE_FENCE_PATTERN = re.compile(r"^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$", re.IGNORECASE)
@@ -284,8 +284,118 @@ def _normalize_json_like_text(text):
     if fence_match:
         value = fence_match.group(1).strip()
     value = value.translate(SMART_QUOTE_TRANSLATION)
+    value = _escape_inner_quotes_in_json_like_text(value)
     value = TRAILING_COMMA_PATTERN.sub(r"\1", value)
     return value
+
+
+def _escape_inner_quotes_in_json_like_text(text):
+    value = str(text or "")
+    if not value or '"' not in value:
+        return value
+    result = []
+    stack = []
+    in_string = False
+    escape_next = False
+    string_role = "value"
+    for index, char in enumerate(value):
+        if in_string:
+            if escape_next:
+                result.append(char)
+                escape_next = False
+                continue
+            if char == "\\":
+                result.append(char)
+                escape_next = True
+                continue
+            if char == '"':
+                next_char = _next_non_space_char(value, index + 1)
+                if _is_valid_string_terminator(string_role, next_char):
+                    result.append(char)
+                    in_string = False
+                    _mark_container_after_string(stack, string_role)
+                else:
+                    result.append('\\"')
+                continue
+            result.append(char)
+            continue
+
+        result.append(char)
+        if char == '"':
+            in_string = True
+            escape_next = False
+            string_role = _current_string_role(stack)
+            continue
+        if char.isspace():
+            continue
+        if char == "{":
+            stack.append({"type": "object", "expect": "key_or_end"})
+            continue
+        if char == "[":
+            stack.append({"type": "array", "expect": "value_or_end"})
+            continue
+        if char == ":":
+            if stack and stack[-1]["type"] == "object":
+                stack[-1]["expect"] = "value"
+            continue
+        if char == ",":
+            if stack:
+                stack[-1]["expect"] = "key" if stack[-1]["type"] == "object" else "value"
+            continue
+        if char == "}":
+            if stack and stack[-1]["type"] == "object":
+                stack.pop()
+                _mark_parent_after_value(stack)
+            continue
+        if char == "]":
+            if stack and stack[-1]["type"] == "array":
+                stack.pop()
+                _mark_parent_after_value(stack)
+            continue
+    return "".join(result)
+
+
+def _next_non_space_char(text, start_index):
+    value = str(text or "")
+    index = int(start_index)
+    while index < len(value):
+        if not value[index].isspace():
+            return value[index]
+        index += 1
+    return None
+
+
+def _current_string_role(stack):
+    if not stack:
+        return "value"
+    current = stack[-1]
+    if current.get("type") == "object" and current.get("expect") in ("key", "key_or_end"):
+        return "key"
+    return "value"
+
+
+def _is_valid_string_terminator(string_role, next_char):
+    if string_role == "key":
+        return next_char in (":", None)
+    return next_char in (",", "}", "]", None)
+
+
+def _mark_container_after_string(stack, string_role):
+    if not stack:
+        return
+    current = stack[-1]
+    if current.get("type") == "object":
+        current["expect"] = "colon" if string_role == "key" else "after_value"
+    elif current.get("type") == "array" and string_role == "value":
+        current["expect"] = "after_value"
+
+
+def _mark_parent_after_value(stack):
+    if not stack:
+        return
+    current = stack[-1]
+    if current.get("type") in ("object", "array"):
+        current["expect"] = "after_value"
 
 
 def _extract_debug_fields(text):

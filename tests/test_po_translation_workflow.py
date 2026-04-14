@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from zh_audit.model_client import ModelResponseFormatError
 from zh_audit.po_rst_protection import protect_rst_text, validate_protected_candidate
 from zh_audit.po_translation_workflow import (
     PoTranslationSession,
@@ -814,6 +815,56 @@ class PoTranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(pending["validation_state"], "passed")
             self.assertTrue(pending["can_accept"])
             self.assertEqual(pending["warnings"], ["表达可更自然，建议调整措辞"])
+
+    def test_po_translation_session_recovers_candidate_from_slot_translations_on_model_parse_failure(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            po_path = Path(temp_dir) / "doc.po"
+            po_path.write_text(
+                'msgid ""\n'
+                'msgstr ""\n'
+                '"Project-Id-Version: Demo\\\\n"\n'
+                '\n'
+                '#: ../../source/demo.rst:9\n'
+                'msgid "系统配置"\n'
+                'msgstr ""\n',
+                encoding="utf-8",
+            )
+
+            session = PoTranslationSession(
+                po_path=po_path,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 200},
+                model_runner=lambda **kwargs: (_ for _ in ()).throw(
+                    ModelResponseFormatError(
+                        "Model response does not contain a valid JSON object: malformed slot_translations payload",
+                        raw_response='{"choices":[{"message":{"content":"...invalid..."}}]}',
+                        raw_content=(
+                            '{\n'
+                            '  "verdict": "needs_update",\n'
+                            '  "slot_translations": [\n'
+                            '    {\n'
+                            '      "slot_id": "slot_1",\n'
+                            '      "translation": "System Configuration",\n'
+                            '      "frontend_ui_context": false\n'
+                            '    }\n'
+                            '  ]\n'
+                            '  "reason": "目标文本缺失，需要翻译。"\n'
+                            '}'
+                        ),
+                        parse_error_detail="parser error: Expecting ',' delimiter",
+                    )
+                ),
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(pending["failure_phase"], "模型")
+            self.assertEqual(pending["candidate_text"], "System Configuration")
+            self.assertEqual(pending["raw_candidate_text"], "System Configuration")
+            self.assertIn('"slot_translations"', pending["raw_failure_content"])
+            self.assertIn("parser error", pending["parse_error_detail"])
 
     def test_po_translation_session_ignores_expected_term_issue_when_term_already_present(self):
         with tempfile.TemporaryDirectory() as temp_dir:

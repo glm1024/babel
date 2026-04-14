@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 
+import json
 import re
 
 from zh_audit.utils import contains_han
@@ -255,6 +256,17 @@ def build_slot_translation_map(raw_slot_translations):
     }
 
 
+def extract_slot_translation_payload_from_text(text):
+    fragment = _extract_json_field_fragment(text, "slot_translations")
+    if not fragment:
+        return {}
+    try:
+        parsed = json.loads(_normalize_json_fragment(fragment))
+    except ValueError:
+        return {}
+    return build_slot_translation_payload(parsed)
+
+
 def build_slot_translation_payload(raw_slot_translations):
     if isinstance(raw_slot_translations, dict):
         normalized = {}
@@ -293,6 +305,201 @@ def _coerce_bool(value):
         return value
     text = str(value or "").strip().lower()
     return text in ("1", "true", "yes", "y", "on")
+
+
+def _extract_json_field_fragment(text, field_name):
+    value = str(text or "")
+    patterns = [
+        re.compile(r'"{}"\s*:\s*'.format(re.escape(field_name))),
+        re.compile(r"'{}'\s*:\s*".format(re.escape(field_name))),
+    ]
+    for pattern in patterns:
+        match = pattern.search(value)
+        if not match:
+            continue
+        index = _skip_whitespace(value, match.end())
+        if index >= len(value) or value[index] not in "[{":
+            continue
+        return _extract_balanced_json_fragment(value, index)
+    return ""
+
+
+def _extract_balanced_json_fragment(text, start_index):
+    value = str(text or "")
+    if start_index < 0 or start_index >= len(value):
+        return ""
+    opening = value[start_index]
+    closing = "]" if opening == "[" else "}"
+    depth = 0
+    in_string = False
+    escape_next = False
+    for index in range(start_index, len(value)):
+        char = value[index]
+        if in_string:
+            if escape_next:
+                escape_next = False
+                continue
+            if char == "\\":
+                escape_next = True
+                continue
+            if char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+            continue
+        if char == opening:
+            depth += 1
+            continue
+        if char == closing:
+            depth -= 1
+            if depth == 0:
+                return value[start_index : index + 1]
+    return ""
+
+
+def _normalize_json_fragment(text):
+    value = str(text or "").strip()
+    if not value:
+        return ""
+    value = value.translate(
+        str.maketrans(
+            {
+                "\u2018": "'",
+                "\u2019": "'",
+                "\u201a": "'",
+                "\u201b": "'",
+                "\u201c": '"',
+                "\u201d": '"',
+                "\u201e": '"',
+                "\u201f": '"',
+                "\u300c": '"',
+                "\u300d": '"',
+                "\u300e": '"',
+                "\u300f": '"',
+                "\uff02": '"',
+                "\uff07": "'",
+            }
+        )
+    )
+    value = _escape_inner_quotes_in_json_fragment(value)
+    value = re.sub(r",(\s*[}\]])", r"\1", value)
+    return value
+
+
+def _escape_inner_quotes_in_json_fragment(text):
+    value = str(text or "")
+    if not value or '"' not in value:
+        return value
+    result = []
+    stack = []
+    in_string = False
+    escape_next = False
+    string_role = "value"
+    for index, char in enumerate(value):
+        if in_string:
+            if escape_next:
+                result.append(char)
+                escape_next = False
+                continue
+            if char == "\\":
+                result.append(char)
+                escape_next = True
+                continue
+            if char == '"':
+                next_char = _next_non_space_char(value, index + 1)
+                if _is_valid_fragment_string_terminator(string_role, next_char):
+                    result.append(char)
+                    in_string = False
+                    _mark_fragment_container_after_string(stack, string_role)
+                else:
+                    result.append('\\"')
+                continue
+            result.append(char)
+            continue
+
+        result.append(char)
+        if char == '"':
+            in_string = True
+            escape_next = False
+            string_role = _current_fragment_string_role(stack)
+            continue
+        if char.isspace():
+            continue
+        if char == "{":
+            stack.append({"type": "object", "expect": "key_or_end"})
+            continue
+        if char == "[":
+            stack.append({"type": "array", "expect": "value_or_end"})
+            continue
+        if char == ":":
+            if stack and stack[-1]["type"] == "object":
+                stack[-1]["expect"] = "value"
+            continue
+        if char == ",":
+            if stack:
+                stack[-1]["expect"] = "key" if stack[-1]["type"] == "object" else "value"
+            continue
+        if char == "}":
+            if stack and stack[-1]["type"] == "object":
+                stack.pop()
+                _mark_fragment_parent_after_value(stack)
+            continue
+        if char == "]":
+            if stack and stack[-1]["type"] == "array":
+                stack.pop()
+                _mark_fragment_parent_after_value(stack)
+            continue
+    return "".join(result)
+
+
+def _skip_whitespace(text, index):
+    value = str(text or "")
+    current = int(index)
+    while current < len(value) and value[current].isspace():
+        current += 1
+    return current
+
+
+def _next_non_space_char(text, start_index):
+    value = str(text or "")
+    index = int(start_index)
+    while index < len(value):
+        if not value[index].isspace():
+            return value[index]
+        index += 1
+    return None
+
+
+def _current_fragment_string_role(stack):
+    if not stack:
+        return "value"
+    current = stack[-1]
+    if current.get("type") == "object" and current.get("expect") in ("key", "key_or_end"):
+        return "key"
+    return "value"
+
+
+def _is_valid_fragment_string_terminator(string_role, next_char):
+    if string_role == "key":
+        return next_char in (":", None)
+    return next_char in (",", "}", "]", None)
+
+
+def _mark_fragment_container_after_string(stack, string_role):
+    if not stack:
+        return
+    current = stack[-1]
+    if current.get("type") == "object":
+        current["expect"] = "colon" if string_role == "key" else "after_value"
+    elif current.get("type") == "array" and string_role == "value":
+        current["expect"] = "after_value"
+
+
+def _mark_fragment_parent_after_value(stack):
+    if not stack:
+        return
+    stack[-1]["expect"] = "after_value"
 
 
 def _summarize_slots(slots):

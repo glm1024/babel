@@ -7,10 +7,12 @@ from zh_audit.model_execution import DEFAULT_EXECUTION_STRATEGY, normalize_model
 from zh_audit.models import ScanSettings
 
 
-APP_STATE_VERSION = 1
+APP_STATE_VERSION = 2
+LEGACY_APP_STATE_VERSION = 1
 MODEL_PROVIDER = "openai compatible"
 MODEL_CONFIG_FIELDS = ("base_url", "api_key", "model", "max_tokens", "execution_strategy")
-DEFAULT_MODEL_MAX_TOKENS = 4096
+LEGACY_DEFAULT_MODEL_MAX_TOKENS = 4096
+DEFAULT_MODEL_MAX_TOKENS = 128000
 
 
 def default_model_config():
@@ -50,7 +52,10 @@ def load_app_state(path):
         payload = json.loads(state_path.read_text(encoding="utf-8"))
     except ValueError as exc:
         raise ValueError("Invalid app state file {}: {}".format(state_path, exc))
-    return normalize_app_state(payload, path=state_path)
+    normalized = normalize_app_state(payload, path=state_path)
+    if _should_persist_migrated_app_state(payload, normalized):
+        write_app_state(state_path, normalized)
+    return normalized
 
 
 def write_app_state(path, state):
@@ -65,8 +70,10 @@ def write_app_state(path, state):
 def normalize_app_state(payload, path=None):
     if not isinstance(payload, dict):
         raise ValueError(_format_error(path, "root must be an object."))
-    version = payload.get("version", APP_STATE_VERSION)
-    if version != APP_STATE_VERSION:
+    version = payload.get("version", LEGACY_APP_STATE_VERSION)
+    if version == LEGACY_APP_STATE_VERSION:
+        payload = _migrate_app_state_v1_to_v2(payload)
+    elif version != APP_STATE_VERSION:
         raise ValueError(_format_error(path, "unsupported version {}.".format(version)))
 
     roots = normalize_scan_roots(payload.get("scan_roots", []), path=path)
@@ -421,3 +428,29 @@ def _normalize_max_tokens(value):
     if parsed < 1:
         return DEFAULT_MODEL_MAX_TOKENS
     return parsed
+
+
+def _migrate_app_state_v1_to_v2(payload):
+    migrated = dict(payload)
+    raw_overrides = migrated.get("model_config_overrides", {})
+    if isinstance(raw_overrides, dict):
+        migrated_overrides = dict(raw_overrides)
+        if _coerce_optional_int(migrated_overrides.get("max_tokens")) == LEGACY_DEFAULT_MODEL_MAX_TOKENS:
+            migrated_overrides["max_tokens"] = DEFAULT_MODEL_MAX_TOKENS
+        migrated["model_config_overrides"] = migrated_overrides
+    migrated["version"] = APP_STATE_VERSION
+    return migrated
+
+
+def _should_persist_migrated_app_state(raw_payload, normalized_state):
+    if not isinstance(raw_payload, dict):
+        return False
+    raw_version = raw_payload.get("version", LEGACY_APP_STATE_VERSION)
+    return raw_version != APP_STATE_VERSION
+
+
+def _coerce_optional_int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None

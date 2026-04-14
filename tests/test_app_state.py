@@ -15,7 +15,9 @@ from zh_audit.app_state import (
 class AppStateSmokeTest(unittest.TestCase):
     def test_default_model_config_uses_think_fast_execution_strategy(self) -> None:
         self.assertEqual(default_model_config()["execution_strategy"], "think_fast")
+        self.assertEqual(default_model_config()["max_tokens"], 128000)
         self.assertEqual(normalize_model_config({})["execution_strategy"], "think_fast")
+        self.assertEqual(normalize_model_config({})["max_tokens"], 128000)
 
     def test_normalize_model_config_overrides_accepts_and_validates_execution_strategy(self) -> None:
         self.assertEqual(
@@ -28,6 +30,38 @@ class AppStateSmokeTest(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             normalize_model_config_overrides({"execution_strategy": "reasoning"})
+
+    def test_legacy_app_state_migrates_default_max_tokens_override_to_new_default(self) -> None:
+        normalized = normalize_app_state(
+            {
+                "version": 1,
+                "model_config_overrides": {
+                    "base_url": "http://127.0.0.1:8000/v1",
+                    "api_key": "sk-local",
+                    "model": "demo",
+                    "max_tokens": 4096,
+                },
+            }
+        )
+
+        self.assertEqual(normalized["version"], 2)
+        self.assertEqual(normalized["model_config_overrides"]["max_tokens"], 128000)
+
+    def test_current_app_state_preserves_explicit_4096_max_tokens(self) -> None:
+        normalized = normalize_app_state(
+            {
+                "version": 2,
+                "model_config_overrides": {
+                    "base_url": "http://127.0.0.1:8000/v1",
+                    "api_key": "sk-local",
+                    "model": "demo",
+                    "max_tokens": 4096,
+                },
+            }
+        )
+
+        self.assertEqual(normalized["version"], 2)
+        self.assertEqual(normalized["model_config_overrides"]["max_tokens"], 4096)
 
     def test_custom_keep_categories_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

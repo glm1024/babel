@@ -26,6 +26,7 @@ from zh_audit.model_client import describe_retryable_model_response_error, model
 from zh_audit.po_rst_protection import (
     build_slot_translation_payload,
     compose_protected_text,
+    extract_slot_translation_payload_from_text,
     protect_rst_text,
     validate_protected_candidate,
 )
@@ -370,25 +371,30 @@ def _build_rst_candidate_with_guardrails(
             if not retry_issue:
                 raise
             debug_payload = model_response_debug_payload(exc)
+            recovered = _recover_rst_candidate_from_raw_content(
+                protected_source=protected_source,
+                locked_terms=locked_terms,
+                raw_content=debug_payload.get("raw_content", ""),
+            )
             extracted_reason = _display_text(debug_payload.get("extracted_reason", "")).strip()
             retry_context = build_retry_context(
                 phase="model_format",
                 issue_code="model_format_invalid",
                 issue_message=retry_issue,
-                previous_candidate="",
+                previous_candidate=recovered.get("translated_text", ""),
                 source_text=source_text,
-                locked_terms=locked_terms,
-                candidate_text="",
+                locked_terms=recovered.get("locked_terms", locked_terms),
+                candidate_text=recovered.get("translated_text", ""),
             )
             last_result = {
-                "translated_text": "",
+                "translated_text": recovered.get("translated_text", ""),
                 "reason": extracted_reason,
                 "warnings": [],
                 "validation_issue": retry_issue,
-                "locked_terms": [dict(term) for term in locked_terms],
-                "active_frontend_terms": [],
-                "frontend_glossary_enabled": False,
-                "frontend_ui_slots": [],
+                "locked_terms": recovered.get("locked_terms", [dict(term) for term in locked_terms]),
+                "active_frontend_terms": recovered.get("active_frontend_terms", []),
+                "frontend_glossary_enabled": recovered.get("frontend_glossary_enabled", False),
+                "frontend_ui_slots": recovered.get("frontend_ui_slots", []),
                 "retry_context_preview": retry_context_preview(retry_context),
             }
             continue
@@ -585,6 +591,31 @@ def _normalize_rst_model_result(source_text, protected_source, locked_terms, res
         "active_frontend_terms": active_frontend_terms,
         "frontend_glossary_enabled": bool(frontend_ui_slots),
         "frontend_ui_slots": frontend_ui_slots,
+    }
+
+
+def _recover_rst_candidate_from_raw_content(protected_source, locked_terms, raw_content):
+    slot_payload = extract_slot_translation_payload_from_text(raw_content)
+    if not slot_payload:
+        return {}
+    slot_translations = {
+        slot_id: normalize_english_punctuation(payload.get("translation", ""))
+        for slot_id, payload in slot_payload.items()
+    }
+    candidate = compose_protected_text(protected_source, slot_translations)
+    candidate = sanitize_candidate_text(normalize_locked_term_grammar_case(candidate, locked_terms))
+    if not candidate:
+        return {}
+    frontend_ui_slots = sorted(
+        [slot_id for slot_id, payload in slot_payload.items() if payload.get("frontend_ui_context", False)]
+    )
+    active_frontend_terms = _active_frontend_terms(protected_source, frontend_ui_slots)
+    return {
+        "translated_text": candidate,
+        "locked_terms": _merge_locked_terms(locked_terms, active_frontend_terms),
+        "active_frontend_terms": [dict(term) for term in active_frontend_terms],
+        "frontend_glossary_enabled": bool(frontend_ui_slots),
+        "frontend_ui_slots": list(frontend_ui_slots),
     }
 
 
