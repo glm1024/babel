@@ -1,4 +1,4 @@
-from io import BytesIO
+from io import BytesIO, StringIO
 import json
 import re
 import shutil
@@ -127,6 +127,23 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("国际化专业术语词典.xlsx", bootstrap["translation"]["terminology"]["path"])
             self.assertFalse(bootstrap["has_results"])
             self.assertEqual(bootstrap["findings"], [])
+
+    def test_run_logged_model_call_writes_start_and_finish_messages(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state = AppServiceState(out_dir=Path(temp_dir))
+            stream = StringIO()
+
+            result = state._run_logged_model_call(
+                "PO po-block-5 模型生成",
+                lambda: {"ok": True},
+                heartbeat_seconds=60,
+                stream=stream,
+            )
+
+            self.assertEqual(result, {"ok": True})
+            output = stream.getvalue()
+            self.assertIn("[zh-audit] PO po-block-5 模型生成 开始请求模型", output)
+            self.assertIn("[zh-audit] PO po-block-5 模型生成 模型响应完成", output)
 
     def test_project_model_config_defaults_and_local_overrides(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

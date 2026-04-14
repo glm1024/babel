@@ -1,6 +1,8 @@
 import json
 import os
+import sys
 import threading
+import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -70,6 +72,8 @@ from zh_audit.translation_workflow import (
     build_translation_system_prompt,
     build_translation_user_prompt,
 )
+
+MODEL_PROGRESS_HEARTBEAT_SECONDS = 10.0
 
 
 class AppServiceState(object):
@@ -704,6 +708,47 @@ class AppServiceState(object):
     def _persist_sql_translation_session(self, payload):
         write_json_atomically(self.sql_translation_session_path, payload)
 
+    def _log_model_progress(self, label, message, stream=None):
+        target = stream or sys.stderr
+        target.write("[zh-audit] {} {}\n".format(label, message))
+        target.flush()
+
+    def _run_logged_model_call(self, label, callback, heartbeat_seconds=MODEL_PROGRESS_HEARTBEAT_SECONDS, stream=None):
+        started = time.monotonic()
+        stop_event = threading.Event()
+        heartbeat_thread = None
+
+        def _heartbeat_loop():
+            while not stop_event.wait(heartbeat_seconds):
+                elapsed = max(int(time.monotonic() - started), 1)
+                self._log_model_progress(label, "仍在等待模型响应，已耗时 {}s".format(elapsed), stream=stream)
+
+        self._log_model_progress(label, "开始请求模型", stream=stream)
+        if heartbeat_seconds and heartbeat_seconds > 0:
+            heartbeat_thread = threading.Thread(
+                target=_heartbeat_loop,
+                name="zh-audit-model-heartbeat",
+                daemon=True,
+            )
+            heartbeat_thread.start()
+        try:
+            result = callback()
+        except Exception as exc:
+            elapsed = time.monotonic() - started
+            self._log_model_progress(
+                label,
+                "模型请求失败，耗时 {:.1f}s: {}".format(elapsed, exc),
+                stream=stream,
+            )
+            raise
+        finally:
+            stop_event.set()
+            if heartbeat_thread is not None:
+                heartbeat_thread.join(0.1)
+        elapsed = time.monotonic() - started
+        self._log_model_progress(label, "模型响应完成，耗时 {:.1f}s".format(elapsed), stream=stream)
+        return result
+
     def _build_repos(self, roots):
         if not roots:
             raise ValueError("At least one scan directory is required.")
@@ -1022,20 +1067,23 @@ class AppServiceState(object):
         extra_prompt,
         target_missing,
     ):
-        response = call_openai_compatible_json(
-            model_config=model_config,
-            system_prompt=build_po_translation_system_prompt(),
-            user_prompt=build_po_translation_user_prompt(
-                entry_id=entry_id,
-                references=references,
-                source_text=source_text,
-                target_text=target_text,
-                protected_source=protected_source,
-                locked_terms=locked_terms,
-                extra_prompt=extra_prompt,
-                target_missing=target_missing,
+        response = self._run_logged_model_call(
+            "PO {} 模型生成".format(entry_id),
+            lambda: call_openai_compatible_json(
+                model_config=model_config,
+                system_prompt=build_po_translation_system_prompt(),
+                user_prompt=build_po_translation_user_prompt(
+                    entry_id=entry_id,
+                    references=references,
+                    source_text=source_text,
+                    target_text=target_text,
+                    protected_source=protected_source,
+                    locked_terms=locked_terms,
+                    extra_prompt=extra_prompt,
+                    target_missing=target_missing,
+                ),
+                max_tokens=model_config.get("max_tokens"),
             ),
-            max_tokens=model_config.get("max_tokens"),
         )
         return response
 
@@ -1051,20 +1099,23 @@ class AppServiceState(object):
         target_missing,
         extra_prompt,
     ):
-        response = call_openai_compatible_json(
-            model_config=model_config,
-            system_prompt=build_po_translation_review_system_prompt(),
-            user_prompt=build_po_translation_review_user_prompt(
-                entry_id=entry_id,
-                references=references,
-                source_text=source_text,
-                candidate_text=candidate_text,
-                protected_source=protected_source,
-                locked_terms=locked_terms,
-                target_missing=target_missing,
-                extra_prompt=extra_prompt,
+        response = self._run_logged_model_call(
+            "PO {} AI复核".format(entry_id),
+            lambda: call_openai_compatible_json(
+                model_config=model_config,
+                system_prompt=build_po_translation_review_system_prompt(),
+                user_prompt=build_po_translation_review_user_prompt(
+                    entry_id=entry_id,
+                    references=references,
+                    source_text=source_text,
+                    candidate_text=candidate_text,
+                    protected_source=protected_source,
+                    locked_terms=locked_terms,
+                    target_missing=target_missing,
+                    extra_prompt=extra_prompt,
+                ),
+                max_tokens=model_config.get("max_tokens"),
             ),
-            max_tokens=model_config.get("max_tokens"),
         )
         return response
 

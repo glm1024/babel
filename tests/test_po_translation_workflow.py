@@ -757,6 +757,59 @@ class PoTranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(pending["frontend_ui_slots"], ["slot_1"])
             self.assertEqual(pending["active_frontend_terms"][0]["source"], "是")
 
+    def test_po_translation_session_exposes_stage_specific_current_status(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            po_path = Path(temp_dir) / "doc.po"
+            po_path.write_text(
+                'msgid ""\n'
+                'msgstr ""\n'
+                '"Project-Id-Version: Demo\\\\n"\n'
+                '\n'
+                '#: ../../source/demo.rst:7\n'
+                'msgid "单击“是”按钮。"\n'
+                'msgstr ""\n',
+                encoding="utf-8",
+            )
+            glossary = normalize_terminology_catalog({"按钮": "button"})
+            glossary.add_entry(module="前端", source="是", target="Yes")
+            observed_statuses = []
+            session_holder = {}
+
+            def fake_model(**kwargs):
+                observed_statuses.append(session_holder["session"].snapshot()["status"]["current"]["status"])
+                return {
+                    "verdict": "needs_update",
+                    "slot_translations": [
+                        {
+                            "slot_id": kwargs["protected_source"]["translatable_slots"][0]["slot_id"],
+                            "translation": 'Click the "Yes" button.',
+                            "frontend_ui_context": True,
+                        }
+                    ],
+                    "reason": "ok",
+                }
+
+            def fake_review(**kwargs):
+                observed_statuses.append(session_holder["session"].snapshot()["status"]["current"]["status"])
+                return {
+                    "decision": "pass",
+                    "issues": [],
+                }
+
+            session = PoTranslationSession(
+                po_path=po_path,
+                glossary=glossary,
+                model_config=_standard_model_config(),
+                model_runner=fake_model,
+                reviewer_runner=fake_review,
+            )
+            session_holder["session"] = session
+            session.start()
+            session.run(lambda: False)
+
+            self.assertIn("模型生成中（第1次）", observed_statuses)
+            self.assertIn("AI复核中", observed_statuses)
+
             restored = PoTranslationSession.from_saved_state(
                 payload=session.save_state(),
                 glossary=glossary,

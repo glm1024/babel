@@ -198,6 +198,13 @@ class PoTranslationSession(object):
                 self.current["status"] = "等待继续"
             self._persist_locked()
 
+    def _set_current_status(self, status):
+        with self.lock:
+            if not self.current.get("entry_id"):
+                return
+            self.current["status"] = str(status or "")
+            self._persist_locked()
+
     def snapshot(self):
         with self.lock:
             pending_items = [
@@ -546,6 +553,7 @@ class PoTranslationSession(object):
         }
         while generation_attempts_used < self.max_generation_attempts:
             attempt_number = generation_attempts_used + 1
+            self._set_current_status("模型生成中（第{}次）".format(attempt_number))
             try:
                 raw_result = self.model_runner(
                     entry_id=entry_id,
@@ -620,6 +628,7 @@ class PoTranslationSession(object):
                 continue
             generation_attempts_used += 1
             model_calls_used += 1
+            self._set_current_status("本地校验中")
             normalized = self._normalize_model_result(
                 item={
                     "entry_id": entry_id,
@@ -686,6 +695,7 @@ class PoTranslationSession(object):
                 }
                 continue
             if self.reviewer_runner is not None:
+                self._set_current_status("AI复核中")
                 try:
                     review_result = self.reviewer_runner(
                         entry_id=entry_id,
@@ -1127,9 +1137,11 @@ class PoTranslationSession(object):
     def _finalize_item(self, item, should_auto_accept, force_accept, event_label):
         self.processed += 1
         if force_accept:
+            self._set_current_status("写回文件中")
             self._apply_item(item, "accepted", event_label)
             return
         if should_auto_accept and item.get("can_accept", True):
+            self._set_current_status("写回文件中")
             self._apply_item(item, "accepted", "已自动审批")
             return
         item["status"] = "pending"
