@@ -431,8 +431,43 @@ class SqlTranslationSession(object):
                 self._persist_locked()
             return
 
-        exact_translation = exact_terminology_translation(source_text, self.glossary)
         locked_terms = match_locked_terms(source_text, self.glossary)
+        normalized_source_text = sanitize_candidate_text(
+            normalize_locked_term_grammar_case(
+                normalize_english_punctuation(source_text),
+                locked_terms,
+            )
+        )
+        if not contains_han(source_text):
+            if sanitize_candidate_text(target_text) == normalized_source_text:
+                skipped_row = dict(row)
+                skipped_row["reason"] = "原文不含中文，英文已与源文一致。"
+                with self.lock:
+                    self.processed += 1
+                    self.skipped += 1
+                    self._push_event("已跳过", skipped_row, target_text)
+                    self._persist_locked()
+                return
+            item = self._create_item(
+                row=row,
+                target_text=target_text,
+                candidate_text=normalized_source_text,
+                locked_terms=locked_terms,
+                reason="原文不含中文，直接复用源文。",
+                verdict="needs_update",
+                target_missing=not target_text.strip(),
+                validation_state="passed",
+                validation_message="",
+                validation_issue="",
+                can_accept=True,
+                generation_attempts_used=0,
+                model_calls_used=0,
+            )
+            with self.lock:
+                self._finalize_item(item, should_auto_accept=should_auto_accept(), event_label="源文复用")
+            return
+
+        exact_translation = exact_terminology_translation(source_text, self.glossary)
         normalized_exact_translation = normalize_locked_term_grammar_case(
             normalize_english_punctuation(exact_translation),
             locked_terms,

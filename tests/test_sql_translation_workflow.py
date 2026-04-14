@@ -119,6 +119,46 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             pending = session.snapshot()["pending_items"][0]
             self.assertEqual(pending["candidate_text"], 'Click "OK" button.')
 
+    def test_sql_translation_session_reuses_non_han_source_text_without_model_call(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sql_dir = root / "sql"
+            sql_dir.mkdir()
+            (sql_dir / "demo.sql").write_text(
+                "INSERT INTO t_demo (id, name_zh, name_en) VALUES\n"
+                "('1', 'VPC', ''),\n"
+                "('2', 'AZ', 'AZ');\n",
+                encoding="utf-8",
+            )
+
+            def fail_if_called(**kwargs):
+                raise AssertionError("model_runner should not be called for non-Han source text")
+
+            session = SqlTranslationSession(
+                directory_path=sql_dir,
+                table_name="t_demo",
+                primary_key_field="id",
+                source_field="name_zh",
+                target_field="name_en",
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=fail_if_called,
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            snapshot = session.snapshot()
+            self.assertEqual(snapshot["status"]["counts"]["pending"], 1)
+            self.assertEqual(snapshot["status"]["counts"]["skipped"], 1)
+            pending = snapshot["pending_items"][0]
+            self.assertEqual(pending["source_text"], "VPC")
+            self.assertEqual(pending["candidate_text"], "VPC")
+            self.assertEqual(pending["validation_state"], "passed")
+            self.assertTrue(pending["can_accept"])
+            self.assertEqual(pending["generation_attempts_used"], 0)
+            self.assertEqual(pending["model_calls_used"], 0)
+
     def test_sql_translation_user_prompt_omits_sql_trace_fields(self):
         prompt = build_sql_translation_user_prompt(
             source_path="demo.sql",
