@@ -581,7 +581,55 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertEqual(state.bootstrap_payload()["config"]["model_config"]["max_tokens"], 128000)
 
             migrated = json.loads(app_state_path.read_text(encoding="utf-8"))
-            self.assertEqual(migrated["version"], 2)
+            self.assertEqual(migrated["version"], 3)
+            self.assertEqual(migrated["model_config_overrides"]["max_tokens"], 128000)
+
+    def test_v2_app_state_migrates_local_4096_max_tokens_to_128000(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            out_dir = root / "results"
+            out_dir.mkdir()
+            app_state_path = out_dir / "app_state.json"
+            app_state_path.write_text(
+                json.dumps(
+                    {
+                        "version": 2,
+                        "scan_roots": [],
+                        "scan_policy": {
+                            "max_file_size_bytes": 5 * 1024 * 1024,
+                            "context_lines": 1,
+                            "exclude_globs": ["**/target/**"],
+                        },
+                        "model_config_overrides": {
+                            "base_url": "http://127.0.0.1:8000/v1",
+                            "api_key": "sk-local",
+                            "model": "demo",
+                            "max_tokens": 4096,
+                            "execution_strategy": "think_fast",
+                        },
+                        "custom_keep_categories": [],
+                        "translation_config": {"source_path": "", "target_path": "", "auto_accept": False},
+                        "po_translation_config": {"po_path": "", "auto_accept": False},
+                        "sql_translation_config": {
+                            "directory_path": "",
+                            "table_name": "",
+                            "primary_key_field": "",
+                            "source_field": "",
+                            "target_field": "",
+                            "schema_sql": "",
+                            "auto_accept": False,
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            state = AppServiceState(out_dir=out_dir)
+            self.assertEqual(state.bootstrap_payload()["config"]["model_config"]["max_tokens"], 128000)
+
+            migrated = json.loads(app_state_path.read_text(encoding="utf-8"))
+            self.assertEqual(migrated["version"], 3)
             self.assertEqual(migrated["model_config_overrides"]["max_tokens"], 128000)
 
     def test_legacy_sql_translation_session_with_obsolete_duplicate_reason_is_not_restored(self) -> None:

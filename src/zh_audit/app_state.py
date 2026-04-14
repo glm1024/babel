@@ -7,8 +7,9 @@ from zh_audit.model_execution import DEFAULT_EXECUTION_STRATEGY, normalize_model
 from zh_audit.models import ScanSettings
 
 
-APP_STATE_VERSION = 2
+APP_STATE_VERSION = 3
 LEGACY_APP_STATE_VERSION = 1
+PREVIOUS_APP_STATE_VERSION = 2
 MODEL_PROVIDER = "openai compatible"
 MODEL_CONFIG_FIELDS = ("base_url", "api_key", "model", "max_tokens", "execution_strategy")
 LEGACY_DEFAULT_MODEL_MAX_TOKENS = 4096
@@ -73,6 +74,9 @@ def normalize_app_state(payload, path=None):
     version = payload.get("version", LEGACY_APP_STATE_VERSION)
     if version == LEGACY_APP_STATE_VERSION:
         payload = _migrate_app_state_v1_to_v2(payload)
+        version = payload.get("version", LEGACY_APP_STATE_VERSION)
+    if version == PREVIOUS_APP_STATE_VERSION:
+        payload = _migrate_app_state_v2_to_v3(payload)
     elif version != APP_STATE_VERSION:
         raise ValueError(_format_error(path, "unsupported version {}.".format(version)))
 
@@ -431,6 +435,18 @@ def _normalize_max_tokens(value):
 
 
 def _migrate_app_state_v1_to_v2(payload):
+    migrated = dict(payload)
+    raw_overrides = migrated.get("model_config_overrides", {})
+    if isinstance(raw_overrides, dict):
+        migrated_overrides = dict(raw_overrides)
+        if _coerce_optional_int(migrated_overrides.get("max_tokens")) == LEGACY_DEFAULT_MODEL_MAX_TOKENS:
+            migrated_overrides["max_tokens"] = DEFAULT_MODEL_MAX_TOKENS
+        migrated["model_config_overrides"] = migrated_overrides
+    migrated["version"] = PREVIOUS_APP_STATE_VERSION
+    return migrated
+
+
+def _migrate_app_state_v2_to_v3(payload):
     migrated = dict(payload)
     raw_overrides = migrated.get("model_config_overrides", {})
     if isinstance(raw_overrides, dict):
