@@ -149,15 +149,22 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             session.run(lambda: False)
 
             snapshot = session.snapshot()
-            self.assertEqual(snapshot["status"]["counts"]["pending"], 1)
+            self.assertEqual(snapshot["status"]["counts"]["pending"], 0)
             self.assertEqual(snapshot["status"]["counts"]["skipped"], 1)
-            pending = snapshot["pending_items"][0]
-            self.assertEqual(pending["source_text"], "VPC")
-            self.assertEqual(pending["candidate_text"], "VPC")
-            self.assertEqual(pending["validation_state"], "passed")
-            self.assertTrue(pending["can_accept"])
-            self.assertEqual(pending["generation_attempts_used"], 0)
-            self.assertEqual(pending["model_calls_used"], 0)
+            self.assertEqual(snapshot["status"]["counts"]["accepted"], 1)
+            self.assertEqual(snapshot["status"]["counts"]["appended"], 1)
+            self.assertEqual(snapshot["pending_items"], [])
+            accepted = snapshot["recent_items"][0]
+            self.assertEqual(accepted["source_text"], "VPC")
+            self.assertEqual(accepted["target_text"], "VPC")
+            self.assertEqual(accepted["candidate_text"], "VPC")
+            self.assertEqual(accepted["status"], "accepted")
+            self.assertEqual(accepted["validation_state"], "passed")
+            self.assertTrue(accepted["can_accept"])
+            self.assertEqual(accepted["generation_attempts_used"], 0)
+            self.assertEqual(accepted["model_calls_used"], 0)
+            output = Path(snapshot["status"]["output_path"]).read_text(encoding="utf-8")
+            self.assertIn("UPDATE t_demo SET name_en = 'VPC' WHERE id = '1';", output)
 
     def test_sql_translation_user_prompt_omits_sql_trace_fields(self):
         prompt = build_sql_translation_user_prompt(

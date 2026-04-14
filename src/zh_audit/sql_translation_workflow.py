@@ -464,7 +464,12 @@ class SqlTranslationSession(object):
                 model_calls_used=0,
             )
             with self.lock:
-                self._finalize_item(item, should_auto_accept=should_auto_accept(), event_label="源文复用")
+                self._finalize_item(
+                    item,
+                    should_auto_accept=should_auto_accept(),
+                    force_accept=True,
+                    event_label="源文直出",
+                )
             return
 
         exact_translation = exact_terminology_translation(source_text, self.glossary)
@@ -498,7 +503,12 @@ class SqlTranslationSession(object):
             )
             with self.lock:
                 self.glossary_applied += 1
-                self._finalize_item(item, should_auto_accept=should_auto_accept(), event_label="术语命中")
+                self._finalize_item(
+                    item,
+                    should_auto_accept=should_auto_accept(),
+                    force_accept=False,
+                    event_label="术语命中",
+                )
             return
 
         normalized = self._build_candidate_with_guardrails(
@@ -549,7 +559,12 @@ class SqlTranslationSession(object):
             retry_context_preview=normalized.get("retry_context_preview", ""),
         )
         with self.lock:
-            self._finalize_item(item, should_auto_accept=should_auto_accept(), event_label="待审批")
+            self._finalize_item(
+                item,
+                should_auto_accept=should_auto_accept(),
+                force_accept=False,
+                event_label="待审批",
+            )
 
     def _build_candidate_with_guardrails(self, item, base_extra_prompt):
         generation_attempts_used = 0
@@ -993,8 +1008,11 @@ class SqlTranslationSession(object):
         item["generation_attempts_used"] = int(normalized.get("generation_attempts_used", item.get("generation_attempts_used", 0)) or 0)
         item["model_calls_used"] = int(normalized["model_calls_used"])
 
-    def _finalize_item(self, item, should_auto_accept, event_label):
+    def _finalize_item(self, item, should_auto_accept, force_accept, event_label):
         self.processed += 1
+        if force_accept:
+            self._apply_item(item, "accepted", event_label)
+            return
         if should_auto_accept and item.get("can_accept", True):
             self._apply_item(item, "accepted", "已自动审批")
             return
