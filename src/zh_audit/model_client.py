@@ -26,6 +26,7 @@ SMART_QUOTE_TRANSLATION = str.maketrans(
 )
 TRAILING_COMMA_PATTERN = re.compile(r",(\s*[}\]])")
 CODE_FENCE_PATTERN = re.compile(r"^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$", re.IGNORECASE)
+THINK_END_TAG_PATTERN = re.compile(r"</think>", re.IGNORECASE)
 JSON_STRING_FIELD_TEMPLATE = r'"{field}"\s*:\s*"((?:\\.|[^"\\])*)"'
 JSON_SINGLE_QUOTED_FIELD_TEMPLATE = r"'{field}'\s*:\s*'((?:\\.|[^'\\])*)'"
 LINE_FIELD_TEMPLATE = r"(?mi)^\s*{field}\s*[:=]\s*(.+?)\s*$"
@@ -87,12 +88,7 @@ def call_openai_compatible_json(model_config, system_prompt, user_prompt, max_to
             "模型响应中缺少 message content。",
             raw_response=raw,
         )
-    if isinstance(content, list):
-        fragments = []
-        for item in content:
-            if isinstance(item, dict) and item.get("type") == "text":
-                fragments.append(item.get("text", ""))
-        content = "".join(fragments)
+    content = _normalize_message_content(content)
     try:
         parsed = _extract_json_object(content)
     except ValueError as exc:
@@ -136,11 +132,7 @@ def probe_openai_compatible_model(model_config, timeout=15):
         content = response["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError):
         raise ValueError("连通性测试失败：模型接口返回中缺少 choices.message.content。")
-    if isinstance(content, list):
-        content = "".join(
-            item.get("text", "") for item in content
-            if isinstance(item, dict) and item.get("type") == "text"
-        )
+    content = _normalize_message_content(content)
     return {
         "message": str(content or "").strip() or "OK",
     }
@@ -182,6 +174,26 @@ def _required_model_value(model_config, field_name):
             raise ValueError("模型配置缺少模型名称。")
         raise ValueError("模型配置缺少 {}。".format(field_name))
     return value
+
+
+def _normalize_message_content(content):
+    if isinstance(content, list):
+        fragments = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                fragments.append(item.get("text", ""))
+        content = "".join(fragments)
+    return _strip_thinking_content(content)
+
+
+def _strip_thinking_content(content):
+    value = str(content or "")
+    last_match = None
+    for match in THINK_END_TAG_PATTERN.finditer(value):
+        last_match = match
+    if last_match is not None:
+        value = value[last_match.end():]
+    return value.strip()
 
 
 def _extract_json_object(content):
