@@ -27,7 +27,11 @@ from zh_audit.candidate_validation import (
     validation_message,
 )
 from zh_audit.model_execution import resolve_model_execution_strategy
-from zh_audit.model_client import describe_retryable_model_response_error, model_response_debug_payload
+from zh_audit.model_client import (
+    ModelRequestCancelledError,
+    describe_retryable_model_response_error,
+    model_response_debug_payload,
+)
 from zh_audit.plain_translation_prompts import (
     build_plain_translation_review_system_prompt,
     build_plain_translation_review_user_prompt,
@@ -149,6 +153,7 @@ class SqlTranslationSession(object):
         self.started_at = ""
         self.finished_at = ""
         self.stop_requested = False
+        self.cancel_event = threading.Event()
         self.next_id = 1
         self.next_index = 0
         self.output_path = ""
@@ -209,6 +214,7 @@ class SqlTranslationSession(object):
             self.started_at = _timestamp()
             self.finished_at = ""
             self.stop_requested = False
+            self.cancel_event.clear()
             self.next_index = 0
             self.output_path = self._build_output_path()
             self._initialize_output_file()
@@ -217,6 +223,7 @@ class SqlTranslationSession(object):
     def stop(self):
         with self.lock:
             self.stop_requested = True
+            self.cancel_event.set()
             if self.status == "running":
                 self.message = "停止中"
             self._persist_locked()
@@ -233,6 +240,7 @@ class SqlTranslationSession(object):
             self.error = ""
             self.finished_at = ""
             self.stop_requested = False
+            self.cancel_event.clear()
             if self.current.get("file_path"):
                 self.current["status"] = "处理中"
             self._persist_locked()
@@ -250,6 +258,7 @@ class SqlTranslationSession(object):
                 if self.current.get("file_path"):
                     self.current["status"] = "等待继续"
                 self.stop_requested = False
+                self.cancel_event.clear()
                 self._persist_locked()
 
     def interrupt(self, error_message):
@@ -259,6 +268,7 @@ class SqlTranslationSession(object):
             self.error = str(error_message)
             self.finished_at = _timestamp()
             self.stop_requested = False
+            self.cancel_event.clear()
             if self.current.get("file_path"):
                 self.current["status"] = "等待继续"
             self._persist_locked()
@@ -338,7 +348,25 @@ class SqlTranslationSession(object):
                 }
                 self._persist_locked()
 
-            self._process_row(row, should_auto_accept)
+            try:
+                self._process_row(row, should_auto_accept)
+            except ModelRequestCancelledError:
+                with self.lock:
+                    if not self.stop_requested:
+                        raise
+                    self.status = "stopped"
+                    self.message = "已停止"
+                    self.finished_at = _timestamp()
+                    self.current = {
+                        "file_path": "",
+                        "primary_key_value": "",
+                        "source_text": "",
+                        "status": "",
+                    }
+                    self.stop_requested = False
+                    self.cancel_event.clear()
+                    self._persist_locked()
+                    return
 
             with self.lock:
                 self.next_index += 1
@@ -625,6 +653,7 @@ class SqlTranslationSession(object):
                     locked_terms=list(item.get("locked_terms", [])),
                     model_config=self.model_config,
                     extra_prompt=self._build_retry_prompt(base_extra_prompt, retry_context, attempt_number),
+                    cancel_event=self.cancel_event,
                 )
             except Exception as exc:
                 generation_attempts_used += 1
@@ -742,6 +771,7 @@ class SqlTranslationSession(object):
                         locked_terms=list(item.get("locked_terms", [])),
                         model_config=self.model_config,
                         extra_prompt=base_extra_prompt,
+                        cancel_event=self.cancel_event,
                     )
                 except Exception as exc:
                     model_calls_used += 1

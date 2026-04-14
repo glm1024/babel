@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from zh_audit.model_client import ModelResponseFormatError
+from zh_audit.model_client import ModelRequestTimeoutError, ModelResponseFormatError
 from zh_audit.properties_file import load_properties_document
 from zh_audit.terminology_xlsx import (
     DEFAULT_TERMINOLOGY_ROWS,
@@ -786,6 +786,33 @@ class TranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(pending["generation_attempts_used"], 3)
             self.assertIn("模型返回格式不规范", pending["validation_message"])
             self.assertIn("候选生成失败：模型返回格式不规范", snapshot["events"][0]["label"])
+
+    def test_translation_session_treats_model_timeout_as_item_failure_and_continues(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "zh.properties"
+            target = Path(temp_dir) / "en.properties"
+            source.write_text("AUTH_RETRY=适配服务器无法处理请求站点连接需要更新认证信息，请重试。\n", encoding="utf-8")
+            target.write_text("AUTH_RETRY=Adapter server is not ready for request.\n", encoding="utf-8")
+
+            session = TranslationSession(
+                source_path=source,
+                target_path=target,
+                glossary={},
+                model_config=_standard_model_config(),
+                model_runner=lambda **kwargs: (_ for _ in ()).throw(ModelRequestTimeoutError("模型请求超时（600s）")),
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            snapshot = session.snapshot()
+            pending = snapshot["pending_items"][0]
+            self.assertEqual(snapshot["status"]["status"], "done")
+            self.assertEqual(pending["validation_state"], "failed")
+            self.assertFalse(pending["can_accept"])
+            self.assertEqual(pending["generation_attempts_used"], 3)
+            self.assertIn("模型请求超时", pending["validation_message"])
+            self.assertIn("候选生成失败：模型请求超时", snapshot["events"][0]["label"])
 
     def test_translation_session_keeps_raw_model_debug_text_for_format_errors(self):
         with tempfile.TemporaryDirectory() as temp_dir:

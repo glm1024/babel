@@ -1,7 +1,10 @@
 from __future__ import absolute_import
 
 import json
+import multiprocessing
 import re
+import socket
+import time
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
@@ -24,7 +27,7 @@ SMART_QUOTE_TRANSLATION = str.maketrans(
         "\uff07": "'",
     }
 )
-DEFAULT_CHAT_COMPLETION_TIMEOUT_SECONDS = 3000
+DEFAULT_CHAT_COMPLETION_TIMEOUT_SECONDS = 600
 DEFAULT_PROBE_TIMEOUT_SECONDS = 15
 TRAILING_COMMA_PATTERN = re.compile(r",(\s*[}\]])")
 CODE_FENCE_PATTERN = re.compile(r"^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$", re.IGNORECASE)
@@ -32,6 +35,7 @@ THINK_END_TAG_PATTERN = re.compile(r"</think>", re.IGNORECASE)
 JSON_STRING_FIELD_TEMPLATE = r'"{field}"\s*:\s*"((?:\\.|[^"\\])*)"'
 JSON_SINGLE_QUOTED_FIELD_TEMPLATE = r"'{field}'\s*:\s*'((?:\\.|[^'\\])*)'"
 LINE_FIELD_TEMPLATE = r"(?mi)^\s*{field}\s*[:=]\s*(.+?)\s*$"
+MODEL_REQUEST_POLL_INTERVAL_SECONDS = 0.2
 RETRYABLE_MODEL_RESPONSE_MARKERS = (
     "模型响应不是合法 JSON",
     "模型响应中缺少 message content",
@@ -61,12 +65,21 @@ class ModelResponseFormatError(ValueError):
         self.extracted_reason = str(extracted_reason or "")
 
 
+class ModelRequestTimeoutError(TimeoutError):
+    pass
+
+
+class ModelRequestCancelledError(Exception):
+    pass
+
+
 def call_openai_compatible_json(
     model_config,
     system_prompt,
     user_prompt,
     max_tokens=None,
     timeout=DEFAULT_CHAT_COMPLETION_TIMEOUT_SECONDS,
+    cancel_event=None,
 ):
     payload = {
         "model": _required_model_value(model_config, "model"),
@@ -77,7 +90,7 @@ def call_openai_compatible_json(
         "temperature": 0,
         "max_tokens": int(max_tokens or model_config.get("max_tokens") or 256),
     }
-    raw = _post_chat_completion(model_config, payload, timeout=timeout)
+    raw = _post_chat_completion(model_config, payload, timeout=timeout, cancel_event=cancel_event)
     try:
         payload = json.loads(raw)
     except ValueError as exc:
@@ -121,7 +134,7 @@ def call_openai_compatible_json(
     return parsed
 
 
-def probe_openai_compatible_model(model_config, timeout=DEFAULT_PROBE_TIMEOUT_SECONDS):
+def probe_openai_compatible_model(model_config, timeout=DEFAULT_PROBE_TIMEOUT_SECONDS, cancel_event=None):
     payload = {
         "model": _required_model_value(model_config, "model"),
         "messages": [
@@ -131,7 +144,7 @@ def probe_openai_compatible_model(model_config, timeout=DEFAULT_PROBE_TIMEOUT_SE
         "temperature": 0,
         "max_tokens": 4,
     }
-    raw = _post_chat_completion(model_config, payload, timeout=timeout)
+    raw = _post_chat_completion(model_config, payload, timeout=timeout, cancel_event=cancel_event)
     try:
         response = json.loads(raw)
     except ValueError:
@@ -146,7 +159,7 @@ def probe_openai_compatible_model(model_config, timeout=DEFAULT_PROBE_TIMEOUT_SE
     }
 
 
-def _post_chat_completion(model_config, payload, timeout):
+def _post_chat_completion(model_config, payload, timeout, cancel_event=None):
     base_url = str(model_config.get("base_url", "") or "").rstrip("/")
     api_key = str(model_config.get("api_key", "") or "").strip()
     if not base_url:
@@ -154,7 +167,67 @@ def _post_chat_completion(model_config, payload, timeout):
     if not api_key:
         raise ValueError("模型配置缺少 API Key。")
 
-    url = "{}/chat/completions".format(base_url)
+    timeout_seconds = float(timeout or 0)
+    if timeout_seconds <= 0:
+        timeout_seconds = DEFAULT_CHAT_COMPLETION_TIMEOUT_SECONDS
+
+    ctx = multiprocessing.get_context("spawn")
+    parent_conn, child_conn = ctx.Pipe(duplex=False)
+    process = ctx.Process(
+        target=_post_chat_completion_worker,
+        args=(base_url, api_key, payload, timeout_seconds, child_conn),
+        name="zh-audit-model-request",
+    )
+    process.start()
+    child_conn.close()
+    deadline = time.monotonic() + timeout_seconds
+    try:
+        while True:
+            if parent_conn.poll(MODEL_REQUEST_POLL_INTERVAL_SECONDS):
+                message = parent_conn.recv()
+                break
+            if cancel_event is not None and cancel_event.is_set():
+                _terminate_request_process(process)
+                raise ModelRequestCancelledError("模型请求已取消。")
+            if time.monotonic() >= deadline:
+                _terminate_request_process(process)
+                raise ModelRequestTimeoutError("模型请求超时（{}s）".format(int(timeout_seconds)))
+            if not process.is_alive():
+                message = None
+                break
+        if not message:
+            raise ValueError("连通性测试失败：模型请求进程异常退出。")
+        if message.get("ok"):
+            return str(message.get("raw", ""))
+        kind = str(message.get("kind", "") or "")
+        if kind == "timeout":
+            raise ModelRequestTimeoutError("模型请求超时（{}s）".format(int(timeout_seconds)))
+        if kind == "http_error":
+            raise ValueError(
+                "连通性测试失败：模型接口返回 HTTP {}。{}".format(
+                    int(message.get("code", 0)),
+                    str(message.get("details", "") or "")[:300],
+                )
+            )
+        if kind == "url_error":
+            raise ValueError(
+                "连通性测试失败：无法访问模型地址 {}。{}".format(
+                    str(message.get("url", "") or ""),
+                    str(message.get("message", "") or ""),
+                )
+            )
+        raise ValueError("连通性测试失败：{}".format(str(message.get("message", "") or "模型请求失败。")))
+    finally:
+        parent_conn.close()
+        if process.is_alive():
+            process.join(0.1)
+        if process.is_alive():
+            _terminate_request_process(process)
+        process.join(0.1)
+
+
+def _post_chat_completion_worker(base_url, api_key, payload, timeout, conn):
+    url = "{}/chat/completions".format(str(base_url or "").rstrip("/"))
     data = json.dumps(payload).encode("utf-8")
     request = urllib_request.Request(
         url,
@@ -167,12 +240,33 @@ def _post_chat_completion(model_config, payload, timeout):
     try:
         response = urllib_request.urlopen(request, timeout=timeout)
         raw = response.read().decode("utf-8")
+        conn.send({"ok": True, "raw": raw})
+    except socket.timeout as exc:
+        conn.send({"ok": False, "kind": "timeout", "message": str(exc)})
     except urllib_error.HTTPError as exc:
         details = exc.read().decode("utf-8", errors="replace")
-        raise ValueError("连通性测试失败：模型接口返回 HTTP {}。{}".format(exc.code, details[:300]))
+        conn.send({"ok": False, "kind": "http_error", "code": exc.code, "details": details[:300]})
     except urllib_error.URLError as exc:
-        raise ValueError("连通性测试失败：无法访问模型地址 {}。{}".format(url, exc))
-    return raw
+        reason = exc.reason
+        message = str(reason if reason is not None else exc)
+        if isinstance(reason, socket.timeout) or "timed out" in message.lower():
+            conn.send({"ok": False, "kind": "timeout", "message": message})
+        else:
+            conn.send({"ok": False, "kind": "url_error", "url": url, "message": message})
+    except Exception as exc:
+        conn.send({"ok": False, "kind": "unexpected", "message": str(exc)})
+    finally:
+        conn.close()
+
+
+def _terminate_request_process(process):
+    if process is None or not process.is_alive():
+        return
+    process.terminate()
+    process.join(0.5)
+    if process.is_alive() and hasattr(process, "kill"):
+        process.kill()
+        process.join(0.5)
 
 
 def _required_model_value(model_config, field_name):
@@ -222,6 +316,8 @@ def _extract_json_object(content):
 
 
 def describe_retryable_model_response_error(error, phase="模型"):
+    if isinstance(error, ModelRequestTimeoutError):
+        return "{}请求超时".format(str(phase or "模型").strip() or "模型")
     if not is_retryable_model_response_error(error):
         return ""
     message = str(error or "")
@@ -234,6 +330,8 @@ def describe_retryable_model_response_error(error, phase="模型"):
 
 
 def is_retryable_model_response_error(error):
+    if isinstance(error, ModelRequestTimeoutError):
+        return True
     message = str(error or "")
     return any(marker in message for marker in RETRYABLE_MODEL_RESPONSE_MARKERS)
 

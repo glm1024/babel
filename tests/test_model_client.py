@@ -3,9 +3,11 @@ import unittest
 from unittest import mock
 
 from zh_audit.model_client import (
+    ModelRequestTimeoutError,
     ModelResponseFormatError,
     _extract_json_object,
     call_openai_compatible_json,
+    describe_retryable_model_response_error,
     probe_openai_compatible_model,
 )
 
@@ -175,7 +177,7 @@ class ModelClientTest(unittest.TestCase):
                 user_prompt="user",
             )
 
-        self.assertEqual(mocked.call_args.kwargs["timeout"], 3000)
+        self.assertEqual(mocked.call_args.kwargs["timeout"], 600)
 
     def test_probe_openai_compatible_model_returns_content_after_think_tag(self):
         raw_response = json.dumps(
@@ -209,6 +211,10 @@ class ModelClientTest(unittest.TestCase):
             )
 
         self.assertEqual(mocked.call_args.kwargs["timeout"], 15)
+
+    def test_describe_retryable_model_response_error_marks_timeout(self):
+        message = describe_retryable_model_response_error(ModelRequestTimeoutError("模型请求超时（600s）"), phase="模型")
+        self.assertEqual(message, "模型请求超时")
 
 
 if __name__ == "__main__":

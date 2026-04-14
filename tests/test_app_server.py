@@ -145,6 +145,111 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertIn("[zh-audit] PO po-block-5 模型生成 开始请求模型", output)
             self.assertIn("[zh-audit] PO po-block-5 模型生成 模型响应完成", output)
 
+    def test_all_translation_runners_use_logged_model_call_wrapper(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state = AppServiceState(out_dir=Path(temp_dir))
+            model_config = {
+                "base_url": "http://127.0.0.1:8000/v1",
+                "api_key": "sk-local",
+                "model": "demo",
+                "max_tokens": 256,
+            }
+            protected_source = {
+                "summary": "rst protected",
+                "translatable_slots": [],
+            }
+            with patch.object(state, "_run_logged_model_call", return_value={"ok": True}) as mocked:
+                self.assertEqual(
+                    state._translation_model_runner("NETWORK_LINK_ADD", "创建对等连接", "", [], model_config, "", True),
+                    {"ok": True},
+                )
+                self.assertEqual(
+                    state._translation_reviewer_runner(
+                        "NETWORK_LINK_ADD",
+                        "创建对等连接",
+                        "create peering connection",
+                        [],
+                        model_config,
+                        True,
+                        "",
+                    ),
+                    {"ok": True},
+                )
+                self.assertEqual(
+                    state._sql_translation_model_runner(
+                        "/tmp/demo.sql",
+                        12,
+                        "t_demo",
+                        "id",
+                        "1",
+                        "zh_text",
+                        "中文",
+                        "en_text",
+                        "",
+                        True,
+                        [],
+                        model_config,
+                        "",
+                    ),
+                    {"ok": True},
+                )
+                self.assertEqual(
+                    state._sql_translation_reviewer_runner(
+                        "/tmp/demo.sql",
+                        12,
+                        "t_demo",
+                        "id",
+                        "1",
+                        "zh_text",
+                        "中文",
+                        "en_text",
+                        "english",
+                        True,
+                        [],
+                        model_config,
+                        "",
+                    ),
+                    {"ok": True},
+                )
+                self.assertEqual(
+                    state._single_translation_plain_model_runner("你好", "", [], model_config, "", True),
+                    {"ok": True},
+                )
+                self.assertEqual(
+                    state._single_translation_plain_reviewer_runner("你好", "Hello", [], model_config, True, ""),
+                    {"ok": True},
+                )
+                self.assertEqual(
+                    state._single_translation_rst_model_runner("单击“是”按钮。", "", protected_source, [], model_config, "", True),
+                    {"ok": True},
+                )
+                self.assertEqual(
+                    state._single_translation_rst_reviewer_runner(
+                        "单击“是”按钮。",
+                        'Click the "Yes" button.',
+                        protected_source,
+                        [],
+                        model_config,
+                        True,
+                        "",
+                    ),
+                    {"ok": True},
+                )
+
+            self.assertEqual(
+                [call.args[0] for call in mocked.call_args_list],
+                [
+                    "配置翻译 NETWORK_LINK_ADD 模型生成",
+                    "配置翻译 NETWORK_LINK_ADD AI复核",
+                    "SQL demo.sql:12 模型生成",
+                    "SQL demo.sql:12 AI复核",
+                    "单条翻译 模型生成",
+                    "单条翻译 AI复核",
+                    "单条翻译 RST 模型生成",
+                    "单条翻译 RST AI复核",
+                ],
+            )
+
     def test_project_model_config_defaults_and_local_overrides(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

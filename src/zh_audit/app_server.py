@@ -1023,35 +1023,43 @@ class AppServiceState(object):
         status["resume_message"] = resume_message
         return status
 
-    def _translation_model_runner(self, key, source_text, target_text, locked_terms, model_config, extra_prompt, target_missing):
-        response = call_openai_compatible_json(
-            model_config=model_config,
-            system_prompt=build_translation_system_prompt(),
-            user_prompt=build_translation_user_prompt(
-                key=key,
-                source_text=source_text,
-                target_text=target_text,
-                locked_terms=locked_terms,
-                extra_prompt=extra_prompt,
-                target_missing=target_missing,
+    def _translation_model_runner(self, key, source_text, target_text, locked_terms, model_config, extra_prompt, target_missing, cancel_event=None):
+        response = self._run_logged_model_call(
+            "配置翻译 {} 模型生成".format(key),
+            lambda: call_openai_compatible_json(
+                model_config=model_config,
+                system_prompt=build_translation_system_prompt(),
+                user_prompt=build_translation_user_prompt(
+                    key=key,
+                    source_text=source_text,
+                    target_text=target_text,
+                    locked_terms=locked_terms,
+                    extra_prompt=extra_prompt,
+                    target_missing=target_missing,
+                ),
+                max_tokens=model_config.get("max_tokens"),
+                cancel_event=cancel_event,
             ),
-            max_tokens=model_config.get("max_tokens"),
         )
         return response
 
-    def _translation_reviewer_runner(self, key, source_text, candidate_text, locked_terms, model_config, target_missing, extra_prompt):
-        response = call_openai_compatible_json(
-            model_config=model_config,
-            system_prompt=build_translation_review_system_prompt(),
-            user_prompt=build_translation_review_user_prompt(
-                key=key,
-                source_text=source_text,
-                candidate_text=candidate_text,
-                locked_terms=locked_terms,
-                target_missing=target_missing,
-                extra_prompt=extra_prompt,
+    def _translation_reviewer_runner(self, key, source_text, candidate_text, locked_terms, model_config, target_missing, extra_prompt, cancel_event=None):
+        response = self._run_logged_model_call(
+            "配置翻译 {} AI复核".format(key),
+            lambda: call_openai_compatible_json(
+                model_config=model_config,
+                system_prompt=build_translation_review_system_prompt(),
+                user_prompt=build_translation_review_user_prompt(
+                    key=key,
+                    source_text=source_text,
+                    candidate_text=candidate_text,
+                    locked_terms=locked_terms,
+                    target_missing=target_missing,
+                    extra_prompt=extra_prompt,
+                ),
+                max_tokens=model_config.get("max_tokens"),
+                cancel_event=cancel_event,
             ),
-            max_tokens=model_config.get("max_tokens"),
         )
         return response
 
@@ -1066,6 +1074,7 @@ class AppServiceState(object):
         model_config,
         extra_prompt,
         target_missing,
+        cancel_event=None,
     ):
         response = self._run_logged_model_call(
             "PO {} 模型生成".format(entry_id),
@@ -1083,6 +1092,7 @@ class AppServiceState(object):
                     target_missing=target_missing,
                 ),
                 max_tokens=model_config.get("max_tokens"),
+                cancel_event=cancel_event,
             ),
         )
         return response
@@ -1098,6 +1108,7 @@ class AppServiceState(object):
         model_config,
         target_missing,
         extra_prompt,
+        cancel_event=None,
     ):
         response = self._run_logged_model_call(
             "PO {} AI复核".format(entry_id),
@@ -1115,6 +1126,7 @@ class AppServiceState(object):
                     extra_prompt=extra_prompt,
                 ),
                 max_tokens=model_config.get("max_tokens"),
+                cancel_event=cancel_event,
             ),
         )
         return response
@@ -1134,25 +1146,31 @@ class AppServiceState(object):
         locked_terms,
         model_config,
         extra_prompt,
+        cancel_event=None,
     ):
-        response = call_openai_compatible_json(
-            model_config=model_config,
-            system_prompt=build_sql_translation_system_prompt(),
-            user_prompt=build_sql_translation_user_prompt(
-                source_path=source_path,
-                line=line,
-                table_name=table_name,
-                primary_key_field=primary_key_field,
-                primary_key_value=primary_key_value,
-                source_field=source_field,
-                source_text=source_text,
-                target_field=target_field,
-                target_text=target_text,
-                target_missing=target_missing,
-                locked_terms=locked_terms,
-                extra_prompt=extra_prompt,
+        source_label = "{}:{}".format(Path(str(source_path or "")).name or str(source_path or ""), line)
+        response = self._run_logged_model_call(
+            "SQL {} 模型生成".format(source_label),
+            lambda: call_openai_compatible_json(
+                model_config=model_config,
+                system_prompt=build_sql_translation_system_prompt(),
+                user_prompt=build_sql_translation_user_prompt(
+                    source_path=source_path,
+                    line=line,
+                    table_name=table_name,
+                    primary_key_field=primary_key_field,
+                    primary_key_value=primary_key_value,
+                    source_field=source_field,
+                    source_text=source_text,
+                    target_field=target_field,
+                    target_text=target_text,
+                    target_missing=target_missing,
+                    locked_terms=locked_terms,
+                    extra_prompt=extra_prompt,
+                ),
+                max_tokens=model_config.get("max_tokens"),
+                cancel_event=cancel_event,
             ),
-            max_tokens=model_config.get("max_tokens"),
         )
         return response
 
@@ -1171,25 +1189,31 @@ class AppServiceState(object):
         locked_terms,
         model_config,
         extra_prompt,
+        cancel_event=None,
     ):
-        response = call_openai_compatible_json(
-            model_config=model_config,
-            system_prompt=build_sql_translation_review_system_prompt(),
-            user_prompt=build_sql_translation_review_user_prompt(
-                source_path=source_path,
-                line=line,
-                table_name=table_name,
-                primary_key_field=primary_key_field,
-                primary_key_value=primary_key_value,
-                source_field=source_field,
-                source_text=source_text,
-                target_field=target_field,
-                candidate_text=candidate_text,
-                target_missing=target_missing,
-                locked_terms=locked_terms,
-                extra_prompt=extra_prompt,
+        source_label = "{}:{}".format(Path(str(source_path or "")).name or str(source_path or ""), line)
+        response = self._run_logged_model_call(
+            "SQL {} AI复核".format(source_label),
+            lambda: call_openai_compatible_json(
+                model_config=model_config,
+                system_prompt=build_sql_translation_review_system_prompt(),
+                user_prompt=build_sql_translation_review_user_prompt(
+                    source_path=source_path,
+                    line=line,
+                    table_name=table_name,
+                    primary_key_field=primary_key_field,
+                    primary_key_value=primary_key_value,
+                    source_field=source_field,
+                    source_text=source_text,
+                    target_field=target_field,
+                    candidate_text=candidate_text,
+                    target_missing=target_missing,
+                    locked_terms=locked_terms,
+                    extra_prompt=extra_prompt,
+                ),
+                max_tokens=model_config.get("max_tokens"),
+                cancel_event=cancel_event,
             ),
-            max_tokens=model_config.get("max_tokens"),
         )
         return response
 
@@ -1210,6 +1234,7 @@ class AppServiceState(object):
         model_config,
         extra_prompt,
         target_missing,
+        cancel_event=None,
     ):
         payload = {
             "source_text": source_text,
@@ -1221,14 +1246,18 @@ class AppServiceState(object):
             ],
             "extra_prompt": extra_prompt or "",
         }
-        return call_openai_compatible_json(
-            model_config=model_config,
-            system_prompt=build_plain_translation_system_prompt(
-                role_description="single-line Chinese to English translations",
-                candidate_requirement="candidate_translation must contain only the translated English text.",
+        return self._run_logged_model_call(
+            "单条翻译 模型生成",
+            lambda: call_openai_compatible_json(
+                model_config=model_config,
+                system_prompt=build_plain_translation_system_prompt(
+                    role_description="single-line Chinese to English translations",
+                    candidate_requirement="candidate_translation must contain only the translated English text.",
+                ),
+                user_prompt=build_plain_translation_user_prompt(payload=payload, extra_prompt=extra_prompt),
+                max_tokens=model_config.get("max_tokens"),
+                cancel_event=cancel_event,
             ),
-            user_prompt=build_plain_translation_user_prompt(payload=payload, extra_prompt=extra_prompt),
-            max_tokens=model_config.get("max_tokens"),
         )
 
     def _single_translation_plain_reviewer_runner(
@@ -1239,6 +1268,7 @@ class AppServiceState(object):
         model_config,
         target_missing,
         extra_prompt,
+        cancel_event=None,
     ):
         payload = {
             "source_text": source_text,
@@ -1250,13 +1280,17 @@ class AppServiceState(object):
             ],
             "extra_prompt": extra_prompt or "",
         }
-        return call_openai_compatible_json(
-            model_config=model_config,
-            system_prompt=build_plain_translation_review_system_prompt(
-                review_description="English single-text translations",
+        return self._run_logged_model_call(
+            "单条翻译 AI复核",
+            lambda: call_openai_compatible_json(
+                model_config=model_config,
+                system_prompt=build_plain_translation_review_system_prompt(
+                    review_description="English single-text translations",
+                ),
+                user_prompt=build_plain_translation_review_user_prompt(payload=payload, extra_prompt=extra_prompt),
+                max_tokens=model_config.get("max_tokens"),
+                cancel_event=cancel_event,
             ),
-            user_prompt=build_plain_translation_review_user_prompt(payload=payload, extra_prompt=extra_prompt),
-            max_tokens=model_config.get("max_tokens"),
         )
 
     def _single_translation_rst_model_runner(
@@ -1268,21 +1302,26 @@ class AppServiceState(object):
         model_config,
         extra_prompt,
         target_missing,
+        cancel_event=None,
     ):
-        return call_openai_compatible_json(
-            model_config=model_config,
-            system_prompt=build_po_translation_system_prompt(),
-            user_prompt=build_po_translation_user_prompt(
-                entry_id="single_translation",
-                references=[],
-                source_text=source_text,
-                target_text=target_text,
-                protected_source=protected_source,
-                locked_terms=locked_terms,
-                extra_prompt=extra_prompt,
-                target_missing=target_missing,
+        return self._run_logged_model_call(
+            "单条翻译 RST 模型生成",
+            lambda: call_openai_compatible_json(
+                model_config=model_config,
+                system_prompt=build_po_translation_system_prompt(),
+                user_prompt=build_po_translation_user_prompt(
+                    entry_id="single_translation",
+                    references=[],
+                    source_text=source_text,
+                    target_text=target_text,
+                    protected_source=protected_source,
+                    locked_terms=locked_terms,
+                    extra_prompt=extra_prompt,
+                    target_missing=target_missing,
+                ),
+                max_tokens=model_config.get("max_tokens"),
+                cancel_event=cancel_event,
             ),
-            max_tokens=model_config.get("max_tokens"),
         )
 
     def _single_translation_rst_reviewer_runner(
@@ -1294,21 +1333,26 @@ class AppServiceState(object):
         model_config,
         target_missing,
         extra_prompt,
+        cancel_event=None,
     ):
-        return call_openai_compatible_json(
-            model_config=model_config,
-            system_prompt=build_po_translation_review_system_prompt(),
-            user_prompt=build_po_translation_review_user_prompt(
-                entry_id="single_translation",
-                references=[],
-                source_text=source_text,
-                candidate_text=candidate_text,
-                protected_source=protected_source,
-                locked_terms=locked_terms,
-                target_missing=target_missing,
-                extra_prompt=extra_prompt,
+        return self._run_logged_model_call(
+            "单条翻译 RST AI复核",
+            lambda: call_openai_compatible_json(
+                model_config=model_config,
+                system_prompt=build_po_translation_review_system_prompt(),
+                user_prompt=build_po_translation_review_user_prompt(
+                    entry_id="single_translation",
+                    references=[],
+                    source_text=source_text,
+                    candidate_text=candidate_text,
+                    protected_source=protected_source,
+                    locked_terms=locked_terms,
+                    target_missing=target_missing,
+                    extra_prompt=extra_prompt,
+                ),
+                max_tokens=model_config.get("max_tokens"),
+                cancel_event=cancel_event,
             ),
-            max_tokens=model_config.get("max_tokens"),
         )
 
     def _start_translation_thread_locked(self, session):

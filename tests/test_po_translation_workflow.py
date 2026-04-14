@@ -1,8 +1,10 @@
+import threading
+import time
 import tempfile
 import unittest
 from pathlib import Path
 
-from zh_audit.model_client import ModelResponseFormatError
+from zh_audit.model_client import ModelRequestCancelledError, ModelRequestTimeoutError, ModelResponseFormatError
 from zh_audit.po_rst_protection import protect_rst_text, validate_protected_candidate
 from zh_audit.po_translation_workflow import (
     PoTranslationSession,
@@ -966,6 +968,82 @@ class PoTranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(pending["validation_state"], "passed")
             self.assertTrue(pending["can_accept"])
             self.assertEqual(pending["candidate_text"], "Delete Cloud Physical Server instance")
+
+    def test_po_translation_session_treats_model_timeout_as_item_failure_and_continues(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            po_path = Path(temp_dir) / "doc.po"
+            po_path.write_text(
+                'msgid ""\n'
+                'msgstr ""\n'
+                '"Project-Id-Version: Demo\\\\n"\n'
+                '\n'
+                '#: ../../source/demo.rst:1\n'
+                'msgid "部署裸金属"\n'
+                'msgstr "deploy bare metal server"\n',
+                encoding="utf-8",
+            )
+
+            session = PoTranslationSession(
+                po_path=po_path,
+                glossary={},
+                model_config=_standard_model_config(),
+                model_runner=lambda **kwargs: (_ for _ in ()).throw(ModelRequestTimeoutError("模型请求超时（600s）")),
+                reviewer_runner=_pass_review,
+            )
+            session.start()
+            session.run(lambda: False)
+
+            snapshot = session.snapshot()
+            pending = snapshot["pending_items"][0]
+            self.assertEqual(snapshot["status"]["status"], "done")
+            self.assertEqual(pending["validation_state"], "failed")
+            self.assertFalse(pending["can_accept"])
+            self.assertEqual(pending["generation_attempts_used"], 3)
+            self.assertIn("模型请求超时", pending["validation_message"])
+            self.assertIn("候选生成失败：模型请求超时", snapshot["events"][0]["label"])
+
+    def test_po_translation_session_stop_cancels_inflight_model_request(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            po_path = Path(temp_dir) / "doc.po"
+            po_path.write_text(
+                'msgid ""\n'
+                'msgstr ""\n'
+                '"Project-Id-Version: Demo\\\\n"\n'
+                '\n'
+                '#: ../../source/demo.rst:1\n'
+                'msgid "部署裸金属"\n'
+                'msgstr ""\n',
+                encoding="utf-8",
+            )
+
+            def blocking_model(**kwargs):
+                cancel_event = kwargs.get("cancel_event")
+                while cancel_event is not None and not cancel_event.is_set():
+                    time.sleep(0.01)
+                raise ModelRequestCancelledError("模型请求已取消。")
+
+            session = PoTranslationSession(
+                po_path=po_path,
+                glossary={},
+                model_config=_standard_model_config(),
+                model_runner=blocking_model,
+                reviewer_runner=None,
+            )
+            session.start()
+            worker = threading.Thread(target=session.run, args=(lambda: False,))
+            worker.start()
+            deadline = time.time() + 2
+            while time.time() < deadline:
+                if session.snapshot()["status"]["current"]["status"].startswith("模型生成中"):
+                    break
+                time.sleep(0.01)
+            session.stop()
+            worker.join(1)
+
+            self.assertFalse(worker.is_alive())
+            snapshot = session.snapshot()
+            self.assertEqual(snapshot["status"]["status"], "stopped")
+            self.assertEqual(snapshot["status"]["message"], "已停止")
 
     def test_po_translation_session_allows_manual_accept_after_failed_validation(self):
         with tempfile.TemporaryDirectory() as temp_dir:
