@@ -152,6 +152,19 @@ class ModelClientTest(unittest.TestCase):
         self.assertEqual(ctx.exception.raw_content, "")
         self.assertIn("content is empty", ctx.exception.parse_error_detail)
 
+    def test_call_openai_compatible_json_uses_extended_default_timeout(self):
+        raw_response = json.dumps(
+            {"choices": [{"message": {"content": '{"decision":"pass","issues":[]}'}}]}
+        )
+        with mock.patch("zh_audit.model_client._post_chat_completion", return_value=raw_response) as mocked:
+            call_openai_compatible_json(
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo"},
+                system_prompt="system",
+                user_prompt="user",
+            )
+
+        self.assertEqual(mocked.call_args.kwargs["timeout"], 300)
+
     def test_probe_openai_compatible_model_returns_content_after_think_tag(self):
         raw_response = json.dumps(
             {
@@ -173,6 +186,17 @@ class ModelClientTest(unittest.TestCase):
             )
 
         self.assertEqual(result["message"], "OK")
+
+    def test_probe_openai_compatible_model_keeps_short_default_timeout(self):
+        raw_response = json.dumps(
+            {"choices": [{"message": {"content": "OK"}}]}
+        )
+        with mock.patch("zh_audit.model_client._post_chat_completion", return_value=raw_response) as mocked:
+            probe_openai_compatible_model(
+                {"base_url": "http://example/v1", "api_key": "sk", "model": "demo"}
+            )
+
+        self.assertEqual(mocked.call_args.kwargs["timeout"], 15)
 
 
 if __name__ == "__main__":

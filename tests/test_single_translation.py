@@ -46,7 +46,13 @@ class SingleTranslationTest(unittest.TestCase):
         result = translate_single_text(
             source_text="创建对等连接：{0}",
             glossary={"对等连接": "peer connection"},
-            model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+            model_config={
+                "base_url": "http://example/v1",
+                "api_key": "sk",
+                "model": "demo",
+                "max_tokens": 100,
+                "execution_strategy": "standard",
+            },
             plain_model_runner=plain_model_runner,
             plain_reviewer_runner=_pass_plain_review,
         )
@@ -55,6 +61,33 @@ class SingleTranslationTest(unittest.TestCase):
         self.assertEqual(result["translated_text"], "Create peer connection: {0}")
         self.assertEqual(result["validation_state"], "passed")
         self.assertGreaterEqual(len(attempts), 2)
+
+    def test_plain_mode_default_think_fast_skips_reviewer_and_limits_to_one_attempt(self):
+        attempts = []
+        review_calls = []
+
+        def plain_model_runner(**kwargs):
+            attempts.append(kwargs)
+            return {
+                "verdict": "needs_update",
+                "candidate_translation": "创建连接",
+                "reason": "初次生成。",
+            }
+
+        result = translate_single_text(
+            source_text="创建连接",
+            glossary={},
+            model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+            plain_model_runner=plain_model_runner,
+            plain_reviewer_runner=lambda **kwargs: review_calls.append(kwargs) or _pass_plain_review(**kwargs),
+        )
+
+        self.assertEqual(result["mode"], "plain")
+        self.assertEqual(result["validation_state"], "failed")
+        self.assertEqual(result["translated_text"], "创建连接")
+        self.assertEqual(len(attempts), 1)
+        self.assertEqual(review_calls, [])
+        self.assertIn("已重试 1 次仍未通过", result["validation_message"])
 
     def test_plain_mode_preserves_multiple_placeholder_forms(self):
         result = translate_single_text(

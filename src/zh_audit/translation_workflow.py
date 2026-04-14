@@ -25,6 +25,7 @@ from zh_audit.candidate_validation import (
     validate_candidate_text,
     validation_message,
 )
+from zh_audit.model_execution import resolve_model_execution_strategy
 from zh_audit.model_client import describe_retryable_model_response_error, model_response_debug_payload
 from zh_audit.plain_translation_prompts import (
     build_plain_translation_review_system_prompt,
@@ -66,6 +67,7 @@ class TranslationSession(object):
         self.glossary = OrderedDict(glossary)
         self.model_config = dict(model_config)
         self.model_runner = model_runner
+        self.base_reviewer_runner = reviewer_runner
         self.reviewer_runner = reviewer_runner
         self.persist_callback = persist_callback
         self.source_document = load_properties_document(source_path)
@@ -103,6 +105,9 @@ class TranslationSession(object):
         self.next_id = 1
         self.backup_path = ""
         self.next_index = 0
+        self.execution_strategy = ""
+        self.max_generation_attempts = MAX_GENERATION_ATTEMPTS_PER_ITEM
+        self._refresh_model_execution_strategy_locked()
 
     @classmethod
     def from_saved_state(
@@ -127,6 +132,18 @@ class TranslationSession(object):
         )
         session._restore_saved_state(payload)
         return session
+
+    def update_model_execution(self, model_config, reviewer_runner=None):
+        with self.lock:
+            self.model_config = dict(model_config)
+            self.base_reviewer_runner = reviewer_runner
+            self._refresh_model_execution_strategy_locked()
+
+    def _refresh_model_execution_strategy_locked(self):
+        policy = resolve_model_execution_strategy(self.model_config)
+        self.execution_strategy = policy["strategy"]
+        self.max_generation_attempts = int(policy["max_generation_attempts"])
+        self.reviewer_runner = self.base_reviewer_runner if policy["enable_reviewer"] else None
 
     def start(self):
         with self.lock:
@@ -457,7 +474,7 @@ class TranslationSession(object):
             "generation_attempts_used": 0,
             "model_calls_used": 0,
         }
-        while generation_attempts_used < MAX_GENERATION_ATTEMPTS_PER_ITEM:
+        while generation_attempts_used < self.max_generation_attempts:
             attempt_number = generation_attempts_used + 1
             try:
                 raw_result = self.model_runner(
@@ -718,13 +735,13 @@ class TranslationSession(object):
         last_result["validation_state"] = "failed"
         last_result["validation_message"] = exhausted_validation_message(
             failure_issue,
-            generation_attempts_used or MAX_GENERATION_ATTEMPTS_PER_ITEM,
+            generation_attempts_used or self.max_generation_attempts,
         )
         last_result["validation_issue"] = failure_issue
         last_result["can_accept"] = False
         last_result["generation_attempts_used"] = min(
             generation_attempts_used,
-            MAX_GENERATION_ATTEMPTS_PER_ITEM,
+            self.max_generation_attempts,
         )
         last_result["model_calls_used"] = model_calls_used
         return last_result
@@ -1035,7 +1052,7 @@ class TranslationSession(object):
             restored.setdefault("can_accept", True)
             restored.setdefault(
                 "generation_attempts_used",
-                min(int(restored.get("model_calls_used", 0) or 0), MAX_GENERATION_ATTEMPTS_PER_ITEM),
+                min(int(restored.get("model_calls_used", 0) or 0), self.max_generation_attempts),
             )
             restored.setdefault("model_calls_used", 0)
             self.items[item_id] = restored

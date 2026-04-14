@@ -24,6 +24,8 @@ SMART_QUOTE_TRANSLATION = str.maketrans(
         "\uff07": "'",
     }
 )
+DEFAULT_CHAT_COMPLETION_TIMEOUT_SECONDS = 300
+DEFAULT_PROBE_TIMEOUT_SECONDS = 15
 TRAILING_COMMA_PATTERN = re.compile(r",(\s*[}\]])")
 CODE_FENCE_PATTERN = re.compile(r"^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$", re.IGNORECASE)
 THINK_END_TAG_PATTERN = re.compile(r"</think>", re.IGNORECASE)
@@ -59,7 +61,13 @@ class ModelResponseFormatError(ValueError):
         self.extracted_reason = str(extracted_reason or "")
 
 
-def call_openai_compatible_json(model_config, system_prompt, user_prompt, max_tokens=None, timeout=90):
+def call_openai_compatible_json(
+    model_config,
+    system_prompt,
+    user_prompt,
+    max_tokens=None,
+    timeout=DEFAULT_CHAT_COMPLETION_TIMEOUT_SECONDS,
+):
     payload = {
         "model": _required_model_value(model_config, "model"),
         "messages": [
@@ -113,7 +121,7 @@ def call_openai_compatible_json(model_config, system_prompt, user_prompt, max_to
     return parsed
 
 
-def probe_openai_compatible_model(model_config, timeout=15):
+def probe_openai_compatible_model(model_config, timeout=DEFAULT_PROBE_TIMEOUT_SECONDS):
     payload = {
         "model": _required_model_value(model_config, "model"),
         "messages": [

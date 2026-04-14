@@ -19,6 +19,18 @@ def _pass_review(**kwargs):
     }
 
 
+def _standard_model_config(max_tokens=200, **overrides):
+    config = {
+        "base_url": "http://example/v1",
+        "api_key": "sk",
+        "model": "demo",
+        "max_tokens": max_tokens,
+        "execution_strategy": "standard",
+    }
+    config.update(overrides)
+    return config
+
+
 class PoTranslationWorkflowTest(unittest.TestCase):
     def test_po_translation_session_processing_log_keeps_recent_1000_events(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -568,6 +580,49 @@ class PoTranslationWorkflowTest(unittest.TestCase):
             self.assertIn('|view2|', content)
             self.assertIn('msgstr "On the current page, select the host to be used and click [|view2|] in the "Operation" column to view the details of the local storage pool."', content)
 
+    def test_po_translation_session_default_think_fast_skips_reviewer_and_limits_to_one_attempt(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            po_path = Path(temp_dir) / "doc.po"
+            po_path.write_text(
+                'msgid ""\n'
+                'msgstr ""\n'
+                '"Project-Id-Version: Demo\\\\n"\n'
+                '\n'
+                '#: ../../source/demo.rst:4\n'
+                'msgid "删除目录"\n'
+                'msgstr ""\n',
+                encoding="utf-8",
+            )
+
+            model_calls = []
+            review_calls = []
+
+            session = PoTranslationSession(
+                po_path=po_path,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 200},
+                model_runner=lambda **kwargs: model_calls.append(kwargs) or {
+                    "verdict": "needs_update",
+                    "slot_translations": [
+                        {
+                            "slot_id": kwargs["protected_source"]["translatable_slots"][0]["slot_id"],
+                            "translation": "删除目录",
+                            "frontend_ui_context": False,
+                        }
+                    ],
+                    "reason": "ok",
+                },
+                reviewer_runner=lambda **kwargs: review_calls.append(kwargs) or _pass_review(**kwargs),
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(pending["validation_state"], "failed")
+            self.assertEqual(pending["generation_attempts_used"], 1)
+            self.assertEqual(len(model_calls), 1)
+            self.assertEqual(review_calls, [])
+
     def test_po_translation_session_retries_when_slot_translation_still_contains_chinese(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             po_path = Path(temp_dir) / "doc.po"
@@ -604,7 +659,7 @@ class PoTranslationWorkflowTest(unittest.TestCase):
             session = PoTranslationSession(
                 po_path=po_path,
                 glossary={},
-                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 200},
+                model_config=_standard_model_config(),
                 model_runner=fake_model,
                 reviewer_runner=_pass_review,
             )
@@ -729,7 +784,7 @@ class PoTranslationWorkflowTest(unittest.TestCase):
             session = PoTranslationSession(
                 po_path=po_path,
                 glossary={},
-                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 200},
+                model_config=_standard_model_config(),
                 model_runner=lambda **kwargs: {
                     "verdict": "needs_update",
                     "slot_translations": [

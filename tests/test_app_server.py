@@ -109,6 +109,7 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertEqual(payload["config"]["model_config"]["base_url"], "http://127.0.0.1:8000/v1")
             self.assertEqual(payload["config"]["model_config"]["model"], "deepseek-v3")
             self.assertEqual(payload["config"]["model_config"]["max_tokens"], 256)
+            self.assertEqual(payload["config"]["model_config"]["execution_strategy"], "think_fast")
             self.assertEqual(payload["config"]["custom_keep_categories"][0]["name"], "历史兼容文案")
             self.assertEqual(payload["config"]["po_translation_config"]["po_path"], "")
             self.assertTrue((out_dir / "app_state.json").exists())
@@ -120,6 +121,7 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertEqual(bootstrap["config"]["model_config"]["base_url"], "http://127.0.0.1:8000/v1")
             self.assertEqual(bootstrap["config"]["model_config"]["api_key"], "sk-local")
             self.assertEqual(bootstrap["config"]["model_config"]["max_tokens"], 256)
+            self.assertEqual(bootstrap["config"]["model_config"]["execution_strategy"], "think_fast")
             self.assertEqual(bootstrap["config"]["custom_keep_categories"][0]["rules"][0]["type"], "keyword")
             self.assertIn("po_translation", bootstrap)
             self.assertIn("国际化专业术语词典.xlsx", bootstrap["translation"]["terminology"]["path"])
@@ -140,6 +142,7 @@ class AppServerSmokeTest(unittest.TestCase):
                             "api_key": "sk-shared",
                             "model": "deepseek-v3",
                             "max_tokens": 100,
+                            "execution_strategy": "standard",
                         }
                     },
                     ensure_ascii=False,
@@ -152,6 +155,7 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertEqual(bootstrap["config"]["model_config"]["provider"], "openai compatible")
             self.assertEqual(bootstrap["config"]["model_config"]["base_url"], "http://100.7.69.249:7777/v1")
             self.assertEqual(bootstrap["config"]["model_config"]["api_key"], "sk-shared")
+            self.assertEqual(bootstrap["config"]["model_config"]["execution_strategy"], "standard")
             self.assertIn("国际化专业术语词典.xlsx", bootstrap["po_translation"]["terminology"]["path"])
 
             with patch("zh_audit.app_server.probe_openai_compatible_model", return_value={"message": "OK"}):
@@ -162,6 +166,7 @@ class AppServerSmokeTest(unittest.TestCase):
                             "api_key": "",
                             "model": "deepseek-v3.1",
                             "max_tokens": 180,
+                            "execution_strategy": "think_fast",
                         }
                     }
                 )
@@ -169,6 +174,7 @@ class AppServerSmokeTest(unittest.TestCase):
             self.assertEqual(updated["config"]["model_config"]["api_key"], "")
             self.assertEqual(updated["config"]["model_config"]["model"], "deepseek-v3.1")
             self.assertEqual(updated["config"]["model_config"]["max_tokens"], 180)
+            self.assertEqual(updated["config"]["model_config"]["execution_strategy"], "think_fast")
 
             persisted = json.loads((out_dir / "app_state.json").read_text(encoding="utf-8"))
             self.assertEqual(
@@ -176,6 +182,7 @@ class AppServerSmokeTest(unittest.TestCase):
                 {
                     "api_key": "",
                     "base_url": "http://127.0.0.1:9000/v1",
+                    "execution_strategy": "think_fast",
                     "max_tokens": 180,
                     "model": "deepseek-v3.1",
                 },
@@ -185,6 +192,7 @@ class AppServerSmokeTest(unittest.TestCase):
             reloaded_bootstrap = reloaded.bootstrap_payload()
             self.assertEqual(reloaded_bootstrap["config"]["model_config"]["api_key"], "")
             self.assertEqual(reloaded_bootstrap["config"]["model_config"]["base_url"], "http://127.0.0.1:9000/v1")
+            self.assertEqual(reloaded_bootstrap["config"]["model_config"]["execution_strategy"], "think_fast")
 
     def test_single_translation_result_is_memory_only_and_can_be_reset(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1099,6 +1107,7 @@ class AppServerSmokeTest(unittest.TestCase):
                             "api_key": "sk-local",
                             "model": "demo",
                             "max_tokens": 120,
+                            "execution_strategy": "standard",
                         }
                     },
                     ensure_ascii=False,
@@ -1162,6 +1171,7 @@ class AppServerSmokeTest(unittest.TestCase):
                             "api_key": "sk-local",
                             "model": "demo",
                             "max_tokens": 120,
+                            "execution_strategy": "standard",
                         }
                     },
                     ensure_ascii=False,
@@ -1214,6 +1224,7 @@ class AppServerSmokeTest(unittest.TestCase):
                             "api_key": "sk-local",
                             "model": "demo",
                             "max_tokens": 120,
+                            "execution_strategy": "standard",
                         }
                     },
                     ensure_ascii=False,
@@ -1266,6 +1277,82 @@ class AppServerSmokeTest(unittest.TestCase):
                 accepted = reloaded.translation_accept(pending["id"])
                 self.assertEqual(accepted["status"]["counts"]["accepted"], 1)
                 self.assertIn("NETWORK_LINK_ADD=create peering connection: {0}", target.read_text(encoding="utf-8"))
+
+    def test_translation_resume_uses_current_execution_strategy(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            out_dir = root / "results"
+            source = root / "messages_zh.properties"
+            target = root / "messages_en.properties"
+            source.write_text("NETWORK_LINK_ADD=创建对等连接：{0}\n", encoding="utf-8")
+            target.write_text("NETWORK_LINK_ADD=wrong value: {0}\n", encoding="utf-8")
+
+            config_path = root / "zh-audit.config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "model_config": {
+                            "base_url": "http://127.0.0.1:8000/v1",
+                            "api_key": "sk-local",
+                            "model": "demo",
+                            "max_tokens": 120,
+                            "execution_strategy": "standard",
+                        }
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            state = AppServiceState(out_dir=out_dir, project_config_path=config_path)
+            with patch("zh_audit.app_server.call_openai_compatible_json", side_effect=ValueError("model unavailable")):
+                state.start_translation(
+                    {
+                        "source_path": str(source),
+                        "target_path": str(target),
+                        "auto_accept": False,
+                    }
+                )
+                deadline = time.time() + 10
+                latest = state.translation_payload()
+                while time.time() < deadline:
+                    latest = state.translation_payload()
+                    if latest["status"]["status"] == "interrupted":
+                        break
+                    time.sleep(0.1)
+
+            self.assertEqual(latest["status"]["status"], "interrupted")
+
+            reloaded = AppServiceState(out_dir=out_dir, project_config_path=config_path)
+            with patch("zh_audit.app_server.probe_openai_compatible_model", return_value={"message": "OK"}):
+                reloaded.save_config(
+                    {
+                        "model_config": {
+                            "base_url": "http://127.0.0.1:8000/v1",
+                            "api_key": "sk-local",
+                            "model": "demo",
+                            "max_tokens": 120,
+                            "execution_strategy": "think_fast",
+                        }
+                    }
+                )
+
+            with patch("zh_audit.app_server.call_openai_compatible_json") as mocked:
+                mocked.side_effect = _model_and_review_response
+                resumed = reloaded.resume_translation()
+                self.assertIn(resumed["status"]["status"], {"running", "done"})
+
+                deadline = time.time() + 10
+                latest = resumed
+                while time.time() < deadline:
+                    latest = reloaded.translation_payload()
+                    if latest["status"]["status"] in {"done", "failed", "stopped", "interrupted"}:
+                        break
+                    time.sleep(0.1)
+
+            self.assertEqual(latest["status"]["status"], "done")
+            pending = latest["pending_items"][0]
+            self.assertEqual(pending["model_calls_used"], 1)
 
     def test_sql_translation_task_roundtrip_and_resume(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

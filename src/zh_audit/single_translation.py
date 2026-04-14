@@ -21,6 +21,7 @@ from zh_audit.candidate_validation import (
     validate_candidate_text,
     validation_message,
 )
+from zh_audit.model_execution import resolve_model_execution_strategy
 from zh_audit.model_client import describe_retryable_model_response_error, model_response_debug_payload
 from zh_audit.po_rst_protection import (
     build_slot_translation_payload,
@@ -90,6 +91,7 @@ def translate_single_text(
 
 
 def _translate_plain_text(source_text, glossary_map, model_config, model_runner, reviewer_runner=None):
+    execution_policy = resolve_model_execution_strategy(model_config)
     exact_translation = exact_terminology_translation(source_text, glossary_map)
     locked_terms = match_locked_terms(source_text, glossary_map)
     normalized_exact_translation = normalize_locked_term_grammar_case(
@@ -113,11 +115,13 @@ def _translate_plain_text(source_text, glossary_map, model_config, model_runner,
         locked_terms=locked_terms,
         model_config=model_config,
         model_runner=model_runner,
-        reviewer_runner=reviewer_runner,
+        reviewer_runner=reviewer_runner if execution_policy["enable_reviewer"] else None,
+        max_generation_attempts=execution_policy["max_generation_attempts"],
     )
 
 
 def _translate_rst_text(source_text, glossary_catalog, protected_source, model_config, model_runner, reviewer_runner=None):
+    execution_policy = resolve_model_execution_strategy(model_config)
     protected_payload = _attach_slot_terminology(
         protected_source,
         OrderedDict(glossary_catalog.non_frontend_glossary),
@@ -150,11 +154,19 @@ def _translate_rst_text(source_text, glossary_catalog, protected_source, model_c
         locked_terms=locked_terms,
         model_config=model_config,
         model_runner=model_runner,
-        reviewer_runner=reviewer_runner,
+        reviewer_runner=reviewer_runner if execution_policy["enable_reviewer"] else None,
+        max_generation_attempts=execution_policy["max_generation_attempts"],
     )
 
 
-def _build_plain_candidate_with_guardrails(source_text, locked_terms, model_config, model_runner, reviewer_runner=None):
+def _build_plain_candidate_with_guardrails(
+    source_text,
+    locked_terms,
+    model_config,
+    model_runner,
+    reviewer_runner=None,
+    max_generation_attempts=MAX_GENERATION_ATTEMPTS_PER_ITEM,
+):
     generation_attempts_used = 0
     retry_context = {}
     last_result = {
@@ -165,7 +177,7 @@ def _build_plain_candidate_with_guardrails(source_text, locked_terms, model_conf
         "locked_terms": [dict(term) for term in locked_terms],
     }
 
-    while generation_attempts_used < MAX_GENERATION_ATTEMPTS_PER_ITEM:
+    while generation_attempts_used < max_generation_attempts:
         attempt_number = generation_attempts_used + 1
         try:
             raw_result = model_runner(
@@ -311,14 +323,22 @@ def _build_plain_candidate_with_guardrails(source_text, locked_terms, model_conf
         validation_state="failed",
         validation_message=exhausted_validation_message(
             failure_issue,
-            generation_attempts_used or MAX_GENERATION_ATTEMPTS_PER_ITEM,
+            generation_attempts_used or max_generation_attempts,
         ),
         locked_terms=last_result.get("locked_terms", locked_terms),
         warnings=last_result.get("warnings", []),
     )
 
 
-def _build_rst_candidate_with_guardrails(source_text, protected_source, locked_terms, model_config, model_runner, reviewer_runner=None):
+def _build_rst_candidate_with_guardrails(
+    source_text,
+    protected_source,
+    locked_terms,
+    model_config,
+    model_runner,
+    reviewer_runner=None,
+    max_generation_attempts=MAX_GENERATION_ATTEMPTS_PER_ITEM,
+):
     generation_attempts_used = 0
     retry_context = {}
     last_result = {
@@ -332,7 +352,7 @@ def _build_rst_candidate_with_guardrails(source_text, protected_source, locked_t
         "frontend_ui_slots": [],
     }
 
-    while generation_attempts_used < MAX_GENERATION_ATTEMPTS_PER_ITEM:
+    while generation_attempts_used < max_generation_attempts:
         attempt_number = generation_attempts_used + 1
         try:
             raw_result = model_runner(
@@ -500,7 +520,7 @@ def _build_rst_candidate_with_guardrails(source_text, protected_source, locked_t
         validation_state="failed",
         validation_message=exhausted_validation_message(
             failure_issue,
-            generation_attempts_used or MAX_GENERATION_ATTEMPTS_PER_ITEM,
+            generation_attempts_used or max_generation_attempts,
         ),
         locked_terms=last_result.get("locked_terms", locked_terms),
         warnings=last_result.get("warnings", []),

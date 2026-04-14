@@ -288,9 +288,8 @@ class AppServiceState(object):
             if self.terminology_error:
                 raise ValueError(self.terminology_error)
             with session.lock:
-                session.model_config = dict(model_config)
+                session.update_model_execution(model_config, reviewer_runner=self._translation_reviewer_runner)
                 session.glossary = self._translation_glossary()
-                session.reviewer_runner = self._translation_reviewer_runner
             session.resume()
             self._start_translation_thread_locked(session)
             return self.translation_payload_locked()
@@ -367,9 +366,8 @@ class AppServiceState(object):
             if self.terminology_error:
                 raise ValueError(self.terminology_error)
             with session.lock:
-                session.model_config = dict(model_config)
+                session.update_model_execution(model_config, reviewer_runner=self._po_translation_reviewer_runner)
                 session.set_glossary(self._po_translation_glossary())
-                session.reviewer_runner = self._po_translation_reviewer_runner
             session.resume()
             self._start_po_translation_thread_locked(session)
             return self.po_translation_payload_locked()
@@ -458,9 +456,8 @@ class AppServiceState(object):
             if self.terminology_error:
                 raise ValueError(self.terminology_error)
             with session.lock:
-                session.model_config = dict(model_config)
+                session.update_model_execution(model_config, reviewer_runner=self._sql_translation_reviewer_runner)
                 session.glossary = self._sql_translation_glossary()
-                session.reviewer_runner = self._sql_translation_reviewer_runner
             session.resume()
             self._start_sql_translation_thread_locked(session)
             return self.sql_translation_payload_locked()

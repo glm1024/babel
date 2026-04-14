@@ -3,12 +3,13 @@ import re
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
+from zh_audit.model_execution import DEFAULT_EXECUTION_STRATEGY, normalize_model_execution_strategy
 from zh_audit.models import ScanSettings
 
 
 APP_STATE_VERSION = 1
 MODEL_PROVIDER = "openai compatible"
-MODEL_CONFIG_FIELDS = ("base_url", "api_key", "model", "max_tokens")
+MODEL_CONFIG_FIELDS = ("base_url", "api_key", "model", "max_tokens", "execution_strategy")
 DEFAULT_MODEL_MAX_TOKENS = 4096
 
 
@@ -19,6 +20,7 @@ def default_model_config():
         "api_key": "",
         "model": "",
         "max_tokens": DEFAULT_MODEL_MAX_TOKENS,
+        "execution_strategy": DEFAULT_EXECUTION_STRATEGY,
     }
 
 
@@ -149,6 +151,8 @@ def normalize_model_config_overrides(raw_config, path=None, field_name="model_co
         normalized["model"] = _normalize_model_text(raw_config.get("model"))
     if "max_tokens" in raw_config:
         normalized["max_tokens"] = _normalize_max_tokens(raw_config.get("max_tokens"))
+    if "execution_strategy" in raw_config:
+        normalized["execution_strategy"] = normalize_model_execution_strategy(raw_config.get("execution_strategy"))
     return normalized
 
 

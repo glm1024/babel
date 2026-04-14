@@ -22,6 +22,18 @@ def _pass_review(**kwargs):
     }
 
 
+def _standard_model_config(max_tokens=100, **overrides):
+    config = {
+        "base_url": "http://example/v1",
+        "api_key": "sk",
+        "model": "demo",
+        "max_tokens": max_tokens,
+        "execution_strategy": "standard",
+    }
+    config.update(overrides)
+    return config
+
+
 class SqlTranslationWorkflowTest(unittest.TestCase):
     def test_sql_translation_session_processing_log_keeps_recent_1000_events(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -474,7 +486,7 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
                 source_field="name_zh",
                 target_field="name_en",
                 glossary={"资源池": "resource pool", "对等连接": "link"},
-                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_config=_standard_model_config(),
                 model_runner=fake_model,
                 reviewer_runner=_pass_review,
             )
@@ -503,6 +515,43 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
             self.assertNotIn("--", content)
             self.assertGreaterEqual(len(calls), 2)
 
+    def test_sql_translation_session_default_think_fast_skips_reviewer_and_limits_to_one_attempt(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sql_dir = root / "sql"
+            sql_dir.mkdir()
+            (sql_dir / "demo.sql").write_text(
+                "INSERT INTO t_demo (id, name_zh, name_en) VALUES ('1', '适配服务接口不存在。', 'API not found in adapter server.');\n",
+                encoding="utf-8",
+            )
+
+            model_calls = []
+            review_calls = []
+
+            session = SqlTranslationSession(
+                directory_path=sql_dir,
+                table_name="t_demo",
+                primary_key_field="id",
+                source_field="name_zh",
+                target_field="name_en",
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: model_calls.append(kwargs) or {
+                    "verdict": "needs_update",
+                    "candidate_translation": "适配服务接口不存在。",
+                    "reason": "ok",
+                },
+                reviewer_runner=lambda **kwargs: review_calls.append(kwargs) or _pass_review(**kwargs),
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(pending["validation_state"], "failed")
+            self.assertEqual(pending["generation_attempts_used"], 1)
+            self.assertEqual(len(model_calls), 1)
+            self.assertEqual(review_calls, [])
+
     def test_sql_translation_regenerate_passes_extra_prompt_to_reviewer(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -522,7 +571,7 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
                 source_field="name_zh",
                 target_field="name_en",
                 glossary={},
-                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_config=_standard_model_config(),
                 model_runner=lambda **kwargs: {
                     "verdict": "needs_update",
                     "candidate_translation": "Cloud server API not found.",
@@ -558,7 +607,7 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
                 source_field="name_zh",
                 target_field="name_en",
                 glossary={},
-                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_config=_standard_model_config(),
                 model_runner=lambda **kwargs: {
                     "verdict": "needs_update",
                     "candidate_translation": "适配服务接口不存在。",
@@ -799,7 +848,7 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
                 source_field="name_zh",
                 target_field="name_en",
                 glossary={"云主机": "Elastic Compute Service"},
-                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_config=_standard_model_config(),
                 model_runner=lambda **kwargs: {
                     "verdict": "needs_update",
                     "candidate_translation": "Elastic Compute Service unbind Floating IP",
@@ -831,7 +880,7 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
                 source_field="name_zh",
                 target_field="name_en",
                 glossary={"云主机": "Elastic Compute Service"},
-                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_config=_standard_model_config(),
                 model_runner=lambda **kwargs: {
                     "verdict": "needs_update",
                     "candidate_translation": "Elastic Compute Service unbind Floating IP",
@@ -874,7 +923,7 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
                 source_field="name_zh",
                 target_field="name_en",
                 glossary={},
-                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_config=_standard_model_config(),
                 model_runner=lambda **kwargs: {
                     "verdict": "needs_update",
                     "candidate_translation": "Delete directory",
@@ -960,7 +1009,7 @@ class SqlTranslationWorkflowTest(unittest.TestCase):
                 source_field="name_zh",
                 target_field="name_en",
                 glossary={},
-                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_config=_standard_model_config(),
                 model_runner=lambda **kwargs: (_ for _ in ()).throw(
                     ValueError('模型响应不是合法 JSON：{"verdict": “needs_update”, "candidate_translation": "x"}')
                 ),

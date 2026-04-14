@@ -1692,6 +1692,13 @@ def render_app_shell(bootstrap_payload, client_config):
               <div class="field-label">Max Tokens</div>
               <input id="maxTokensInput" class="field-input" type="number" min="1" placeholder="4096">
             </label>
+            <label>
+              <div class="field-label">执行策略</div>
+              <select id="executionStrategySelect" class="field-input">
+                <option value="think_fast">think_fast（默认，适配 think 模型）</option>
+                <option value="standard">standard（保留 reviewer 和重试）</option>
+              </select>
+            </label>
           </div>
           <div class="btn-row">
             <button id="saveModelConfigBtn" class="primary-btn" type="button">保存模型配置</button>
@@ -1715,6 +1722,7 @@ __REPORT_COMPONENT_BUNDLE__
       api_key: "",
       model: "",
       max_tokens: 4096,
+      execution_strategy: "think_fast",
     };
     const TAB_IDS = ["home", "results", "customKeep", "poTranslation", "translation", "sqlTranslation", "singleTranslation", "settings"];
     const CUSTOM_KEEP_DRAFT_STORAGE_KEY = `zh-audit:custom-keep-draft:${window.location.pathname}`;
@@ -1887,6 +1895,7 @@ __REPORT_COMPONENT_BUNDLE__
     const apiKeyInput = document.getElementById("apiKeyInput");
     const modelNameInput = document.getElementById("modelNameInput");
     const maxTokensInput = document.getElementById("maxTokensInput");
+    const executionStrategySelect = document.getElementById("executionStrategySelect");
     const saveModelConfigBtn = document.getElementById("saveModelConfigBtn");
     const settingsStatusBanner = document.getElementById("settingsStatusBanner");
     let scanTimer = null;
@@ -2311,6 +2320,7 @@ __REPORT_COMPONENT_BUNDLE__
           api_key: apiKeyInput.value,
           model: modelNameInput.value,
           max_tokens: Number.parseInt(maxTokensInput.value, 10) || DEFAULT_MODEL_CONFIG.max_tokens,
+          execution_strategy: executionStrategySelect.value || DEFAULT_MODEL_CONFIG.execution_strategy,
         },
       };
     }
@@ -2670,6 +2680,7 @@ __REPORT_COMPONENT_BUNDLE__
       apiKeyInput.value = modelConfig.api_key || "";
       modelNameInput.value = modelConfig.model || "";
       maxTokensInput.value = modelConfig.max_tokens || DEFAULT_MODEL_CONFIG.max_tokens;
+      executionStrategySelect.value = modelConfig.execution_strategy || DEFAULT_MODEL_CONFIG.execution_strategy;
     }
 
     function syncClearableInput(input, button) {

@@ -28,6 +28,18 @@ def _pass_review(**kwargs):
     }
 
 
+def _standard_model_config(max_tokens=100, **overrides):
+    config = {
+        "base_url": "http://example/v1",
+        "api_key": "sk",
+        "model": "demo",
+        "max_tokens": max_tokens,
+        "execution_strategy": "standard",
+    }
+    config.update(overrides)
+    return config
+
+
 class TranslationWorkflowTest(unittest.TestCase):
     def test_translation_session_processing_log_keeps_recent_1000_events(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -237,6 +249,37 @@ class TranslationWorkflowTest(unittest.TestCase):
             self.assertEqual(snapshot["status"]["counts"]["glossary_applied"], 1)
             self.assertEqual(target.read_text(encoding="utf-8"), "HOST_GROUP=Host group\n")
 
+    def test_translation_session_default_think_fast_skips_reviewer_and_limits_to_one_attempt(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "zh.properties"
+            target = Path(temp_dir) / "en.properties"
+            source.write_text("API_NOT_FOUND=适配服务接口不存在。\n", encoding="utf-8")
+            target.write_text("API_NOT_FOUND=API not found in adapter server.\n", encoding="utf-8")
+
+            model_calls = []
+            review_calls = []
+
+            session = TranslationSession(
+                source_path=source,
+                target_path=target,
+                glossary={},
+                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_runner=lambda **kwargs: model_calls.append(kwargs) or {
+                    "verdict": "needs_update",
+                    "candidate_translation": "适配服务接口不存在。",
+                    "reason": "ok",
+                },
+                reviewer_runner=lambda **kwargs: review_calls.append(kwargs) or _pass_review(**kwargs),
+            )
+            session.start()
+            session.run(lambda: False)
+
+            pending = session.snapshot()["pending_items"][0]
+            self.assertEqual(pending["validation_state"], "failed")
+            self.assertEqual(pending["generation_attempts_used"], 1)
+            self.assertEqual(len(model_calls), 1)
+            self.assertEqual(review_calls, [])
+
     def test_translation_session_pending_regenerate_and_accept_replace_rhs_only(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "zh.properties"
@@ -264,7 +307,7 @@ class TranslationWorkflowTest(unittest.TestCase):
                 source_path=source,
                 target_path=target,
                 glossary={"对等连接": "link"},
-                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_config=_standard_model_config(),
                 model_runner=fake_model,
                 reviewer_runner=_pass_review,
             )
@@ -322,7 +365,7 @@ class TranslationWorkflowTest(unittest.TestCase):
                 source_path=source,
                 target_path=target,
                 glossary={},
-                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_config=_standard_model_config(),
                 model_runner=fake_model,
                 reviewer_runner=_pass_review,
             )
@@ -535,7 +578,7 @@ class TranslationWorkflowTest(unittest.TestCase):
                 source_path=source,
                 target_path=target,
                 glossary={},
-                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_config=_standard_model_config(),
                 model_runner=lambda **kwargs: {
                     "verdict": "needs_update",
                     "candidate_translation": "Cloud server API not found.",
@@ -690,7 +733,7 @@ class TranslationWorkflowTest(unittest.TestCase):
                 source_path=source,
                 target_path=target,
                 glossary={},
-                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_config=_standard_model_config(),
                 model_runner=lambda **kwargs: {
                     "verdict": "needs_update",
                     "candidate_translation": "适配服务接口不存在。",
@@ -726,7 +769,7 @@ class TranslationWorkflowTest(unittest.TestCase):
                 source_path=source,
                 target_path=target,
                 glossary={},
-                model_config={"base_url": "http://example/v1", "api_key": "sk", "model": "demo", "max_tokens": 100},
+                model_config=_standard_model_config(),
                 model_runner=lambda **kwargs: (_ for _ in ()).throw(
                     ValueError('Model response does not contain a valid JSON object: {"verdict": “needs_update”}')
                 ),
