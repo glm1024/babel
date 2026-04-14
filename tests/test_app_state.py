@@ -44,7 +44,7 @@ class AppStateSmokeTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(normalized["version"], 3)
+        self.assertEqual(normalized["version"], 4)
         self.assertEqual(normalized["model_config_overrides"]["max_tokens"], 128000)
 
     def test_v2_app_state_migrates_explicit_4096_max_tokens_to_new_default(self) -> None:
@@ -60,10 +60,10 @@ class AppStateSmokeTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(normalized["version"], 3)
+        self.assertEqual(normalized["version"], 4)
         self.assertEqual(normalized["model_config_overrides"]["max_tokens"], 128000)
 
-    def test_current_app_state_preserves_explicit_4096_max_tokens(self) -> None:
+    def test_v3_app_state_migrates_explicit_4096_max_tokens_to_new_default(self) -> None:
         normalized = normalize_app_state(
             {
                 "version": 3,
@@ -76,11 +76,27 @@ class AppStateSmokeTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(normalized["version"], 3)
+        self.assertEqual(normalized["version"], 4)
+        self.assertEqual(normalized["model_config_overrides"]["max_tokens"], 128000)
+
+    def test_current_app_state_preserves_explicit_4096_max_tokens(self) -> None:
+        normalized = normalize_app_state(
+            {
+                "version": 4,
+                "model_config_overrides": {
+                    "base_url": "http://127.0.0.1:8000/v1",
+                    "api_key": "sk-local",
+                    "model": "demo",
+                    "max_tokens": 4096,
+                },
+            }
+        )
+
+        self.assertEqual(normalized["version"], 4)
         self.assertEqual(normalized["model_config_overrides"]["max_tokens"], 4096)
 
     def test_missing_custom_keep_categories_defaults_to_empty_list(self) -> None:
-        normalized = normalize_app_state({"version": 3})
+        normalized = normalize_app_state({"version": 4})
         self.assertEqual(normalized["custom_keep_categories"], [])
 
     def test_custom_keep_categories_roundtrip(self) -> None:
